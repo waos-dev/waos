@@ -316,7 +316,7 @@ impl ViewsState {
 }
 
 /// A tool's watch of a program, from
-/// [`RunningProgram::watch`](crate::running::RunningProgram::watch) until dropped: while one is
+/// [`AppInstance::watch`](crate::running::AppInstance::watch) until dropped: while one is
 /// held, the program's views count as in sight though the platform says their windows are occluded.
 /// Dropping the last puts each view back in sight as the shell reports it.
 pub struct Watching(ProgramViews);

@@ -41,16 +41,37 @@ pub(crate) struct Served {
     pub(crate) window_presences: UnboundedReceiver<WindowPresence>,
 }
 
-/// The window process of `program`'s app, as WaOS serves it once it said hello.
-pub(crate) fn window_process(program: RunningProgram) -> Served {
+/// The window process of `program`'s app, as WaOS serves it once it said hello, `program` attached
+/// to it as the app's instance.
+pub(crate) fn window_process(program: AppInstance) -> Served {
     let (notification_permissions, _readings) = NotificationPermissions::new();
     window_process_keeping(program, notification_permissions)
 }
 
-/// The same, what it says macOS said of the program's notifications kept in
+/// The same, what it says macOS said of the app's notifications kept in
 /// `notification_permissions`.
 pub(crate) fn window_process_keeping(
-    program: RunningProgram,
+    program: AppInstance,
+    notification_permissions: NotificationPermissions,
+) -> Served {
+    let app = program
+        .name()
+        .parse()
+        .expect("an app's instance runs under its id");
+    let served = window_process_of_keeping(app, notification_permissions);
+    served.process.attach(program);
+    served
+}
+
+/// The window process of the app `app`, as WaOS serves it once it said hello, no instance of the
+/// app attached to it.
+pub(crate) fn window_process_of(app: ProgramId) -> Served {
+    let (notification_permissions, _readings) = NotificationPermissions::new();
+    window_process_of_keeping(app, notification_permissions)
+}
+
+fn window_process_of_keeping(
+    app: ProgramId,
     notification_permissions: NotificationPermissions,
 ) -> Served {
     let (sent, arriving) = mpsc::unbounded();
@@ -61,7 +82,7 @@ pub(crate) fn window_process_keeping(
     let (dialog_reports, reported) = mpsc::unbounded();
     let (window_presences, presence) = mpsc::unbounded();
     let process = WindowProcess::new(
-        program,
+        app,
         send,
         Arc::new(canvases),
         dialog_reports,
@@ -79,7 +100,7 @@ pub(crate) fn window_process_keeping(
 }
 
 /// Survey, running, and the window it asks for as it starts.
-async fn survey() -> (RunningProgram, ViewRequest) {
+async fn survey() -> (AppInstance, ViewRequest) {
     let folder = tempfile::tempdir().unwrap();
     let (placement, mut requests) =
         WindowsOnRequest::new(ProgramFaces::new(packages_in(folder.path()), None));
@@ -782,7 +803,7 @@ async fn a_prompts_dialog_reports_to_the_main_thread_until_its_app_goes() {
 struct AppMenus(Arc<OnceLock<Arc<WindowProcess>>>);
 
 impl ShellMenuBar for AppMenus {
-    fn set(&self, _program: &RunningProgram, _entries: &[MenuEntry]) {
+    fn set(&self, _program: &AppInstance, _entries: &[MenuEntry]) {
         if let Some(process) = self.0.get() {
             process.show_menu_bar();
         }
@@ -792,7 +813,7 @@ impl ShellMenuBar for AppMenus {
 impl ShellContextMenus for AppMenus {
     fn show(
         &self,
-        _program: &RunningProgram,
+        _program: &AppInstance,
         view: ViewId,
         x: f64,
         y: f64,
@@ -844,7 +865,7 @@ impl Printed {
 
 /// Menus, running with its app's menus, what it prints into `printed`, and the window it asks for
 /// as it starts.
-async fn menus(app_menus: &AppMenus, printed: &Arc<Printed>) -> (RunningProgram, ViewRequest) {
+async fn menus(app_menus: &AppMenus, printed: &Arc<Printed>) -> (AppInstance, ViewRequest) {
     let folder = tempfile::tempdir().unwrap();
     let (placement, mut requests) =
         WindowsOnRequest::new(ProgramFaces::new(packages_in(folder.path()), None));
@@ -857,7 +878,8 @@ async fn menus(app_menus: &AppMenus, printed: &Arc<Printed>) -> (RunningProgram,
             Path::new(waos_test_programs::MENUS),
             &waos_test_programs::code_of(waos_test_programs::MENUS),
         )
-        .expect("menus loads");
+        .expect("menus loads")
+        .named("dev.example.menus");
     let environment = ProgramEnvironment {
         output: Some(Arc::clone(printed) as Arc<dyn ProgramOutput>),
         ..ProgramEnvironment::default()

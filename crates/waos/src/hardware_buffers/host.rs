@@ -21,7 +21,7 @@ use crate::bindings::wasdk::platform::hardware_buffers::{
 };
 use crate::gpu::GpuInstance;
 use crate::os::{ALLOCATES, HardwareBufferMemory};
-use crate::running::RunningProgram;
+use crate::running::AppInstance;
 use crate::shell::GpuId;
 
 /// `hardware-buffers.hardware-buffer-allocator`: the system's hardware buffer allocator for one
@@ -51,7 +51,7 @@ pub(crate) struct HardwareBuffersCtx<'a> {
     pub(crate) gpu: &'a GpuInstance,
     /// The program, whose stats count the bytes of its own buffers, and whose freeze holds what
     /// is submitted for it.
-    pub(crate) program: &'a RunningProgram,
+    pub(crate) program: &'a AppInstance,
 }
 
 pub(crate) trait HardwareBuffersCtxView: Send {

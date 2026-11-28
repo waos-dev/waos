@@ -17,7 +17,7 @@ use waos_capabilities::{AudioDevices, ProgramEnvironment};
 use wasmtime::Engine;
 use wasmtime::component::{Component, InstancePre};
 
-use super::{IncompatibleProgram, ProgramStart, RunningProgram};
+use super::{AppInstance, IncompatibleProgram, ProgramStart};
 use crate::access::{KeptIn, ProgramAccess, ShownRecordings};
 use crate::bindings::exports::wasdk::platform::worker_entry;
 use crate::bindings::exports::wasi::cli::run;
@@ -78,7 +78,7 @@ pub(crate) struct ProgramInstances {
     /// Where its `/tmp` is on the machine, where it has one.
     pub(super) temporary_folder: Option<PathBuf>,
     pub(super) clock: Clock,
-    pub(super) program: RunningProgram,
+    pub(super) program: AppInstance,
 }
 
 impl ProgramInstances {
@@ -88,7 +88,7 @@ impl ProgramInstances {
     pub(super) fn link(
         start: ProgramStart,
         linker: &wasmtime::component::Linker<super::store::StoreData>,
-        program: RunningProgram,
+        program: AppInstance,
         access: ProgramAccess,
         clock: Clock,
     ) -> wasmtime::Result<(ProgramInstances, UserSide)> {
@@ -170,7 +170,7 @@ impl ProgramInstances {
 /// gives none, its recordings shown by the shell's indicator, where the shell has one, and its
 /// days kept by the engine's audit log under its name, where the engine has one. Made before the
 /// program is linked, so what its start asks is told.
-pub(super) fn access_of(start: &ProgramStart, program: &RunningProgram) -> ProgramAccess {
+pub(super) fn access_of(start: &ProgramStart, program: &AppInstance) -> ProgramAccess {
     let grants = start
         .environment
         .grants

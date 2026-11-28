@@ -20,7 +20,7 @@ use crate::bindings::wasdk::media::cameras::{
 use crate::bindings::wasdk::platform::windows::Size;
 use crate::lifecycle::FreezeInhibitorKind;
 use crate::permissions::ProgramPermissions;
-use crate::running::RunningProgram;
+use crate::running::AppInstance;
 use crate::stream::stream_of;
 use crate::video_frames::VideoFrameReader;
 use crate::views::host::CompositionLayer;
@@ -28,7 +28,7 @@ use crate::views::host::CompositionLayer;
 /// What the cameras interface reads and writes in a program's store.
 pub(crate) struct CamerasCtx<'a> {
     pub(crate) table: &'a mut ResourceTable,
-    pub(crate) program: &'a RunningProgram,
+    pub(crate) program: &'a AppInstance,
     pub(crate) cameras: &'a ProgramCameras,
     /// What the user lets the program use, which asks the camera question.
     pub(crate) permissions: &'a ProgramPermissions,

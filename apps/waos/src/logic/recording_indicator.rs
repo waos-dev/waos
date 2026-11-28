@@ -5,11 +5,11 @@
 //! the main thread listens.
 
 use futures::channel::mpsc::{self, UnboundedReceiver, UnboundedSender};
-use waos::{RecordingDevice, RunningProgram, ShellRecordingIndicator};
+use waos::{AppInstance, RecordingDevice, ShellRecordingIndicator};
 
 /// A program began or stopped recording with a device, on its way to the main thread.
 pub(crate) struct RecordingChanged {
-    pub(crate) program: RunningProgram,
+    pub(crate) program: AppInstance,
     pub(crate) device: RecordingDevice,
     pub(crate) recording: bool,
 }
@@ -31,12 +31,7 @@ impl RecordingIndicatorOnRequest {
 }
 
 impl ShellRecordingIndicator for RecordingIndicatorOnRequest {
-    fn recording_changed(
-        &self,
-        program: &RunningProgram,
-        device: RecordingDevice,
-        recording: bool,
-    ) {
+    fn recording_changed(&self, program: &AppInstance, device: RecordingDevice, recording: bool) {
         let changed = RecordingChanged {
             program: program.clone(),
             device,

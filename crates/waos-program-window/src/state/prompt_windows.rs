@@ -1,7 +1,8 @@
-//! WaOS's prompts placed in WaOS's own windows: over each of the program's windows, dimming it,
-//! where WaOS shows the program's windows itself, the window reserved for its first request among
-//! them; and, for a program with none of them, in a window of its own, with the program's name, icon and identity, as its own windows have them, whose
-//! closing dismisses the prompt, which Waft is
+//! WaOS's prompts placed in WaOS's own windows: over each of the app's windows, dimming it, where
+//! WaOS shows the app's windows itself, the window reserved for its first request among them, found
+//! by the name the app's instance runs under, its id; and, for an app with none of them, running or
+//! not, in a window of its own, with the app's name, icon and identity, as its own windows have
+//! them, whose closing dismisses the prompt, which Waft is
 //! asked for, noted by what Waft answers, and which arrives as every view does, carrying
 //! [`PROMPT_WINDOW`] as its initial data. Whoever builds the process's views puts the prompt in it
 //! ([`PromptWindows::content_of`]). A prompt is taken away, and its window of its own closed, on
@@ -22,7 +23,8 @@ use waft::{
     App, Context, Entity, IntoWidget, LinuxWindowConfig, WeakEntity, WidgetRef, WidgetsBinding,
     WidgetsBindingObserver, WindowConfig,
 };
-use waos::RunningProgram;
+use waos::AppInstance;
+use waos_package::ProgramId;
 
 use crate::link::ProgramFace;
 use crate::logic::window_config::windows_config_of;
@@ -46,18 +48,18 @@ type PromptId = u64;
 
 /// The prompts shown, in the order shown.
 pub(crate) struct ShownPrompts {
-    view_windows: Entity<ViewWindows<RunningProgram>>,
-    /// What a prompt's window of its own shows of its program: its name, as its user knows it,
-    /// its icon and its identity.
-    face_of: Rc<dyn Fn(&RunningProgram) -> ProgramFace>,
+    view_windows: Entity<ViewWindows<AppInstance>>,
+    /// What a prompt's window of its own shows of its app: its name, as its user knows it, its
+    /// icon and its identity.
+    face_of: Rc<dyn Fn(&ProgramId) -> ProgramFace>,
     prompts: Vec<Shown>,
     last_id: PromptId,
 }
 
-/// A prompt shown, for its program.
+/// A prompt shown, for its app.
 pub(crate) struct Shown {
     id: PromptId,
-    pub(crate) program: RunningProgram,
+    pub(crate) app: ProgramId,
     pub(crate) prompt: WidgetRef,
     /// Its window of its own, where its program had no window to show it over.
     pub(crate) window: Option<OwnWindow>,
@@ -76,12 +78,12 @@ pub(crate) struct OwnWindow {
 }
 
 impl PromptWindows {
-    /// The placement, over the programs' windows of `view_windows`, its windows of their own showing
-    /// the program as `face_of` says.
+    /// The placement, over the apps' windows of `view_windows`, its windows of their own showing
+    /// the app as `face_of` says.
     pub fn new(
         app: &mut App,
-        view_windows: Entity<ViewWindows<RunningProgram>>,
-        face_of: Rc<dyn Fn(&RunningProgram) -> ProgramFace>,
+        view_windows: Entity<ViewWindows<AppInstance>>,
+        face_of: Rc<dyn Fn(&ProgramId) -> ProgramFace>,
     ) -> PromptWindows {
         let shown = app.new_entity(|_| ShownPrompts {
             view_windows,
@@ -106,36 +108,37 @@ impl PromptWindows {
         PromptWindows { shown, hidden }
     }
 
-    /// Shows `prompt` for `program`, as [`PromptPlacement::show`] does, and answers it with what
-    /// resolves with the Waft view of the window of its own it is shown in, once that arrives: the
-    /// screen a dialog of a program with none of its own is shown over, on a system that shows a
-    /// dialog only over a screen. It resolves with nothing where the program has a screen after
-    /// all, or Waft makes no window.
+    /// Shows `prompt` for the app `id`, as [`PromptPlacement::show`] does, and answers it with
+    /// what resolves with the Waft view of the window of its own it is shown in, once that
+    /// arrives: the screen a dialog of an app with none of its own is shown over, on a system that
+    /// shows a dialog only over a screen. It resolves with nothing where the app has a screen
+    /// after all, or Waft makes no window.
     pub fn show_on_a_screen_of_its_own(
         &self,
         app: &mut App,
-        program: &RunningProgram,
+        id: &ProgramId,
         prompt: WidgetRef,
         dismissed: Rc<dyn Fn(&mut App)>,
     ) -> (ShownPrompt, oneshot::Receiver<ViewId>) {
         let (arrival, arrived) = oneshot::channel();
-        let id = self.shown.update(app, |shown, cx| {
-            shown.show_with(program, prompt, dismissed, Some(arrival), cx)
+        let shown_id = self.shown.update(app, |shown, cx| {
+            shown.show_with(id, prompt, dismissed, Some(arrival), cx)
         });
         let hidden = self.hidden.clone();
         let shown = ShownPrompt::new(move || {
-            let _ = hidden.unbounded_send(id);
+            let _ = hidden.unbounded_send(shown_id);
         });
         (shown, arrived)
     }
 
-    /// What `ProgramWindows` puts over each of a program's windows: its prompt shown, if any.
-    pub fn over_window(&self) -> OverWindow<RunningProgram> {
+    /// What `ProgramWindows` puts over each of an app's windows: its prompt shown, if any, found
+    /// by the name its instance runs under.
+    pub fn over_window(&self) -> OverWindow<AppInstance> {
         let shown = self.shown.clone();
         Rc::new(move |_app, program| {
             PromptOver {
                 shown: shown.clone(),
-                program: program.clone(),
+                app: program.name().to_owned(),
             }
             .into_widget()
         })
@@ -166,21 +169,20 @@ impl PromptWindows {
 }
 
 impl PromptPlacement for PromptWindows {
-    /// Over the program's windows where WaOS shows some; in a window of its own where it shows
-    /// none.
+    /// Over the app's windows where WaOS shows some; in a window of its own where it shows none.
     fn show(
         &self,
         app: &mut App,
-        program: &RunningProgram,
+        id: &ProgramId,
         prompt: WidgetRef,
         dismissed: Rc<dyn Fn(&mut App)>,
     ) -> ShownPrompt {
-        let id = self
+        let shown_id = self
             .shown
-            .update(app, |shown, cx| shown.show(program, prompt, dismissed, cx));
+            .update(app, |shown, cx| shown.show(id, prompt, dismissed, cx));
         let hidden = self.hidden.clone();
         ShownPrompt::new(move || {
-            let _ = hidden.unbounded_send(id);
+            let _ = hidden.unbounded_send(shown_id);
         })
     }
 }
@@ -204,33 +206,33 @@ impl ShownPrompts {
 
     fn show(
         &mut self,
-        program: &RunningProgram,
+        app: &ProgramId,
         prompt: WidgetRef,
         dismissed: Rc<dyn Fn(&mut App)>,
         cx: &mut Context<ShownPrompts>,
     ) -> PromptId {
-        self.show_with(program, prompt, dismissed, None, cx)
+        self.show_with(app, prompt, dismissed, None, cx)
     }
 
     /// Shows `prompt` as `show` does, `arrival` hearing the view of its window of its own once it
     /// arrives, where it has one.
     fn show_with(
         &mut self,
-        program: &RunningProgram,
+        app: &ProgramId,
         prompt: WidgetRef,
         dismissed: Rc<dyn Fn(&mut App)>,
         arrival: Option<oneshot::Sender<ViewId>>,
         cx: &mut Context<ShownPrompts>,
     ) -> PromptId {
         self.last_id += 1;
-        let window = if self.view_windows.read(cx).has_a_screen(program) {
+        let window = if self.view_windows.read(cx).has_a_screen_named(app.as_str()) {
             None
         } else {
-            self.open_window(program, dismissed, arrival, cx)
+            self.open_window(app, dismissed, arrival, cx)
         };
         self.prompts.push(Shown {
             id: self.last_id,
-            program: program.clone(),
+            app: app.clone(),
             prompt,
             window,
         });
@@ -238,16 +240,16 @@ impl ShownPrompts {
         self.last_id
     }
 
-    /// Asks for a window of a prompt's own, for `program`; closing it is `dismissed`. None where
-    /// Waft makes no window, the prompt then shown nowhere until it is answered elsewhere.
+    /// Asks for a window of a prompt's own, for the app `app`; closing it is `dismissed`. None
+    /// where Waft makes no window, the prompt then shown nowhere until it is answered elsewhere.
     fn open_window(
         &self,
-        program: &RunningProgram,
+        app: &ProgramId,
         dismissed: Rc<dyn Fn(&mut App)>,
         arrival: Option<oneshot::Sender<ViewId>>,
         cx: &mut Context<ShownPrompts>,
     ) -> Option<OwnWindow> {
-        let face = (self.face_of)(program);
+        let face = (self.face_of)(app);
         let identity = face.identity.as_ref();
         let config = WindowConfig {
             title: face.name.clone(),

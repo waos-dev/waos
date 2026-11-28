@@ -15,7 +15,7 @@ use futures::channel::mpsc;
 use crate::bindings::wasdk::platform::menus::{Image, MenuEntry, TrayIconError, TrayIconEvent};
 use crate::lifecycle::Lifecycle;
 use crate::news::{Inhibiting, News};
-use crate::running::RunningProgram;
+use crate::running::AppInstance;
 use crate::shell::{MenuChosenFuture, ShellTrayIcon, ShellTrayIcons};
 use crate::sync::locked;
 
@@ -27,7 +27,7 @@ impl TrayIcons {
     /// shell has made it, or why it did not.
     pub(super) fn add(
         &self,
-        program: &RunningProgram,
+        program: &AppInstance,
         image: &Image,
         tooltip: Option<&str>,
     ) -> impl Future<Output = Result<TrayIcon, TrayIconError>> + Send + 'static + use<> {

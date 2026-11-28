@@ -1,6 +1,6 @@
 //! One program as it runs: its main instance on a thread of its own, with a single-threaded
 //! tokio runtime and one store, and each of its workers likewise (`worker`), from the moment `run`
-//! starts it to the moment it ends. [`RunningProgram`] is the handle the shell and the engine hold
+//! starts it to the moment it ends. [`AppInstance`] is the handle the shell and the engine hold
 //! on it; [`ProgramEnd`] is how it ended.
 //!
 //! The invariant: each store lives on its instance's thread alone, and nothing of the program is
@@ -95,18 +95,18 @@ pub enum ProgramEnd {
     Stopped,
 }
 
-/// One program as it runs, shared by the shell and the engine. Every clone is the same program,
-/// and equal to it; two runs of one component are two programs.
+/// One instance of an app, its program as it runs, shared by the shell and the engine. Every
+/// clone is the same instance, and equal to it; two runs of one component are two instances.
 #[derive(Clone)]
-pub struct RunningProgram(Arc<Running>);
+pub struct AppInstance(Arc<Running>);
 
-impl PartialEq for RunningProgram {
-    fn eq(&self, other: &RunningProgram) -> bool {
+impl PartialEq for AppInstance {
+    fn eq(&self, other: &AppInstance) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
     }
 }
 
-impl Eq for RunningProgram {}
+impl Eq for AppInstance {}
 
 struct Running {
     name: Arc<str>,
@@ -235,13 +235,13 @@ pub(crate) struct ProgramStart {
     pub(crate) hold: Option<Hold>,
 }
 
-impl RunningProgram {
+impl AppInstance {
     /// Starts the program on a thread of its own; `temporary`, its `/tmp`, goes once it and its
     /// workers have ended, before its end is told.
     pub(crate) fn start(
         start: ProgramStart,
         temporary: Option<TemporaryFolder>,
-    ) -> Result<RunningProgram> {
+    ) -> Result<AppInstance> {
         let clock = Clock::start();
         let lifecycle = Lifecycle::new(start.freeze, start.clock.clone());
         let program_views = ProgramViews::new(
@@ -262,7 +262,7 @@ impl RunningProgram {
             (start.environment.grants.clone()).unwrap_or_else(|| Arc::new(NothingGranted)),
             handed.clone(),
         );
-        let program = RunningProgram(Arc::new(Running {
+        let program = AppInstance(Arc::new(Running {
             name: Arc::from(start.name.as_str()),
             mouse: Mouse::new(program_views.clone()),
             views: program_views,
@@ -583,7 +583,7 @@ fn end_of_thread(end: Result<ProgramEnd, Canceled>) -> ProgramEnd {
 /// activity while it is polled.
 fn run_on_this_thread(
     start: ProgramStart,
-    program: RunningProgram,
+    program: AppInstance,
     access: ProgramAccess,
     clock: Clock,
     stopped: oneshot::Receiver<()>,
@@ -607,7 +607,7 @@ fn run_on_this_thread(
 /// Runs the main instance until it ends, or `stopped` fires and it has given what it promised.
 async fn run_until_stopped(
     start: ProgramStart,
-    program: RunningProgram,
+    program: AppInstance,
     access: ProgramAccess,
     clock: Clock,
     stopped: oneshot::Receiver<()>,

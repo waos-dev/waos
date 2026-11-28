@@ -18,6 +18,7 @@ use waft::ui::{Platform, ViewId};
 use waft::{App, Center, Directionality, Entity, IntoWidget, Text, TextDirection};
 use waos::ShellFileDialogs;
 use waos::bindings::wasdk::platform::file_dialogs::DialogError;
+use waos_package::ProgramId;
 use waos_program_window::{PromptWindows, ShownPrompt, picked_file_paths, picked_folder_path};
 
 use crate::logic::file_dialog_calls::{Dialog, DialogCall, FileDialogsOnRequest};
@@ -102,7 +103,7 @@ impl FileDialogs {
 
 impl DialogCall {
     /// The program and its view the dialog is a sheet on.
-    fn parent_of(&self) -> Option<(waos::RunningProgram, u64)> {
+    fn parent_of(&self) -> Option<(waos::AppInstance, u64)> {
         self.parent.map(|view| (self.program.clone(), view))
     }
 }
@@ -112,8 +113,8 @@ impl DialogCall {
 fn parent_view(
     app: &App,
     view_windows: &Entity<ViewWindows>,
-    program: &waos::RunningProgram,
-    parent: Option<(waos::RunningProgram, u64)>,
+    program: &waos::AppInstance,
+    parent: Option<(waos::AppInstance, u64)>,
 ) -> Option<ViewId> {
     let windows = view_windows.read(app);
     let named = parent.and_then(|(program, view)| {
@@ -126,16 +127,21 @@ fn parent_view(
 }
 
 /// A screen opened for a dialog of `program`, which has none of its own: a window of its own
-/// saying whose dialog it is, and what resolves with its view once it arrives.
+/// saying whose dialog it is, and what resolves with its view once it arrives; none for a program
+/// the engine runs under no app's id, whose window would name no app.
 fn screen_of_its_own(
     app: &mut App,
     prompt_windows: &PromptWindows,
-    program: &waos::RunningProgram,
+    program: &waos::AppInstance,
 ) -> (ShownPrompt, oneshot::Receiver<ViewId>) {
+    let Ok(id) = program.name().parse::<ProgramId>() else {
+        let (_none, arrived) = oneshot::channel();
+        return (ShownPrompt::new(|| {}), arrived);
+    };
     let name = Center::new().child(Text::new(program.name().to_owned()));
     // A window of its own has no app's reading direction; a name reads the same either way.
     let words = Directionality::new(TextDirection::Ltr, name).into_widget();
-    prompt_windows.show_on_a_screen_of_its_own(app, program, words, Rc::new(|_app| {}))
+    prompt_windows.show_on_a_screen_of_its_own(app, &id, words, Rc::new(|_app| {}))
 }
 
 /// Shows `dialog` through Waft's, over the view `parent`, and answers the paths chosen, a pick

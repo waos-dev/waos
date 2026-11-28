@@ -28,9 +28,9 @@ use waft::ui::{self, CameraDevice, CaptureSession, CompositionLayer, Platform, P
 use waft::{App, AsyncApp};
 use waos::bindings::wasdk::media::cameras::{CameraError, CameraFormat, CameraInfo, Photo};
 use waos::{
-    CameraChangeFuture, CameraListFuture, CameraOpenFuture, CameraOutputs, CaptureSessionReports,
-    CaptureStartFuture, OpenedCamera, PhotoFuture, RunningProgram, ShellCamera, ShellCameras,
-    ShellCaptureSession, StartedSession,
+    AppInstance, CameraChangeFuture, CameraListFuture, CameraOpenFuture, CameraOutputs,
+    CaptureSessionReports, CaptureStartFuture, OpenedCamera, PhotoFuture, ShellCamera,
+    ShellCameras, ShellCaptureSession, StartedSession,
 };
 use waos_program_window::waft_layer;
 
@@ -114,7 +114,7 @@ impl ShellCameras for CamerasOnRequest {
         })
     }
 
-    fn open(&self, program: &RunningProgram, id: &str) -> CameraOpenFuture {
+    fn open(&self, program: &AppInstance, id: &str) -> CameraOpenFuture {
         tracing::info!(program = program.name(), id, "a program opens a camera");
         let camera = self.next_key();
         let id = id.to_owned();

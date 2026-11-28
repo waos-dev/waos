@@ -19,8 +19,8 @@ use std::time::Duration;
 
 use futures::FutureExt;
 use waos::{
-    Answer, AudioDevices, EngineTime, FreezePolicy, ManualTime, Presence, ProgramEnd,
-    ProgramEnvironment, ProgramGrants, Question, RecordingDevice, RunningProgram, WaOS, WaOSConfig,
+    Answer, AppInstance, AudioDevices, EngineTime, FreezePolicy, ManualTime, Presence, ProgramEnd,
+    ProgramEnvironment, ProgramGrants, Question, RecordingDevice, WaOS, WaOSConfig,
 };
 
 use waos_capabilities::Setting;
@@ -327,7 +327,7 @@ fn a_program_is_unfrozen_while_it_plays_frozen_while_its_tone_waits_and_trapped_
 fn run_sound(
     engine: &WaOS,
     shell: &TestShell,
-) -> (Arc<RecordedOutput>, Arc<TestDevices>, RunningProgram) {
+) -> (Arc<RecordedOutput>, Arc<TestDevices>, AppInstance) {
     run_sound_on(engine, shell, TestDevices::default())
 }
 
@@ -336,7 +336,7 @@ fn run_sound_on(
     engine: &WaOS,
     shell: &TestShell,
     devices: TestDevices,
-) -> (Arc<RecordedOutput>, Arc<TestDevices>, RunningProgram) {
+) -> (Arc<RecordedOutput>, Arc<TestDevices>, AppInstance) {
     run_sound_with(engine, devices, shell.permissions().of(&app()))
 }
 
@@ -353,7 +353,7 @@ fn run_sound_with(
     engine: &WaOS,
     devices: TestDevices,
     grants: Arc<dyn ProgramGrants>,
-) -> (Arc<RecordedOutput>, Arc<TestDevices>, RunningProgram) {
+) -> (Arc<RecordedOutput>, Arc<TestDevices>, AppInstance) {
     let program = engine
         .load(
             Path::new(waos_test_programs::SOUND),

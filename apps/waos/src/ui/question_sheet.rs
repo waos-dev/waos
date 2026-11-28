@@ -15,7 +15,8 @@ use waft::{
     TextDirection, WidgetRef,
 };
 use waft_winui::{Button, ButtonStyle, TextBlockStyle, ThemeResources};
-use waos::{Answer, AudioOutput, MachineChoice, Question, Role, RunningProgram};
+use waos::{Answer, AudioOutput, MachineChoice, Question, Role};
+use waos_package::ProgramId;
 
 use crate::logic::prompts::{Asking, ProgramQuestion, Reply};
 use crate::state::questions::Questions;
@@ -27,23 +28,23 @@ const GAP: f64 = 8.0;
 /// How tall the list of outputs or machines grows before it scrolls.
 const CHOICES_HEIGHT: f64 = 200.0;
 
-/// The question `program` asks its user now, if any.
+/// The question `app` asks its user now, if any.
 pub(crate) struct QuestionSheet {
     pub(crate) questions: Entity<Questions>,
-    pub(crate) program: RunningProgram,
+    pub(crate) app: ProgramId,
 }
 
 impl fmt::Debug for QuestionSheet {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("QuestionSheet")
-            .field("program", &self.program.name())
+            .field("app", &self.app)
             .finish_non_exhaustive()
     }
 }
 
 impl StatelessWidget for QuestionSheet {
     fn build(&self, app: &mut App, context: BuildContext) -> WidgetRef {
-        let Some(pending) = self.questions.read(app).asked_of(&self.program) else {
+        let Some(pending) = self.questions.read(app).asked_of(&self.app) else {
             return SizedBox::shrink().into_widget();
         };
         let parts = match &pending.asking {
@@ -165,10 +166,10 @@ impl QuestionSheet {
     }
 
     fn reply(&self, reply: Option<Reply>) -> Listener {
-        let (questions, program) = (self.questions.clone(), self.program.clone());
+        let (questions, asking_app) = (self.questions.clone(), self.app.clone());
         Listener::new(move |app| {
             let reply = reply.clone();
-            questions.update(app, |questions, cx| questions.reply(&program, reply, cx));
+            questions.update(app, |questions, cx| questions.reply(&asking_app, reply, cx));
         })
     }
 }

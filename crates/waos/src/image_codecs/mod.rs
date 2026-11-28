@@ -26,7 +26,7 @@ use crate::bindings::wasdk::media::image_codecs::{ImageMetadata, ImageOrientatio
 use crate::bindings::wasdk::platform::hardware_buffers::{ImageError, ImageErrorKind, PixelBuffer};
 use crate::bindings::wasdk::platform::windows::Size;
 use crate::files::ProgramFiles;
-use crate::running::RunningProgram;
+use crate::running::AppInstance;
 use crate::shell::{
     HardwareBuffer, ImageFuture, OpenedImage, ShellHardwareImageCodecs, ShellImageCodecs,
     ShellImageSource,
@@ -63,7 +63,7 @@ impl ImageCodecs {
     }
 
     /// The image `data` encodes, opened by the shell for `program`.
-    fn open(&self, program: &RunningProgram, data: Vec<u8>) -> ImageFuture<ImageSource> {
+    fn open(&self, program: &AppInstance, data: Vec<u8>) -> ImageFuture<ImageSource> {
         opened(self.0.open(program, data))
     }
 
@@ -72,7 +72,7 @@ impl ImageCodecs {
     /// program's.
     fn open_file(
         &self,
-        program: &RunningProgram,
+        program: &AppInstance,
         files: &mut ProgramFiles,
         path: &str,
     ) -> ImageFuture<ImageSource> {

@@ -11,7 +11,7 @@ use waos::bindings::wasdk::media::media_players::{
     MediaMetadata, MediaTrack, PlayerError, PlayerErrorKind, SeekTolerance,
 };
 use waos::bindings::wasdk::platform::windows::Size;
-use waos::{MediaAssetFuture, RunningProgram, ShellMediaAsset, ShellMediaAssets, VideoFrame};
+use waos::{AppInstance, MediaAssetFuture, ShellMediaAsset, ShellMediaAssets, VideoFrame};
 use waos_headless::testing::Changes;
 
 /// Assets that each answer what the test set, and are kept as they are opened.
@@ -112,7 +112,7 @@ impl TestMediaAssets {
 }
 
 impl ShellMediaAssets for TestMediaAssets {
-    fn open(&self, program: &RunningProgram, url: &str) -> Box<dyn ShellMediaAsset> {
+    fn open(&self, program: &AppInstance, url: &str) -> Box<dyn ShellMediaAsset> {
         let opened = OpenedAsset {
             program: program.name().to_owned(),
             url: url.to_owned(),

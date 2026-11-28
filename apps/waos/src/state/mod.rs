@@ -78,7 +78,7 @@ use waft_cupertino::install_cupertino_icon_font;
 use waft_single_instance::LaterLaunches;
 use waft_winui::install_icon_font;
 use waos::{
-    Compiler, EngineTime, HttpProxy, OpenRequest, RunningProgram, Shell, ShellCompositor,
+    AppInstance, Compiler, EngineTime, HttpProxy, OpenRequest, Shell, ShellCompositor,
     ShellFileDialogs, ShellRecordingIndicator, ShellSystemPermissions, ShellVideoFrameReaders,
     VsyncWaiter,
 };
@@ -89,6 +89,7 @@ use waos_services::packages::PackageManager;
 use waos_services::permissions::Prompts;
 use waos_services::sources::SourceProxy;
 
+use crate::logic::app_instances::AppInstances;
 use crate::logic::asking_now::AskingNow;
 use crate::logic::command_line::LibraryPlace;
 #[cfg(desktop)]
@@ -112,7 +113,6 @@ use crate::logic::program_places::{PlacedWhereOpened, ProgramPlace, TabRequest, 
 use crate::logic::program_shortcuts::SystemShortcuts;
 use crate::logic::prompts::{PromptRequests, PromptsOnRequest};
 use crate::logic::recording_indicator::RecordingIndicatorOnRequest;
-use crate::logic::running_apps::RunningApps;
 use crate::logic::startup::{self, BeforeTheEngine, EngineCompiler, Outside, Setup};
 use crate::logic::stores::Stores;
 use crate::logic::vsync_waiter::WaftVsync;
@@ -154,7 +154,7 @@ use video_decoders::VideoDecoders;
 use waos_tray::WaosTray;
 
 /// The windows WaOS shows in its own process for the programs running in it.
-pub(crate) type ViewWindows = waos_program_window::ViewWindows<RunningProgram>;
+pub(crate) type ViewWindows = waos_program_window::ViewWindows<AppInstance>;
 
 /// Whether WaOS.app's bundle declares why WaOS uses the microphone, its
 /// `NSMicrophoneUsageDescription`, without which macOS ends an app that opens it: it does, in
@@ -227,11 +227,11 @@ pub(crate) fn start(
     let work = library::work()?;
     let waft = WaftParts::of(app);
     let (recording_indicator, recording_changes) = RecordingIndicatorOnRequest::new();
-    let setup = desktop_setup(&folders, place)?;
+    let setup = desktop_setup(&folders, place, work.handle().clone())?;
     let (started, made) = startup::start(
         setup,
-        |running| {
-            let (prompts, prompted) = PromptsOnRequest::new(Arc::clone(running));
+        || {
+            let (prompts, prompted) = PromptsOnRequest::new();
             let prompts = Arc::new(prompts);
             (
                 Arc::clone(&prompts) as Arc<dyn Prompts>,
@@ -252,14 +252,13 @@ pub(crate) fn start(
         },
     )?;
     let startup::Started {
-        running,
+        instances,
         packages,
         permissions,
         sources,
         engine,
         environments,
         places,
-        starter,
         ..
     } = started;
     let MadeWithTheShell {
@@ -301,8 +300,8 @@ pub(crate) fn start(
     let view_windows = ViewWindows::listen(app, requests);
     let posted_as_programs =
         notifications.map(|notifications| notifications.serve(app, Arc::clone(&packages)));
-    // What a tab closed on a phone stops its program among.
-    let tabs_runs = Arc::clone(&running);
+    // What a tab closed on a phone stops its app's instance among.
+    let tabs_runs = Arc::clone(&instances);
     // The activity macOS must not throttle WaOS under, from now until WaOS ends: the programs
     // that compile tell it too (`state::app_nap_exemption`).
     #[cfg(target_os = "macos")]
@@ -310,14 +309,13 @@ pub(crate) fn start(
     #[cfg(target_os = "macos")]
     app_nap_exemption::follow_sessions(app, app_nap_exemption.clone(), packages.sessions());
     #[cfg(target_os = "macos")]
-    app_nap_exemption::follow_starts(app, app_nap_exemption.clone(), starter.starting());
+    app_nap_exemption::follow_starts(app, app_nap_exemption.clone(), instances.opening());
     #[cfg(desktop)]
     let developer_access = DeveloperAccess::at(folders.developer_access.clone());
     #[cfg(desktop)]
     let served = ServedDomains {
-        running: Arc::clone(&running),
+        instances: Arc::clone(&instances),
         packages: Arc::clone(&packages),
-        starter: Arc::clone(&starter),
         permissions: permissions.clone(),
         environments: Arc::clone(&environments),
         engine: Arc::clone(&engine),
@@ -329,8 +327,7 @@ pub(crate) fn start(
     let domains = LibraryDomains {
         sources,
         packages: Arc::clone(&packages),
-        running: Arc::clone(&running),
-        starter: Arc::clone(&starter),
+        instances: Arc::clone(&instances),
         permissions,
         environments,
         places,
@@ -352,11 +349,11 @@ pub(crate) fn start(
     // The apps the user opens through macOS open as the library opens them, on its runtime.
     #[cfg(target_os = "macos")]
     opens_runtime.spawn(opening::open_each(
-        starter,
+        instances,
         system_shell.opened_by_the_user(),
     ));
     #[cfg(target_os = "macos")]
-    let prompts = system_shell.follow(app, &running, &library, Rc::clone(&prompt_windows));
+    let prompts = system_shell.follow(app, &library, Rc::clone(&prompt_windows));
     #[cfg(not(target_os = "macos"))]
     let prompts = program_apps::follow(program_apps, Rc::clone(&prompt_windows));
     Questions::listen(app, prompted.questions, prompts.placement, packages);
@@ -443,8 +440,13 @@ pub(crate) fn start(
 
 /// How the WaOS app starts: its store and its apps' `/tmp` among `folders`, compiling with native
 /// unwind information where it was asked for, through the system's proxy, freezing an app out of
-/// sight as the system does, and its apps' views going where WaOS shown in `place` puts them.
-fn desktop_setup(folders: &AppFolders, place: LibraryPlace) -> Result<Setup> {
+/// sight as the system does, its apps' views going where WaOS shown in `place` puts them, and its
+/// own tasks on `runtime`.
+fn desktop_setup(
+    folders: &AppFolders,
+    place: LibraryPlace,
+    runtime: tokio::runtime::Handle,
+) -> Result<Setup> {
     let native_unwind_info = native_unwind_info_asked();
     if native_unwind_info {
         tracing::info!("programs are compiled with native unwind information");
@@ -461,6 +463,7 @@ fn desktop_setup(folders: &AppFolders, place: LibraryPlace) -> Result<Setup> {
         freeze: crate::os::freeze_policy(),
         time: EngineTime::Real,
         usual_place: usual_place(place),
+        runtime,
     })
 }
 
@@ -657,11 +660,11 @@ fn listen_for_the_command(
     access: DeveloperAccess,
 ) -> Result<()> {
     let socket = waos_dev_protocol::listener_path();
-    let (running, engine) = (Arc::clone(&served.running), Arc::clone(&served.engine));
+    let (instances, engine) = (Arc::clone(&served.instances), Arc::clone(&served.engine));
     let server = DevServer::start(served, asking, &socket, access)
         .with_context(|| format!("listening for waos at {}", socket.display()))?;
     tracing::info!(socket = %socket.display(), "WaOS listens for waos");
-    quitting::ask_programs_before_quitting(app, running, server, engine);
+    quitting::ask_programs_before_quitting(app, instances, server, engine);
     Ok(())
 }
 
@@ -811,7 +814,7 @@ fn library_window(
     place: LibraryPlace,
     library: Entity<Library>,
     recordings: Entity<Recordings>,
-    runs: Arc<RunningApps>,
+    runs: Arc<AppInstances>,
     tab_requests: UnboundedReceiver<TabRequest>,
     view_windows: &Entity<ViewWindows>,
 ) -> LibraryWindow {

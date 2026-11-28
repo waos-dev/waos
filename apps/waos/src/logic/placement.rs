@@ -11,13 +11,13 @@
 
 use futures::channel::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use waos::bindings::wasdk::platform::views::ViewError;
-use waos::{RunningProgram, ViewPlacement, ViewRequest};
+use waos::{AppInstance, ViewPlacement, ViewRequest};
 use waos_program_window::WindowRequest;
 
 use super::program_faces::ProgramFaces;
 
 /// One program's request for a window of WaOS's own, on its way to the main thread.
-pub(crate) type ProgramWindowRequest = WindowRequest<RunningProgram>;
+pub(crate) type ProgramWindowRequest = WindowRequest<AppInstance>;
 
 /// The placement in WaOS's own windows, as the engine reaches it: every request goes to the main
 /// thread.
@@ -39,11 +39,7 @@ impl WindowsOnRequest {
 }
 
 impl ViewPlacement for WindowsOnRequest {
-    fn view_requested(
-        &self,
-        program: &RunningProgram,
-        request: ViewRequest,
-    ) -> Result<(), ViewError> {
+    fn view_requested(&self, program: &AppInstance, request: ViewRequest) -> Result<(), ViewError> {
         let title = request.config.title.clone();
         let sent = self.requests.unbounded_send(WindowRequest {
             program: program.clone(),
@@ -77,7 +73,7 @@ pub(crate) mod tests {
     }
 
     /// Runs survey, which asks for a view as it starts, on `engine`.
-    fn run_survey(engine: &WaOS) -> RunningProgram {
+    fn run_survey(engine: &WaOS) -> AppInstance {
         let survey = engine
             .load(
                 Path::new(waos_test_programs::SURVEY),

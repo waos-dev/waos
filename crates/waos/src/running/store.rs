@@ -19,7 +19,7 @@ use wasmtime_wasi_http::{WasiHttpCtx, WasiHttpCtxView, WasiHttpView};
 use super::instances::{ProgramInstances, UserSide};
 use super::limits::Limits;
 use super::worker::WorkerRun;
-use super::{ProgramEnd, ProgramStart, RunningProgram};
+use super::{AppInstance, ProgramEnd, ProgramStart};
 use crate::access::ProgramAccess;
 use crate::audio::ProgramAudio;
 use crate::audio::host::{AudioCtx, AudioCtxView};
@@ -97,7 +97,7 @@ const YIELD_INTERVAL: u64 = 10_000_000;
 /// `wasi:cli/run`.
 pub(super) async fn run(
     start: ProgramStart,
-    program: RunningProgram,
+    program: AppInstance,
     access: ProgramAccess,
     clock: Clock,
 ) -> ProgramEnd {
@@ -110,7 +110,7 @@ pub(super) async fn run(
 
 async fn run_in_store(
     mut start: ProgramStart,
-    program: RunningProgram,
+    program: AppInstance,
     access: ProgramAccess,
     clock: Clock,
 ) -> wasmtime::Result<wasmtime::Result<Result<(), ()>>> {
@@ -420,7 +420,7 @@ pub(crate) struct StoreData {
     /// wait on them all.
     devices: Arc<OpenedDevices>,
     limits: Limits,
-    program: RunningProgram,
+    program: AppInstance,
     role: InstanceRole,
     /// What places the program's views; none in an instance that has none.
     placement: Option<Arc<dyn ViewPlacement>>,

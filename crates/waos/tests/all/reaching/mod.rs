@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 
 use futures::channel::oneshot;
 use tempfile::TempDir;
-use waos::{Answer, ProgramEnd, ProgramEnvironment, ProgramGrants, Question, RunningProgram, WaOS};
+use waos::{Answer, AppInstance, ProgramEnd, ProgramEnvironment, ProgramGrants, Question, WaOS};
 use waos_capabilities::{ChangedFuture, DomainRule, FileSystemGrant, NetworkGrant, ProgramFolders};
 
 use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, within};
@@ -107,7 +107,7 @@ pub fn port_of(port: u16) -> [(&'static str, Vec<u8>); 1] {
 
 /// A program running with grants of the test's, and what it prints.
 pub struct Run {
-    running: RunningProgram,
+    running: AppInstance,
     pub output: Arc<RecordedOutput>,
     /// Its own folders, gone with the run.
     _folders: TempDir,

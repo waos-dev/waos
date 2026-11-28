@@ -29,7 +29,7 @@ use waft::ui::{Platform, PlatformRef};
 use waos::bindings::wasdk::platform::hardware_buffers::{ImageError, ImageErrorKind, PixelBuffer};
 use waos::bindings::wasdk::platform::windows::Size;
 use waos::{
-    HardwareBuffer, ImageFuture, OpenedImage, RunningProgram, ShellHardwareImageCodecs,
+    AppInstance, HardwareBuffer, ImageFuture, OpenedImage, ShellHardwareImageCodecs,
     ShellImageCodecs, ShellImageSource,
 };
 
@@ -104,7 +104,7 @@ enum ImageSource {
 
 impl CodecsOnRequest {
     /// The image `source` holds, opened on the App's thread for `program`.
-    fn open(&self, program: &RunningProgram, source: ImageSource) -> ImageFuture<OpenedImage> {
+    fn open(&self, program: &AppInstance, source: ImageSource) -> ImageFuture<OpenedImage> {
         tracing::info!(program = program.name(), "a program opens an image");
         let image = self.last_image.fetch_add(1, Ordering::Relaxed) + 1;
         let handle = self.images.clone();
@@ -123,11 +123,11 @@ impl ShellImageCodecs for CodecsOnRequest {
         self.encoded_formats.clone()
     }
 
-    fn open(&self, program: &RunningProgram, data: Vec<u8>) -> ImageFuture<OpenedImage> {
+    fn open(&self, program: &AppInstance, data: Vec<u8>) -> ImageFuture<OpenedImage> {
         CodecsOnRequest::open(self, program, ImageSource::Bytes(data))
     }
 
-    fn open_file(&self, program: &RunningProgram, path: &Path) -> ImageFuture<OpenedImage> {
+    fn open_file(&self, program: &AppInstance, path: &Path) -> ImageFuture<OpenedImage> {
         CodecsOnRequest::open(self, program, ImageSource::File(path.to_owned()))
     }
 
@@ -378,7 +378,7 @@ mod tests {
     struct Ran {
         system: TestSystem,
         lines: Arc<Lines>,
-        running: waos::RunningProgram,
+        running: waos::AppInstance,
         data: std::path::PathBuf,
     }
 

@@ -1,29 +1,32 @@
 //! Where the apps' prompts go: each to the main thread, a question to be shown to the user
 //! (`state::questions`), a permission's, a link scheme's or a role's, which an app's permissions
-//! ask (`waos_services::permissions`), the output a program's sound plays on, which the shell's picker of
-//! outputs asks, a machine for a program, which the shell's picker of machines asks, or that WaOS
-//! still may not reach the phone's files, which the user is told once they come back from the
+//! ask (`waos_services::permissions`), the output an app's sound plays on, which the shell's
+//! picker of outputs asks, a machine for an app, which the shell's picker of machines asks, or that
+//! WaOS still may not reach the phone's files, which the user is told once they come back from the
 //! system's page without them (`logic::phone_files`); and a switch's page to be opened in the
-//! library's settings (`state::library`). A question about an app is shown over its run, which the
-//! running apps name, once it is among them. A picker is noted as asked of the program's user
-//! until it is answered (`asking_now`), for an attach to the program to say; Permissions lists its
-//! own questions. Each is answered later, through the future it was given: a question with the
-//! user's reply, or none when nobody replied, because the main thread stopped listening or dropped
-//! it; a switch's page once the user left it, or at once when nobody can open it.
+//! library's settings (`state::library`). Each names the app it is about, by its id, not one of
+//! its instances: whoever shows it finds the app's place by its id, whether or not an instance of
+//! the app runs (`state::questions`), as macOS's `tccd` asks the window server by app. A picker is
+//! noted as asked of the app's user until it is answered (`asking_now`), for an attach to the app
+//! to say; Permissions lists its own questions. Each is answered later, through the future it was
+//! given: a question with the user's reply, or none when nobody replied, because the main thread
+//! stopped listening or dropped it; a switch's page once the user left it, or at once when nobody
+//! can open it.
 //!
-//! The invariant: every prompt taken reaches the main thread or is answered at once, or waits
-//! for its app's run, so no app waits for an answer that cannot come while it runs.
+//! The invariant: every prompt taken reaches the main thread at once, or is answered at once, so
+//! no app waits for an answer that cannot come while it runs.
 
 use std::fmt;
-use std::future::Future;
+use std::future::{Future, ready};
 use std::sync::Arc;
 
 use futures::FutureExt;
 use futures::channel::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use futures::channel::oneshot;
+use futures::future::BoxFuture;
 use waos::{
-    Answer, AnswerFuture, AudioOutput, AudioOutputPickedFuture, MachineChoice, MachinePickedFuture,
-    Question, Role, RunningProgram, SettingsClosedFuture, ShellAudioOutputPicker,
+    Answer, AnswerFuture, AppInstance, AudioOutput, AudioOutputPickedFuture, MachineChoice,
+    MachinePickedFuture, Question, Role, SettingsClosedFuture, ShellAudioOutputPicker,
     ShellMachinePicker, Switch,
 };
 use waos_dev_protocol::Asked as AskedNow;
@@ -32,11 +35,11 @@ use waos_services::permissions::{App, Prompts};
 
 use super::asking_now::AskingNow;
 use super::phone_files::{PhoneFilesOnRequest, asks_for_phone_files};
-use super::running_apps::RunningApps;
 
-/// One program's question, on its way to the main thread.
+/// One app's question, on its way to the main thread.
 pub(crate) struct Asked {
-    pub(crate) program: RunningProgram,
+    /// The app it is about.
+    pub(crate) app: ProgramId,
     pub(crate) asking: Asking,
     /// Fires when the engine drops its wait on this question before an answer returns.
     pub(crate) cancelled: oneshot::Receiver<()>,
@@ -136,9 +139,9 @@ impl Asking {
     }
 }
 
-/// One program's request to open a switch's page in its settings, on its way to the main thread.
+/// One app's request to open a switch's page in its settings, on its way to the main thread.
 pub(crate) struct SettingsOpened {
-    pub(crate) program: RunningProgram,
+    pub(crate) app: ProgramId,
     pub(crate) switch: Switch,
     /// What tells the program the user left the page.
     pub(crate) left: oneshot::Sender<()>,
@@ -150,18 +153,16 @@ pub(crate) struct PromptRequests {
     pub(crate) settings: UnboundedReceiver<SettingsOpened>,
 }
 
-/// The app's prompts, as Permissions reaches them: every one goes to the main thread, about the
-/// run of its app among `running`.
+/// The app's prompts, as Permissions reaches them: every one goes to the main thread, about its
+/// app.
 pub(crate) struct PromptsOnRequest {
     questions: UnboundedSender<Asked>,
     settings: UnboundedSender<SettingsOpened>,
-    running: Arc<RunningApps>,
 }
 
 impl PromptsOnRequest {
-    /// The prompts, each shown over its app's run among `running`, and where they arrive on the
-    /// main thread.
-    pub(crate) fn new(running: Arc<RunningApps>) -> (PromptsOnRequest, PromptRequests) {
+    /// The prompts, and where they arrive on the main thread.
+    pub(crate) fn new() -> (PromptsOnRequest, PromptRequests) {
         let (questions, asked) = mpsc::unbounded();
         let (settings, opened) = mpsc::unbounded();
         let requests = PromptRequests {
@@ -172,7 +173,6 @@ impl PromptsOnRequest {
             PromptsOnRequest {
                 questions,
                 settings,
-                running,
             },
             requests,
         )
@@ -211,17 +211,17 @@ impl PromptsOnRequest {
     }
 }
 
-/// What tells a program's user that WaOS still may not reach the phone's files, from any thread.
+/// What tells an app's user that WaOS still may not reach the phone's files, from any thread.
 #[derive(Clone)]
 pub(crate) struct PhoneFilesOffNotice {
     questions: UnboundedSender<Asked>,
 }
 
 impl PhoneFilesOffNotice {
-    /// Tells `program`'s user, and resolves once they have read it, or nobody can.
-    pub(crate) fn tell(&self, program: &RunningProgram) -> impl Future<Output = ()> + Send + use<> {
+    /// Tells the user of `program`'s app, and resolves once they have read it, or nobody can.
+    pub(crate) fn tell(&self, program: &AppInstance) -> impl Future<Output = ()> + Send + use<> {
         let (read, reading) = oneshot::channel();
-        let wait = send_and_wait(
+        let wait = send_and_wait_for(
             &self.questions,
             program,
             Asking::PhoneFilesOff { read },
@@ -232,23 +232,11 @@ impl PhoneFilesOffNotice {
 }
 
 impl PromptsOnRequest {
-    /// Sends `question` about `app` to the main thread, over its run, and resolves to the user's
-    /// answer.
+    /// Sends `question` about `app` to the main thread, and resolves to the user's answer.
     fn put(&self, app: &App, question: ProgramQuestion) -> AnswerFuture {
-        let questions = self.questions.clone();
-        let send = move |program: RunningProgram| {
-            let (answer, answered) = oneshot::channel();
-            let asking = Asking::Question { question, answer };
-            send_and_wait(&questions, &program, asking, answered)
-        };
-        // Sent at once where the app runs, so the question reaches the main thread as it is asked.
-        match self.running.running(&app.id) {
-            Some(program) => Box::pin(send(program)),
-            None => {
-                let run = run_of(&self.running, &app.id);
-                Box::pin(async move { send(run.await).await })
-            }
-        }
+        let (answer, answered) = oneshot::channel();
+        let asking = Asking::Question { question, answer };
+        Box::pin(send_and_wait(&self.questions, &app.id, asking, answered))
     }
 }
 
@@ -266,42 +254,19 @@ impl Prompts for PromptsOnRequest {
     }
 
     fn open_settings(&self, app: &App, switch: Switch) -> SettingsClosedFuture {
-        let (settings, run) = (self.settings.clone(), run_of(&self.running, &app.id));
+        let (left, leaving) = oneshot::channel();
+        let opened = SettingsOpened {
+            app: app.id.clone(),
+            switch,
+            left,
+        };
+        if self.settings.unbounded_send(opened).is_err() {
+            tracing::info!(app = %app.id, ?switch, "WaOS is quitting: no settings");
+        }
         Box::pin(async move {
-            let program = run.await;
-            let (left, leaving) = oneshot::channel();
-            let name = program.name().to_owned();
-            let opened = SettingsOpened {
-                program,
-                switch,
-                left,
-            };
-            if settings.unbounded_send(opened).is_err() {
-                tracing::info!(program = name, ?switch, "WaOS is quitting: no settings");
-            }
             // A page dropped, or never opened, counts as left.
             let _left = leaving.await;
         })
-    }
-}
-
-/// The run of the app `id` among `running`, once it is there: a question about an app is shown
-/// over its run, and one asked as it starts, its role's, comes before the run is listed.
-fn run_of(
-    running: &Arc<RunningApps>,
-    id: &ProgramId,
-) -> impl Future<Output = RunningProgram> + Send + use<> {
-    let (running, id) = (Arc::clone(running), id.clone());
-    let mut listed = running.running_ids();
-    async move {
-        loop {
-            if let Some(program) = running.running(&id) {
-                return program;
-            }
-            if listed.changed().await.is_err() {
-                return std::future::pending().await;
-            }
-        }
     }
 }
 
@@ -313,10 +278,10 @@ pub(crate) struct OutputPickerOnRequest {
 }
 
 impl ShellAudioOutputPicker for OutputPickerOnRequest {
-    fn pick(&self, program: &RunningProgram, outputs: Vec<AudioOutput>) -> AudioOutputPickedFuture {
+    fn pick(&self, program: &AppInstance, outputs: Vec<AudioOutput>) -> AudioOutputPickedFuture {
         let (picked, picking) = oneshot::channel();
         let asking = Asking::Output { outputs, picked };
-        let wait = send_and_wait(&self.questions, program, asking, picking);
+        let wait = send_and_wait_for(&self.questions, program, asking, picking);
         Box::pin(
             self.asking
                 .while_asked(program, AskedNow::AudioOutput, wait),
@@ -336,10 +301,10 @@ pub(crate) struct MachinePickerOnRequest {
 }
 
 impl ShellMachinePicker for MachinePickerOnRequest {
-    fn pick(&self, program: &RunningProgram, machines: Vec<MachineChoice>) -> MachinePickedFuture {
+    fn pick(&self, program: &AppInstance, machines: Vec<MachineChoice>) -> MachinePickedFuture {
         let (picked, picking) = oneshot::channel();
         let asking = Asking::Machine { machines, picked };
-        let wait = send_and_wait(&self.questions, program, asking, picking);
+        let wait = send_and_wait_for(&self.questions, program, asking, picking);
         let (phone_files, asked_for) = (self.phone_files.clone(), program.clone());
         let picked = async move {
             let picked = wait.await;
@@ -354,27 +319,44 @@ impl ShellMachinePicker for MachinePickerOnRequest {
     }
 }
 
-/// Sends `asking` of `program`'s to the main thread, unless WaOS is quitting, and waits on
+/// [`send_and_wait`], about the app `program` is an instance of, which the engine names: answered
+/// none at once for a program the engine runs under no app's id, which no app's place shows.
+fn send_and_wait_for<T: Send + 'static>(
+    questions: &UnboundedSender<Asked>,
+    program: &AppInstance,
+    asking: Asking,
+    received: oneshot::Receiver<Option<T>>,
+) -> BoxFuture<'static, Option<T>> {
+    match program.name().parse::<ProgramId>() {
+        Ok(app) => send_and_wait(questions, &app, asking, received).boxed(),
+        Err(_) => {
+            tracing::info!(
+                program = program.name(),
+                ?asking,
+                "a program of no app: unanswered"
+            );
+            Box::pin(ready(None))
+        }
+    }
+}
+
+/// Sends `asking` about `app` to the main thread, unless WaOS is quitting, and waits on
 /// `received`; dropping the returned future before it resolves drops the sender of `cancelled`.
 fn send_and_wait<T: Send>(
     questions: &UnboundedSender<Asked>,
-    program: &RunningProgram,
+    app: &ProgramId,
     asking: Asking,
     received: oneshot::Receiver<Option<T>>,
 ) -> impl Future<Output = Option<T>> + Send + use<T> {
     let (cancel, cancelled) = oneshot::channel();
     let asked = Asked {
-        program: program.clone(),
+        app: app.clone(),
         asking,
         cancelled,
     };
     if let Err(unsent) = questions.unbounded_send(asked) {
         let asked = unsent.into_inner();
-        tracing::info!(
-            program = program.name(),
-            asking = ?asked.asking,
-            "WaOS is quitting: unanswered"
-        );
+        tracing::info!(%app, asking = ?asked.asking, "WaOS is quitting: unanswered");
     }
     async move {
         // A question dropped unanswered, here or on the main thread, answers none.

@@ -20,7 +20,7 @@ use crate::bindings::wasdk::platform::file_dialogs::{
 };
 use crate::files::{Picks, ProgramFiles};
 use crate::permissions::ProgramSystemPermissions;
-use crate::running::RunningProgram;
+use crate::running::AppInstance;
 use crate::set_or_shown::{self, Outcome};
 use crate::shell::{FileDialogFuture, ShellFileDialogs, SystemPermission, SystemPermissionState};
 use crate::views::ProgramView;
@@ -28,7 +28,7 @@ use crate::views::ProgramView;
 /// What the file dialogs interface reads and writes in a program's store.
 pub(crate) struct FileDialogsCtx<'a> {
     pub(crate) table: &'a mut ResourceTable,
-    pub(crate) program: &'a RunningProgram,
+    pub(crate) program: &'a AppInstance,
     /// The shell's dialogs; none where the shell has none.
     pub(crate) dialogs: Option<&'a std::sync::Arc<dyn ShellFileDialogs>>,
     /// The program's mounts, where an initial folder is looked up.

@@ -6,13 +6,13 @@ use waft::ui::PlatformRef;
 use waft::ui::{EmbedderClient, View as _};
 use waft::{IntoWidget, Shell, SizedBox};
 use waft_test::{TestPlatform, TestWindows};
-use waos::{ProgramEnvironment, WaOS};
+use waos::{AppInstance, ProgramEnvironment, WaOS};
 use waos_package::ProgramId;
 use waos_window_messages::ToWindow;
 
 use super::*;
 use crate::logic::macos_shell::{
-    Compositing, LaunchAttempt, Launches, Served, said_hello, window_process,
+    Compositing, LaunchAttempt, Launches, Listening, Served, said_hello, window_process,
 };
 use crate::logic::test_engine::{self, NoWindows};
 
@@ -20,7 +20,7 @@ use crate::logic::test_engine::{self, NoWindows};
 const FOREVER: &str = "dev.example.forever";
 
 /// Forever, which has no window and runs until stopped, under its id.
-fn forever(engine: &WaOS) -> RunningProgram {
+fn forever(engine: &WaOS) -> AppInstance {
     let forever = engine
         .load(
             Path::new(waos_test_programs::FOREVER),
@@ -50,7 +50,13 @@ struct Prompting {
 }
 
 impl Prompting {
-    fn new(window_processes: &Arc<WindowProcesses>) -> Prompting {
+    fn new(listening: Listening) -> Prompting {
+        let Listening {
+            window_processes,
+            dialog_reports: reported,
+            report: reports,
+            ..
+        } = listening;
         let windows = Rc::new(TestWindows::new());
         let platform = Rc::new(
             TestPlatform::new()
@@ -58,8 +64,7 @@ impl Prompting {
                 .with_windows(Rc::clone(&windows)),
         );
         let made = Rc::new(RefCell::new(None));
-        let (kept, window_processes) = (Rc::clone(&made), Arc::clone(window_processes));
-        let (reports, reported) = mpsc::unbounded();
+        let kept = Rc::clone(&made);
         let shell = Shell::new(Rc::clone(&platform) as PlatformRef, move |app| {
             let compositor = app.platform().compositor().expect("a compositor");
             *kept.borrow_mut() = Some(PromptDialogs::new(
@@ -79,13 +84,13 @@ impl Prompting {
         }
     }
 
-    /// Shows a prompt for `program`, which notes in `dismissed` if it is put away unanswered.
-    fn show(&self, program: &RunningProgram, dismissed: &Rc<Cell<bool>>) -> ShownPrompt {
+    /// Shows a prompt for the app `id`, which notes in `dismissed` if it is put away unanswered.
+    fn show(&self, id: &ProgramId, dismissed: &Rc<Cell<bool>>) -> ShownPrompt {
         let dismissed = Rc::clone(dismissed);
         let mut app = self.shell.app();
         self.dialogs.show(
             &mut app,
-            program,
+            id,
             SizedBox::shrink().into_widget(),
             Rc::new(move |_app| dismissed.set(true)),
         )
@@ -105,13 +110,14 @@ fn a_prompt_of_a_program_with_no_app_launches_the_app_and_shows_there_not_in_wao
     let runtime = tokio::runtime::Runtime::new().unwrap();
     let _within = runtime.enter();
     let launches = Launches::default();
-    let window_processes = launches.window_processes();
+    let listening = launches.listening();
+    let window_processes = Arc::clone(&listening.window_processes);
     let engine = test_engine::engine(Arc::new(NoWindows));
     let program = forever(&engine);
-    let prompting = Prompting::new(&window_processes);
+    let prompting = Prompting::new(listening);
 
     let dismissed = Rc::new(Cell::new(false));
-    let _shown = prompting.show(&program, &dismissed);
+    let _shown = prompting.show(&forever_id(), &dismissed);
     assert_eq!(
         launches.asked(),
         [(forever_id(), LaunchAttempt::First)],
@@ -148,12 +154,13 @@ fn a_prompts_view_arrives_as_every_view_and_is_built_from_the_data_naming_the_pr
     let runtime = tokio::runtime::Runtime::new().unwrap();
     let _within = runtime.enter();
     let launches = Launches::default();
-    let window_processes = launches.window_processes();
+    let listening = launches.listening();
+    let window_processes = Arc::clone(&listening.window_processes);
     let engine = test_engine::engine(Arc::new(NoWindows));
     let program = forever(&engine);
-    let mut prompting = Prompting::new(&window_processes);
+    let mut prompting = Prompting::new(listening);
     let dismissed = Rc::new(Cell::new(false));
-    let _shown = prompting.show(&program, &dismissed);
+    let _shown = prompting.show(&forever_id(), &dismissed);
     let Served { process, .. } = window_process(program.clone());
     said_hello(&window_processes, &forever_id(), &process);
     let metrics = ViewMetrics {
@@ -204,13 +211,12 @@ fn a_prompt_whose_app_never_comes_is_put_away_unanswered() {
     let runtime = tokio::runtime::Runtime::new().unwrap();
     let _within = runtime.enter();
     let launches = Launches::default();
-    let window_processes = launches.window_processes();
     let engine = test_engine::engine(Arc::new(NoWindows));
     let program = forever(&engine);
-    let prompting = Prompting::new(&window_processes);
+    let prompting = Prompting::new(launches.listening());
 
     let dismissed = Rc::new(Cell::new(false));
-    let _shown = prompting.show(&program, &dismissed);
+    let _shown = prompting.show(&forever_id(), &dismissed);
     runtime.block_on(launches.fail(0, "Launch Services: no app"));
     runtime.block_on(launches.fail(1, "Launch Services: no app"));
     prompting.run_tasks_until("the prompt put away", || dismissed.get());

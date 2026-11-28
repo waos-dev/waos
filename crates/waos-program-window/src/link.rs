@@ -1,7 +1,7 @@
 //! What a program's window needs of its program, wherever the program runs: [`ProgramLink`] for
 //! the program, which its windows are asked for by and answered to, and [`ViewLink`] for each view
 //! shown, which the window reports what happens to it to. In WaOS's process they are the engine's
-//! own `RunningProgram` and `ProgramView` (`in_process`); in a program's window process they are
+//! own `AppInstance` and `ProgramView` (`in_process`); in a program's window process they are
 //! messages to WaOS.
 //!
 //! The invariant a later editor will break: nothing here waits on the program, but a resize. Every

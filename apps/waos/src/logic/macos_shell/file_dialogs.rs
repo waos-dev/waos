@@ -17,7 +17,7 @@ use futures::FutureExt;
 use waos::bindings::wasdk::platform::file_dialogs::DialogError;
 use waos::bindings::wasdk::platform::views::ViewId;
 use waos::{
-    FileDialogFuture, FolderOptions, OpenOptions, RunningProgram, SaveOptions, ShellFileDialogs,
+    AppInstance, FileDialogFuture, FolderOptions, OpenOptions, SaveOptions, ShellFileDialogs,
 };
 use waos_window_messages::FileDialog;
 
@@ -28,7 +28,7 @@ use super::window_processes::{WindowProcesses, let_come_forward};
 impl ShellFileDialogs for WindowProcesses {
     fn open_file(
         &self,
-        program: &RunningProgram,
+        program: &AppInstance,
         parent: Option<ViewId>,
         options: OpenOptions,
     ) -> FileDialogFuture<Option<PathBuf>> {
@@ -42,7 +42,7 @@ impl ShellFileDialogs for WindowProcesses {
 
     fn open_files(
         &self,
-        program: &RunningProgram,
+        program: &AppInstance,
         parent: Option<ViewId>,
         options: OpenOptions,
     ) -> FileDialogFuture<Vec<PathBuf>> {
@@ -51,7 +51,7 @@ impl ShellFileDialogs for WindowProcesses {
 
     fn open_folder(
         &self,
-        program: &RunningProgram,
+        program: &AppInstance,
         parent: Option<ViewId>,
         options: FolderOptions,
     ) -> FileDialogFuture<Option<PathBuf>> {
@@ -65,7 +65,7 @@ impl ShellFileDialogs for WindowProcesses {
 
     fn save_file(
         &self,
-        program: &RunningProgram,
+        program: &AppInstance,
         parent: Option<ViewId>,
         options: SaveOptions,
     ) -> FileDialogFuture<Option<PathBuf>> {
@@ -82,12 +82,12 @@ impl ShellFileDialogs for WindowProcesses {
 /// brought forward as it shows; answers the paths picked in it, or why none were.
 fn open_in_app(
     window_processes: &WindowProcesses,
-    program: &RunningProgram,
+    program: &AppInstance,
     parent: Option<ViewId>,
     kind: FileDialog,
 ) -> FileDialogFuture<Vec<PathBuf>> {
     let_come_forward(program);
-    let app = window_processes.of(program);
+    let app = window_processes.of_instance(program);
     Box::pin(async move {
         match app.await {
             Ok(app) => app.open_file_dialog(parent, kind).await,

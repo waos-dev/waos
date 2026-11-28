@@ -1,7 +1,7 @@
 //! An input `waos ui tap`, `press`, `drag`, `type`, `key` or `scroll` sends, given to a window of a
 //! program running, however it was installed or started, as its user would give it: through the
 //! engine's view, as the shell reports its user's input, so the program cannot tell the two apart:
-//! the program's own mouse (`RunningProgram::mouse`), a US keyboard and an input method's text
+//! the program's own mouse (`AppInstance::mouse`), a US keyboard and an input method's text
 //! (`Keyboard`), a press and a drag taking the time they say before the answer. This is the
 //! protocol's side alone: the window the input goes to, what is refused, and the answer. The
 //! connection is answered once the input is handed over, saying whether the window was in sight;
@@ -14,16 +14,16 @@ use waos::{DragPath, Keyboard, ProgramView};
 use waos_dev_protocol::{Input, InputAnswer, InputDone, Refusal, ServerConnection, WindowId};
 use waos_package::ProgramId;
 
+use super::app_instances::{AppInstances, DrivenProgram};
 use super::asking_now::AskingNow;
 use super::dev_refusal;
 use super::dev_server::BUILD;
-use super::running_apps::{DrivenProgram, RunningApps};
 
 /// Answers a connection's `Input`: `input` given to the window `window` of the program `id`, then
 /// `InputDone` with whether the window was in sight, or why it reached none.
 pub(crate) async fn answer(
     mut connection: ServerConnection,
-    runs: &RunningApps,
+    runs: &AppInstances,
     asking: &AskingNow,
     id: &ProgramId,
     window: Option<WindowId>,
@@ -43,7 +43,7 @@ pub(crate) async fn answer(
 /// Gives `input` to the window `window` (or the program's first open window) of the program `id`;
 /// answers whether the window was in sight as it was given.
 async fn give(
-    runs: &RunningApps,
+    runs: &AppInstances,
     asking: &AskingNow,
     id: &ProgramId,
     window: Option<WindowId>,

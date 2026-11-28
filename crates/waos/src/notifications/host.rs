@@ -26,14 +26,14 @@ use crate::bindings::wasdk::platform::notifications::{
     HostNotificationSchedulingWithStore, HostNotifications, HostNotificationsWithStore,
     NotificationError,
 };
-use crate::running::RunningProgram;
+use crate::running::AppInstance;
 use crate::shell::{NotificationFuture, ShellNotifications};
 use crate::stream::stream_holding;
 
 /// What the notifications interface reads and writes in a program's store.
 pub(crate) struct NotificationsCtx<'a> {
     pub(crate) table: &'a mut ResourceTable,
-    pub(crate) program: &'a RunningProgram,
+    pub(crate) program: &'a AppInstance,
     /// The shell's notifications; none where the shell has none.
     pub(crate) notifications: Option<&'a Arc<dyn ShellNotifications>>,
     /// Where each post is decided, by the program's notifications question.
@@ -62,7 +62,7 @@ impl NotificationsCtx<'_> {
     fn send_unless_denied(
         &mut self,
         notification: Resource<Notification>,
-        send: impl FnOnce(&RunningProgram, &Notification) -> NotificationFuture,
+        send: impl FnOnce(&AppInstance, &Notification) -> NotificationFuture,
     ) -> wasmtime::Result<NotificationFuture> {
         let notification = self.table.delete(notification)?;
         if !may_post(self.access) {
@@ -181,7 +181,7 @@ impl<T: NotificationsCtxView + 'static> HostNotificationSchedulingWithStore<T>
 /// the system can name, or the shell no longer schedules.
 fn schedule(
     shell: &dyn ShellNotifications,
-    program: &RunningProgram,
+    program: &AppInstance,
     notification: &Notification,
     at: Instant,
 ) -> NotificationFuture {

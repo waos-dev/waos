@@ -11,7 +11,7 @@ use std::sync::Arc;
 use waos::bindings::wasdk::platform::system::Brightness;
 use waos::bindings::wasdk::platform::views::ViewError;
 use waos::{
-    EngineTime, FreezePolicy, HttpProxy, PlatformState, RunningProgram, Shell, ViewPlacement,
+    AppInstance, EngineTime, FreezePolicy, HttpProxy, PlatformState, Shell, ViewPlacement,
     ViewRequest, VsyncWaiter, WaOS, WaOSConfig,
 };
 
@@ -28,7 +28,7 @@ pub(crate) struct NoWindows;
 impl ViewPlacement for NoWindows {
     fn view_requested(
         &self,
-        _program: &RunningProgram,
+        _program: &AppInstance,
         _request: ViewRequest,
     ) -> Result<(), ViewError> {
         Err(ViewError::Failed(REFUSAL.to_owned()))
@@ -114,7 +114,7 @@ pub(crate) fn no_screens() -> PlatformState {
 pub(crate) mod drawing {
     use waos::bindings::wasdk::platform::system::Brightness;
     use waos::bindings::wasdk::platform::views::RequestId;
-    use waos::{PlatformState, ProgramView, RunningProgram, ViewRequest, WindowConfig};
+    use waos::{AppInstance, PlatformState, ProgramView, ViewRequest, WindowConfig};
 
     use waos_headless::{Display, HeadlessShell, Refreshes};
 
@@ -150,7 +150,7 @@ pub(crate) mod drawing {
     }
 
     /// Opens a view for `program`'s `request` in a window of its own, filling the test screen.
-    pub(crate) fn add_window(program: &RunningProgram, request: RequestId) -> ProgramView {
+    pub(crate) fn add_window(program: &AppInstance, request: RequestId) -> ProgramView {
         let request = ViewRequest {
             id: request,
             config: WindowConfig::default(),

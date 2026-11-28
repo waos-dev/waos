@@ -23,7 +23,7 @@ use url::Url;
 use crate::files::ProgramFiles;
 use crate::media_sources::{self, Named};
 use crate::network::ProgramNetwork;
-use crate::running::RunningProgram;
+use crate::running::AppInstance;
 use crate::shell::ShellMediaPlayers;
 pub use player::{MediaPlayer, MediaPlayerReports};
 
@@ -36,7 +36,7 @@ impl MediaPlayers {
     /// anything else, failed.
     fn open(
         &self,
-        program: &RunningProgram,
+        program: &AppInstance,
         files: &mut ProgramFiles,
         network: &ProgramNetwork,
         source: &str,
@@ -52,7 +52,7 @@ impl MediaPlayers {
     /// outside the program's files.
     fn open_file(
         &self,
-        program: &RunningProgram,
+        program: &AppInstance,
         files: &mut ProgramFiles,
         path: &Path,
     ) -> MediaPlayer {
@@ -71,7 +71,7 @@ impl MediaPlayers {
     /// program's thread, lets it reach the host, and failed otherwise.
     fn open_once_reachable(
         &self,
-        program: &RunningProgram,
+        program: &AppInstance,
         network: &ProgramNetwork,
         link: Url,
     ) -> MediaPlayer {

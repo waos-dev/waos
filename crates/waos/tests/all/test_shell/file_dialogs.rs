@@ -10,7 +10,7 @@ use futures::FutureExt;
 use futures::channel::oneshot;
 use waos::bindings::wasdk::platform::views::ViewId;
 use waos::{
-    FileDialogFuture, FolderOptions, OpenOptions, RunningProgram, SaveOptions, ShellFileDialogs,
+    AppInstance, FileDialogFuture, FolderOptions, OpenOptions, SaveOptions, ShellFileDialogs,
 };
 use waos_headless::testing::Changes;
 
@@ -96,7 +96,7 @@ impl TestFileDialogs {
 impl ShellFileDialogs for TestFileDialogs {
     fn open_file(
         &self,
-        _program: &RunningProgram,
+        _program: &AppInstance,
         parent: Option<ViewId>,
         options: OpenOptions,
     ) -> FileDialogFuture<Option<PathBuf>> {
@@ -107,7 +107,7 @@ impl ShellFileDialogs for TestFileDialogs {
 
     fn open_files(
         &self,
-        _program: &RunningProgram,
+        _program: &AppInstance,
         parent: Option<ViewId>,
         options: OpenOptions,
     ) -> FileDialogFuture<Vec<PathBuf>> {
@@ -117,7 +117,7 @@ impl ShellFileDialogs for TestFileDialogs {
 
     fn open_folder(
         &self,
-        _program: &RunningProgram,
+        _program: &AppInstance,
         parent: Option<ViewId>,
         options: FolderOptions,
     ) -> FileDialogFuture<Option<PathBuf>> {
@@ -128,7 +128,7 @@ impl ShellFileDialogs for TestFileDialogs {
 
     fn save_file(
         &self,
-        _program: &RunningProgram,
+        _program: &AppInstance,
         parent: Option<ViewId>,
         options: SaveOptions,
     ) -> FileDialogFuture<Option<PathBuf>> {

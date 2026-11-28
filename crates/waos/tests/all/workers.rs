@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use waos::bindings::wasdk::platform::lifecycle::AppExitResponse;
 use waos::{
-    EngineTime, FreezePolicy, ManualTime, Presence, ProgramEnd, RunningProgram, WaOS, WaOSConfig,
+    AppInstance, EngineTime, FreezePolicy, ManualTime, Presence, ProgramEnd, WaOS, WaOSConfig,
 };
 
 use crate::test_shell::{RecordedOutput, TestShell, config, poll_until, printing_to, within};
@@ -190,7 +190,7 @@ const FOCUSED: Presence = Presence {
 };
 
 /// The workers program, running under an engine and a shell of its own, its output its own.
-fn run_workers() -> (WaOS, RunningProgram, Arc<RecordedOutput>) {
+fn run_workers() -> (WaOS, AppInstance, Arc<RecordedOutput>) {
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let workers = engine
@@ -205,7 +205,7 @@ fn run_workers() -> (WaOS, RunningProgram, Arc<RecordedOutput>) {
 }
 
 /// Stops the program, and waits until it and its workers have ended.
-fn end(running: &RunningProgram) {
+fn end(running: &AppInstance) {
     running.stop();
     within(running.ended());
     assert_eq!(

@@ -2,8 +2,8 @@
 //! through it: the opener, the notifications, the compositor, the players, the reading of media,
 //! the frame readers and the cameras the test gives the platform, served to the engine as the app serves them, with the
 //! app's indicator of who records, and the clicks on the notifications going to the library, over
-//! a store in a folder of the test's own, where the test installs programs; and an engine over
-//! them, on time that stands still, with no windows and nobody to ask. The test plays the host: it
+//! a store in memory, which the test fills with the apps its build made; and an engine over them,
+//! on time that stands still, with no windows and nobody to ask. The test plays the host: it
 //! runs the app's tasks, and reports through Waft's client what the system does.
 
 use crate::state::test_turns::{Turn, turn_until, wake_at_end};
@@ -19,13 +19,14 @@ use waft::ui::{Platform, PlatformRef};
 use waft::{Entity, Shell, Subscription};
 use waft_test::TestPlatform;
 use waos::{
-    EngineTime, ManualTime, OutputStream, ProgramEnvironment, ProgramOutput, RecordingDevice,
-    RunningProgram, ShellCompositor, ShellNotifications, ShellRecordingIndicator,
-    ShellVideoFrameReaders, WaOS,
+    AppInstance, EngineTime, ManualTime, OutputStream, ProgramOutput, RecordingDevice,
+    ShellCompositor, ShellNotifications, ShellRecordingIndicator, ShellVideoFrameReaders,
 };
-use waos_package::{ProgramId, SigningKey};
+use waos_dev_protocol::{OutputStream as AttachedStream, RunEvent};
+use waos_package::ProgramId;
 use waos_program_window::WaftCompositor;
 use waos_services::app_storage::AppStorage;
+use waos_services::packages::{InstalledAppsInMemory, InstalledAppsStore};
 
 use super::cameras::Cameras;
 use super::image_codecs::ImageCodecs;
@@ -38,13 +39,13 @@ use super::media_players::MediaPlayers;
 use super::notifications::Notifications;
 use super::opener::Opener;
 use super::video_decoders::VideoDecoders;
+use crate::logic::app_instances::{AppInstances, OpenConfiguration, OpenPlace, OpenedFor};
 use crate::logic::frame_readers::ReadersOnRequest;
-use crate::logic::opened_package::tests::write_package;
 use crate::logic::package_copies::PackageCopies;
 use crate::logic::recording_indicator::{RecordingChanged, RecordingIndicatorOnRequest};
-use crate::logic::running_apps::{IfRunning, RunningApps};
 use crate::logic::startup::tests::start_asking_nobody;
 use crate::logic::startup::{self, Setup};
+use crate::logic::stores::Stores;
 use crate::logic::test_engine::{self, NoWindows};
 use crate::logic::test_installs;
 
@@ -58,13 +59,16 @@ pub(crate) struct TestSystem {
     pub(crate) shell: Shell,
     /// The platform the app runs on, which tells the test when a task wakes the app.
     platform: Rc<TestPlatform>,
-    engine: Arc<WaOS>,
     /// The app's notifications as the engine reaches them, for a test to call as the engine does.
     pub(crate) notifications: Option<Arc<dyn ShellNotifications>>,
     pub(crate) storage: AppStorage,
     pub(crate) permissions: waos_services::permissions::Permissions,
     packages: Arc<waos_services::packages::PackageManager>,
-    pub(crate) runs: Arc<RunningApps>,
+    /// The installed apps, which the test fills with the apps its build made.
+    installed: Arc<InstalledAppsInMemory>,
+    pub(crate) runs: Arc<AppInstances>,
+    /// Where the app instances' tasks run, and an open is waited for.
+    runtime: tokio::runtime::Handle,
     pub(crate) library: Entity<Library>,
     /// How many times the library asked to be seen.
     asked_to_be_seen: Rc<Cell<usize>>,
@@ -74,7 +78,8 @@ pub(crate) struct TestSystem {
     _seen: Subscription,
     /// The engine's time, which stands still, so no program freezes for being out of sight.
     _time: ManualTime,
-    folder: TempDir,
+    /// The test's own folder, removed with the system.
+    _folder: TempDir,
 }
 
 impl TestSystem {
@@ -112,14 +117,20 @@ impl TestSystem {
         });
         let time = ManualTime::new();
         let work = work().unwrap();
+        let installed = Arc::new(InstalledAppsInMemory::default());
+        let stores = Stores {
+            installed_apps: Arc::clone(&installed) as Arc<dyn InstalledAppsStore>,
+            ..Stores::in_memory(Vec::new())
+        };
+        let runtime = work.handle().clone();
         let setup = Setup {
             time: EngineTime::Manual(time.clone()),
-            ..Setup::on_files(folder.path())
+            ..Setup::for_tests(folder.path(), stores, runtime.clone())
         };
         let started = start_asking_nobody(setup, |_before| (shell, test_engine::no_screens()));
         let domains = LibraryDomains::of(&started);
         let startup::Started {
-            running: runs,
+            instances: runs,
             packages,
             permissions,
             storage,
@@ -168,60 +179,62 @@ impl TestSystem {
         TestSystem {
             shell,
             platform,
-            engine,
             notifications: shell_notifications,
             storage,
             permissions,
             packages,
+            installed,
             runs,
+            runtime,
             library,
             asked_to_be_seen,
             recording_changes: RefCell::new(recording_changes),
             recording_told: RefCell::default(),
             _seen: seen,
             _time: time,
-            folder,
+            _folder: folder,
         }
     }
 
-    /// Installs the test program at `component` as `id`, named `name`, from a package signed
-    /// with a key of the test's own, its code compiled already (`logic::test_installs`).
+    /// Installs the test program at `component` as `id`, named `name`: the store is filled with the
+    /// app the test's build made (`logic::test_installs`).
     pub(crate) fn install(&self, component: &str, id: &str, name: &str) {
-        let packages = self.folder.path().join("packages");
-        std::fs::create_dir_all(&packages).unwrap();
-        let bytes = std::fs::read(component).unwrap();
-        let key = SigningKey::generate();
-        let file = write_package(&packages, id, name, "1.0.0", &bytes, &key);
-        test_installs::install_package(&self.packages, &file);
+        self.installed
+            .put(test_installs::built_app(component, id, name));
     }
 
-    /// Runs the test program at `component` as the program `id`, among the runs, with the store's
-    /// settings for it and its own folders, its output into `output`.
-    pub(crate) fn run_as(&self, component: &str, id: &str, output: &Arc<Lines>) -> RunningProgram {
-        let id: ProgramId = id.parse().expect("an id");
-        let program = self
-            .engine
-            .load(
-                Path::new(component),
-                &waos_test_programs::code_of(component),
-            )
-            .expect("the program loads")
-            .named(id.as_str());
-        let environment = ProgramEnvironment {
-            output: Some(Arc::clone(output) as Arc<dyn ProgramOutput>),
-            grants: Some(self.permissions.of(&id)),
-            folders: Some(self.storage.folders(&id).expect("its folders")),
-            ..ProgramEnvironment::default()
+    /// Runs the test program at `component` as the app `id`, installed first where it is not, its
+    /// instance opened as a developer opens it, with the store's settings for it and its own
+    /// folders, what it writes to its standard output heard into `output`, as an attach hears it.
+    pub(crate) fn run_as(&self, component: &str, id: &str, output: &Arc<Lines>) -> AppInstance {
+        let app: ProgramId = id.parse().expect("an id");
+        if self.packages.installed_program(&app).is_none() {
+            self.install(component, id, id);
+        }
+        let configuration = OpenConfiguration {
+            replaces_running: true,
+            place: OpenPlace::AsItWas,
+            ..OpenConfiguration::new(OpenedFor::Development)
         };
-        let running = self
-            .engine
-            .run(&program, environment)
-            .expect("the program runs");
+        let opened = (self.runtime)
+            .block_on(self.runs.open(&app, configuration))
+            .expect("the app opens");
+        let running = opened.instance().clone();
+        let attached = (self.runs.outputs().of(&app)).expect("its output").attach();
         output.wake(self.platform.dispatcher());
+        let heard = Arc::clone(output);
+        self.runtime.spawn(async move {
+            while let Some(event) = attached.next().await {
+                if let RunEvent::Output {
+                    stream: AttachedStream::Stdout,
+                    bytes,
+                } = event
+                {
+                    heard.write(&bytes);
+                }
+            }
+        });
         wake_at_end(&running, self.platform.dispatcher());
-        let listed = running.clone();
-        futures::executor::block_on(self.runs.start(&id, IfRunning::Replace, || Ok(listed)))
-            .expect("among the runs");
         running
     }
 
@@ -263,11 +276,12 @@ impl TestSystem {
 
 impl Drop for TestSystem {
     fn drop(&mut self) {
-        futures::executor::block_on(self.runs.stop_all());
+        self.runtime.block_on(self.runs.stop_all());
     }
 }
 
-/// What a program wrote to its standard output, line by line.
+/// What a program wrote to its standard output, line by line: as its output, or as an attach to
+/// its instance hears it.
 #[derive(Default)]
 pub(crate) struct Lines {
     bytes: Mutex<Vec<u8>>,
@@ -279,6 +293,14 @@ impl Lines {
     /// Wakes `host` from now on as the program writes.
     pub(crate) fn wake(&self, host: Arc<dyn Dispatcher>) {
         let _ = self.host.set(host);
+    }
+
+    /// The program wrote `bytes` to its standard output: kept, and the test's host woken.
+    fn write(&self, bytes: &[u8]) {
+        self.bytes.lock().unwrap().extend_from_slice(bytes);
+        if let Some(host) = self.host.get() {
+            host.wake_now();
+        }
     }
 
     pub(crate) fn has(&self, line: &str) -> bool {
@@ -302,10 +324,7 @@ impl ProgramOutput for Lines {
         bytes: &[u8],
     ) -> std::task::Poll<usize> {
         if matches!(stream, OutputStream::Stdout) {
-            self.bytes.lock().unwrap().extend_from_slice(bytes);
-            if let Some(host) = self.host.get() {
-                host.wake_now();
-            }
+            self.write(bytes);
         }
         std::task::Poll::Ready(bytes.len())
     }

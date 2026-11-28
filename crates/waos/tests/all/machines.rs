@@ -17,7 +17,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use tokio::sync::Notify;
-use waos::{Answer, ProgramEnvironment, ProgramGrants, Question, RunningProgram, WaOS};
+use waos::{Answer, AppInstance, ProgramEnvironment, ProgramGrants, Question, WaOS};
 use waos_capabilities::{
     Architecture, ChangedFuture, DomainRule, FileSystemGrant, Machines, NetworkGrant,
     OperatingSystem,
@@ -251,7 +251,7 @@ fn run(
     grants: Option<&Arc<MachineGrants>>,
     machines: Vec<Arc<dyn Machines>>,
     output: &Arc<RecordedOutput>,
-) -> RunningProgram {
+) -> AppInstance {
     let environment = ProgramEnvironment {
         grants: grants.map(|grants| Arc::clone(grants) as Arc<dyn ProgramGrants>),
         machines,

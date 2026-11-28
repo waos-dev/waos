@@ -29,7 +29,7 @@ use waos::bindings::wasdk::platform::hardware_buffers::PixelBuffer;
 use waos::bindings::wasdk::platform::menus::{MenuEntry, MenuEntryKind, Submenu};
 use waos::bindings::wasdk::platform::windows::Size;
 use waos::{
-    Keyboard, ProgramEnd, ProgramEnvironment, ProgramOutput, ProgramView, RunningProgram, WaOS,
+    AppInstance, Keyboard, ProgramEnd, ProgramEnvironment, ProgramOutput, ProgramView, WaOS,
 };
 use waos_capabilities::ProgramFolders;
 use waos_headless::HeadlessView;
@@ -433,7 +433,7 @@ fn is_white([blue, green, red, _alpha]: [u8; 4]) -> bool {
 /// `builtin-apps/video-player` running with this computer's fonts and folders of its own, its
 /// recent list `recents`; and its window, once it asked for it.
 struct Run {
-    running: RunningProgram,
+    running: AppInstance,
     shown: Arc<HeadlessView>,
     window: ProgramView,
     output: Arc<RecordedOutput>,

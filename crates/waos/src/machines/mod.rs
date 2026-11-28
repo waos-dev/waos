@@ -32,7 +32,7 @@ use waos_capabilities::{
 };
 
 use crate::access::{ActiveUseKind, Asked, Happened, ProgramAccess, Refusal};
-use crate::running::RunningProgram;
+use crate::running::AppInstance;
 use crate::set_or_shown::{self, Outcome};
 use crate::shell::ShellMachinePicker;
 use crate::sync::locked;
@@ -89,7 +89,7 @@ pub(crate) struct ProgramMachines {
     /// Where the machines the user picked are kept, and each run told.
     access: ProgramAccess,
     picker: Option<Arc<dyn ShellMachinePicker>>,
-    program: RunningProgram,
+    program: AppInstance,
     /// The commands the program started, from any of its instances, which end with it.
     commands: StartedCommands,
 }
@@ -101,7 +101,7 @@ impl ProgramMachines {
         providers: Vec<Arc<dyn Provider>>,
         access: ProgramAccess,
         picker: Option<Arc<dyn ShellMachinePicker>>,
-        (program, commands): (RunningProgram, StartedCommands),
+        (program, commands): (AppInstance, StartedCommands),
     ) -> ProgramMachines {
         ProgramMachines {
             providers,

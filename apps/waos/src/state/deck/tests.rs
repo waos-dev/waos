@@ -163,7 +163,7 @@ fn a_program_opened_again_brings_its_tab_back_into_sight() {
 fn closing_a_tab_stops_its_program() {
     let mut phone = with_triangle_running();
     let id: ProgramId = TRIANGLE.parse().unwrap();
-    let program = phone.runs.running(&id).expect("it runs");
+    let program = phone.runs.instance(&id).expect("it runs");
     phone.close(TRIANGLE);
     assert_eq!(phone.stage(TRIANGLE), None, "the tab is gone");
     phone.settle_until("triangle stops", |_| {

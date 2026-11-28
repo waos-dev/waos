@@ -10,7 +10,7 @@
 //! What the user opens with the program reaches it: a request made before it listens waits until
 //! it does, each file mounted writable at its own path and kept among its picks; and a request
 //! unfreezes a frozen program until it has read it, on time the test moves (`EngineTime::Manual`),
-//! the program frozen again once it reads on (`RunningProgram::frozen`).
+//! the program frozen again once it reads on (`AppInstance::frozen`).
 
 use std::fs;
 use std::path::Path;
@@ -18,8 +18,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use waos::{
-    Answer, EngineTime, FreezePolicy, ManualTime, OpenRequest, ProgramEnd, ProgramEnvironment,
-    RunningProgram, WaOS, WaOSConfig,
+    Answer, AppInstance, EngineTime, FreezePolicy, ManualTime, OpenRequest, ProgramEnd,
+    ProgramEnvironment, WaOS, WaOSConfig,
 };
 use waos_capabilities::{Mount, ProgramFolders, Setting};
 use waos_services::permissions::{Permissions, ProgramId};
@@ -251,7 +251,7 @@ fn run(
     scratch: &Path,
     permissions: &Permissions,
     output: &Arc<RecordedOutput>,
-) -> (RunningProgram, ProgramFolders) {
+) -> (AppInstance, ProgramFolders) {
     let own = own_folders(scratch);
     let environment = ProgramEnvironment {
         grants: Some(permissions.of(&app())),

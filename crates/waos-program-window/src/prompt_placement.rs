@@ -1,8 +1,8 @@
-//! Where WaOS shows what it asks a program's user, apart from what it asks: a prompt is one Waft
-//! widget WaOS draws on every platform, and a [`PromptPlacement`] shows it for the program, over
-//! its window or in a window of the prompt's own, wherever the program's windows are (after
-//! Chrome's permission bubbles, which the
-//! browser draws for an app shim too). Where a program's windows are WaOS's own, the placement is
+//! Where WaOS shows what it asks an app's user, apart from what it asks: a prompt is one Waft
+//! widget WaOS draws on every platform, and a [`PromptPlacement`] shows it for the app, by the
+//! app's id, over its window or in a window of the prompt's own, wherever the app's windows are,
+//! whether or not an instance of it runs (after Chrome's permission bubbles, which the browser
+//! draws for an app shim too). Where an app's windows are WaOS's own, the placement is
 //! `PromptWindows`.
 //!
 //! The invariant a later editor will break: a prompt is shown from `show` until its
@@ -12,20 +12,20 @@
 use std::rc::Rc;
 
 use waft::{App, WidgetRef};
-use waos::RunningProgram;
+use waos_package::ProgramId;
 
 /// How large a prompt is where it has a window of its own, in logical pixels.
 pub const PROMPT_SIZE: [f64; 2] = [440.0, 320.0];
 
-/// Where WaOS's prompts for a program are shown.
+/// Where WaOS's prompts for an app are shown.
 pub trait PromptPlacement {
-    /// Shows `prompt` for `program`, until the answer is dropped. `dismissed` is called when the
-    /// user puts the prompt away otherwise than through it, as by closing a window it is shown
-    /// in.
+    /// Shows `prompt` for the app `id`, until the answer is dropped. `dismissed` is called when
+    /// the user puts the prompt away otherwise than through it, as by closing a window it is
+    /// shown in.
     fn show(
         &self,
         app: &mut App,
-        program: &RunningProgram,
+        id: &ProgramId,
         prompt: WidgetRef,
         dismissed: Rc<dyn Fn(&mut App)>,
     ) -> ShownPrompt;

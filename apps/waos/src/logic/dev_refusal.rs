@@ -6,6 +6,8 @@
 use waos_dev_protocol::{Asked, Locality, OpenAnswer, Refusal, RefusalKind, WindowId};
 use waos_package::ProgramId;
 
+use super::app_instances::OpenError;
+
 /// `id` does not run now.
 pub(crate) fn not_running(id: &ProgramId) -> Refusal {
     Refusal::new(
@@ -92,7 +94,7 @@ pub(crate) fn bad_input(id: &ProgramId, window: WindowId, why: &str) -> Refusal 
 }
 
 /// `id`'s component is not one, or does not load: `error`.
-pub(crate) fn cannot_load(id: &ProgramId, error: &anyhow::Error) -> Refusal {
+pub(crate) fn cannot_load(id: &ProgramId, error: &OpenError) -> Refusal {
     Refusal::new(
         RefusalKind::CannotLoad,
         format!("{id} could not be loaded or run: {error:#}"),

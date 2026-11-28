@@ -14,7 +14,7 @@ use std::time::Instant;
 
 use waft::ui::Dispatcher;
 use waft_test::TestPlatform;
-use waos::RunningProgram;
+use waos::AppInstance;
 
 use crate::logic::test_engine::WITHIN;
 
@@ -47,7 +47,7 @@ pub(crate) fn turn_until(platform: &TestPlatform, what: &str, mut turn: impl FnM
 
 /// Wakes `host` once `program` ends, as a test's host hears of it: for a test turning its app
 /// until the program has ended.
-pub(crate) fn wake_at_end(program: &RunningProgram, host: Arc<dyn Dispatcher>) {
+pub(crate) fn wake_at_end(program: &AppInstance, host: Arc<dyn Dispatcher>) {
     let ended = program.ended();
     thread::spawn(move || {
         futures::executor::block_on(ended);

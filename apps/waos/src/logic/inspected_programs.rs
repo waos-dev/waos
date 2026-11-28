@@ -1,13 +1,13 @@
-//! The apps an inspector sees on this computer, which the app starter hands with the run of an
+//! The apps an inspector sees on this computer, which the app instances hand the instance of an
 //! app that asks for the inspector role: every app installed, by the package manager's
-//! manifests; and every one running, by the running apps, one not installed by its id alone. Each
+//! manifests; and every one running, by the app instances, one not installed by its id alone. Each
 //! change to them as it happens, an install or a removal as the package manager announces it,
-//! whoever made it, a start or an end as the running apps list it; each one's icon, read as it is
+//! whoever made it, a start or an end as the app instances list it; each one's icon, read as it is
 //! asked for; an app started held (`held_starts`), or ended, on the runtime the inspector was
 //! started on, so it outlives the inspector that asked; and what an app that does not run sees of
 //! the files, by the folders app storage keeps and its permissions.
 //!
-//! The invariant: an app is named by its id, as the running apps name the program they run, so
+//! The invariant: an app is named by its id, as the app instances name the instance they run, so
 //! what an inspector reads of a running one the engine finds under that name.
 
 use std::collections::BTreeSet;
@@ -23,8 +23,8 @@ use waos_services::app_storage::AppStorage;
 use waos_services::packages::{InstalledProgram, PackageManager};
 use waos_services::permissions::Permissions;
 
+use super::app_instances::AppInstances;
 use super::held_starts::HeldStarts;
-use super::running_apps::RunningApps;
 
 /// What this computer is called to an inspector, as its machine is to a program.
 const THIS_COMPUTER: &str = "This computer";
@@ -34,7 +34,7 @@ pub(crate) struct ProgramsOnThisComputer {
     storage: AppStorage,
     permissions: Permissions,
     packages: Arc<PackageManager>,
-    runs: Arc<RunningApps>,
+    runs: Arc<AppInstances>,
     /// What starts an app held.
     starts: HeldStarts,
     /// The runtime a start or an end runs on, which outlives the inspector that asked.
@@ -42,12 +42,12 @@ pub(crate) struct ProgramsOnThisComputer {
 }
 
 impl ProgramsOnThisComputer {
-    /// The apps `packages` installs and those `runs` runs, each with its own folders in `storage`
-    /// and what `permissions` let it use, started held by `starts` and ended on `runtime`.
+    /// The apps `starts`' package manager installs and those its app instances run, each with its
+    /// own folders in `storage` and what `permissions` let it use, opened held by `starts` and
+    /// ended on `runtime`.
     pub(crate) fn new(
         storage: AppStorage,
         permissions: Permissions,
-        runs: Arc<RunningApps>,
         starts: HeldStarts,
         runtime: tokio::runtime::Handle,
     ) -> ProgramsOnThisComputer {
@@ -55,7 +55,7 @@ impl ProgramsOnThisComputer {
             storage,
             permissions,
             packages: Arc::clone(&starts.packages),
-            runs,
+            runs: Arc::clone(&starts.instances),
             starts,
             runtime,
         }
@@ -69,7 +69,7 @@ impl InspectedApps for ProgramsOnThisComputer {
 
     fn apps(&self) -> BoxFuture<'static, Vec<Program>> {
         let packages = Arc::clone(&self.packages);
-        let running = self.runs.running_ids().borrow().clone();
+        let running = self.runs.running().borrow().clone();
         async move {
             // The installed apps are read from their files.
             let installed = tokio::task::spawn_blocking(move || packages.installed())
@@ -199,8 +199,8 @@ fn installs_changes(packages: &Arc<PackageManager>) -> BoxStream<'static, Progra
 }
 
 /// Each start and end of a run from now on, as the runs list them.
-fn runs_changes(runs: &RunningApps) -> BoxStream<'static, ProgramChange> {
-    let ids = runs.running_ids();
+fn runs_changes(runs: &AppInstances) -> BoxStream<'static, ProgramChange> {
+    let ids = runs.running();
     let before = ids.borrow().clone();
     stream::unfold((ids, before), |(mut ids, before)| async move {
         ids.changed().await.ok()?;
@@ -247,26 +247,25 @@ mod tests {
 
     /// What an inspector sees of a test's WaOS in `folder`, with nothing running.
     fn programs_of(folder: &std::path::Path) -> (Started, ProgramsOnThisComputer) {
-        let setup = Setup::in_memory(folder);
+        let setup = Setup::in_memory(folder, tokio::runtime::Handle::current());
         let started = start_asking_nobody(setup, |_before| {
             let shell = test_engine::shell(Arc::new(NoWindows));
             (shell, test_engine::no_screens())
         });
         let starts = HeldStarts {
-            starter: Arc::clone(&started.starter),
+            instances: Arc::clone(&started.instances),
             packages: Arc::clone(&started.packages),
         };
         let programs = ProgramsOnThisComputer::new(
             started.storage.clone(),
             started.permissions.clone(),
-            Arc::clone(&started.running),
             starts,
             tokio::runtime::Handle::current(),
         );
         (started, programs)
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn an_inspector_sees_each_program_installed_with_its_icon_and_hears_an_install_whoever_makes_it()
      {
         let folder = tempfile::tempdir().unwrap();
@@ -301,7 +300,7 @@ mod tests {
         assert_eq!(programs.icon("dev.example.gone").await, None);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn an_app_that_does_not_run_has_its_own_folders_and_its_permissions() {
         let folder = tempfile::tempdir().unwrap();
         let (started, programs) = programs_of(folder.path());

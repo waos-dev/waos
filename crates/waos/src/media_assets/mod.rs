@@ -30,7 +30,7 @@ use crate::bindings::wasdk::platform::windows::Size;
 use crate::files::ProgramFiles;
 use crate::media_sources::{self, Named};
 use crate::network::ProgramNetwork;
-use crate::running::RunningProgram;
+use crate::running::AppInstance;
 use crate::shell::{MediaAssetFuture, ShellMediaAsset, ShellMediaAssets, VideoFrame};
 
 /// `media-assets.media-assets`: the shell's reading of media, as the program reaches it.
@@ -49,7 +49,7 @@ impl MediaAssets {
     /// anything else, refused.
     fn open(
         &self,
-        program: &RunningProgram,
+        program: &AppInstance,
         files: &mut ProgramFiles,
         network: &ProgramNetwork,
         source: &str,
@@ -65,7 +65,7 @@ impl MediaAssets {
     /// path outside the program's files.
     fn open_file(
         &self,
-        program: &RunningProgram,
+        program: &AppInstance,
         files: &mut ProgramFiles,
         path: &Path,
     ) -> MediaAsset {
@@ -79,7 +79,7 @@ impl MediaAssets {
     /// program's thread, lets it reach the host, and refused otherwise.
     fn open_once_reachable(
         &self,
-        program: &RunningProgram,
+        program: &AppInstance,
         network: &ProgramNetwork,
         link: Url,
     ) -> MediaAsset {

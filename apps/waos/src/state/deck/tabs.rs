@@ -37,14 +37,13 @@ use waft::{
     WidgetsBindingObserver,
 };
 use waos::bindings::wasdk::platform::views::ViewError;
-use waos::{PlacedView, Presence, ProgramEnd, ProgramView, RunningProgram, ViewRequest};
+use waos::{AppInstance, PlacedView, Presence, ProgramEnd, ProgramView, ViewRequest};
 use waos_package::ProgramId;
 use waos_program_window::ShownView;
 
 use super::tab_view::TabView;
-use crate::logic::app_starter::StartAnswer;
+use crate::logic::app_instances::{AppInstances, Opened};
 use crate::logic::program_places::TabRequest;
-use crate::logic::running_apps::RunningApps;
 use crate::logic::tab_list::{TabId, TabKind, TabList};
 use crate::logic::tab_page::page_metrics;
 
@@ -62,7 +61,7 @@ pub(crate) struct Tabs {
     /// request takes.
     screens: HashMap<TabId, (TabView, PlacedView)>,
     /// The programs running, which a tab closed stops.
-    runs: Arc<RunningApps>,
+    runs: Arc<AppInstances>,
 }
 
 /// One tab, as the deck shows it.
@@ -103,7 +102,7 @@ impl Tabs {
     /// in the deck after its first.
     pub(crate) fn listen(
         app: &mut App,
-        runs: Arc<RunningApps>,
+        runs: Arc<AppInstances>,
         requests: UnboundedReceiver<TabRequest>,
     ) -> Entity<Tabs> {
         let tabs = app.new_entity(|_| Tabs {
@@ -128,7 +127,7 @@ impl Tabs {
     /// where the program has no tab, or the deck can show none.
     fn view_requested(
         &mut self,
-        program: RunningProgram,
+        program: AppInstance,
         request: ViewRequest,
         cx: &mut Context<Tabs>,
     ) {
@@ -271,13 +270,13 @@ impl Tabs {
     pub(crate) fn started(
         &mut self,
         id: &ProgramId,
-        started: Option<StartAnswer>,
+        started: Option<Opened>,
         cx: &mut Context<Tabs>,
     ) {
         let starting = self.starting(id);
         let program = match started {
-            Some(StartAnswer::Started { program, .. }) => program,
-            Some(StartAnswer::RunningAlready(_)) | None => {
+            Some(Opened::Started { instance, .. }) => instance,
+            Some(Opened::RunningAlready(_)) | None => {
                 if starting.is_some() {
                     tracing::info!(%id, "it did not start in its tab: the tab goes");
                 }
@@ -303,7 +302,7 @@ impl Tabs {
         &mut self,
         tab: TabId,
         tab_view: TabView,
-        program: RunningProgram,
+        program: AppInstance,
         view: ProgramView,
         cx: &mut Context<Tabs>,
     ) {
@@ -393,7 +392,7 @@ impl Tabs {
             let last = self.list.tab_of(&id).is_none();
             let runs = Arc::clone(&self.runs);
             cx.spawn(async move |_cx| {
-                let Some(program) = runs.running(&id) else {
+                let Some(program) = runs.instance(&id) else {
                     return;
                 };
                 match view {
@@ -547,7 +546,7 @@ fn answer_requests(
 
 /// Marks `tab` ended, with no picture, once `program` ends on its own while the tab waits for its
 /// first request.
-fn end_while_waiting(cx: &mut Context<Tabs>, tab: TabId, program: &RunningProgram) {
+fn end_while_waiting(cx: &mut Context<Tabs>, tab: TabId, program: &AppInstance) {
     let ended = program.ended();
     let tabs = cx.weak_entity();
     cx.spawn(async move |cx| {
@@ -567,7 +566,7 @@ fn end_while_waiting(cx: &mut Context<Tabs>, tab: TabId, program: &RunningProgra
 fn end_when_ended(
     cx: &mut Context<Tabs>,
     tab: TabId,
-    program: &RunningProgram,
+    program: &AppInstance,
     shown: WeakEntity<ShownView>,
 ) {
     let ended = program.ended();

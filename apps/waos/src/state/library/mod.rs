@@ -20,17 +20,17 @@
 //! manager (`waos_services::packages`), as Android's launcher asks its package manager: an install
 //! is done once its code is compiled, and a program removed or updated while it runs ends first,
 //! its tab closing and its windows with it, as a system ends an app it uninstalls or updates, and
-//! opened by the app starter (`logic::app_starter`). What the package manager is doing to an app,
+//! opened among the app instances (`logic::app_instances`). What the package manager is doing to an app,
 //! whoever asked (an install in flight, its session begun at the tap, downloading or installing,
 //! or a removal), and a start optimizing it, compiling its code again, are shown on its tile and
-//! its page, read from the package manager and the starter alone. What was asked last and failed is the library's problem,
+//! its page, read from the package manager and the app instances alone. What was asked last and failed is the library's problem,
 //! until the next thing asked succeeds or the user dismisses it.
 //!
 //! The invariant: the library changes what is installed only through the package manager, and
 //! reads what is installed again after every change, with each program's icon, so what it shows
 //! is what is installed; a source's listing is read against the installed programs whenever either
-//! changes; which programs run is the running apps' own list, what is being done to which program
-//! the package manager's, and the starts under way the starter's, each as it last changed.
+//! changes; which apps run, and the opens under way, are the app instances' own, and what is being
+//! done to which app the package manager's, each as it last changed.
 
 #[cfg(desktop)]
 mod developer_access;
@@ -70,7 +70,9 @@ use waos_services::packages::{
 use waos_services::permissions::Permissions;
 use waos_services::sources::{Source, Sources, Url};
 
-use crate::logic::app_starter::{AppStarter, Opening, StartPlace, StartRequest, StartStage};
+use crate::logic::app_instances::{
+    AppInstances, OpenConfiguration, OpenPlace, OpenStage, OpenedFor,
+};
 use crate::logic::app_store::{
     AppStorePlace, CatalogApp, ListedSource, catalog, featured, updates,
 };
@@ -88,7 +90,6 @@ use crate::logic::preferences::{KeptPreferences, Preferences, PreferencesFile};
 use crate::logic::program_faces::program_face;
 use crate::logic::program_places::{ProgramPlace, ProgramPlaces};
 use crate::logic::program_shortcuts::SystemShortcuts;
-use crate::logic::running_apps::RunningApps;
 use crate::logic::setting_changes::Offered;
 use crate::logic::system_notifications::program_activation;
 use crate::state::deck::tabs::Tabs;
@@ -124,10 +125,8 @@ pub(crate) struct Library {
     sources: Sources,
     /// What is installed, and every change to it.
     packages: Arc<PackageManager>,
-    /// The apps running.
-    running_apps: Arc<RunningApps>,
-    /// What opens an installed app.
-    starter: Arc<AppStarter>,
+    /// What runs, and what opens an installed app.
+    instances: Arc<AppInstances>,
     /// What the user lets each app use.
     permissions: Permissions,
     /// What the apps run with, whose pickers' offers the settings show.
@@ -163,8 +162,8 @@ pub(crate) struct Library {
     /// How many of the library's works are under way, for a test to wait until each answered.
     #[cfg(test)]
     works: usize,
-    /// The starts under way, with their stage.
-    starting: watch::Receiver<BTreeMap<ProgramId, StartStage>>,
+    /// The opens under way, with their stage.
+    starting: watch::Receiver<BTreeMap<ProgramId, OpenStage>>,
     /// What the user is asked now, and then the packages opened with WaOS waiting their turn.
     questions: Vec<Question>,
     /// Why what was asked last failed.
@@ -313,8 +312,7 @@ pub(crate) fn work() -> Result<Arc<Runtime>> {
 pub(crate) struct LibraryDomains {
     pub(crate) sources: Sources,
     pub(crate) packages: Arc<PackageManager>,
-    pub(crate) running: Arc<RunningApps>,
-    pub(crate) starter: Arc<AppStarter>,
+    pub(crate) instances: Arc<AppInstances>,
     pub(crate) permissions: Permissions,
     pub(crate) environments: Arc<ProgramEnvironments>,
     pub(crate) places: ProgramPlaces,
@@ -328,8 +326,7 @@ impl LibraryDomains {
         LibraryDomains {
             sources: started.sources.clone(),
             packages: Arc::clone(&started.packages),
-            running: Arc::clone(&started.running),
-            starter: Arc::clone(&started.starter),
+            instances: Arc::clone(&started.instances),
             permissions: started.permissions.clone(),
             environments: Arc::clone(&started.environments),
             places: started.places.clone(),
@@ -376,8 +373,7 @@ impl Library {
         let LibraryDomains {
             sources,
             packages,
-            running,
-            starter,
+            instances,
             permissions,
             environments,
             places,
@@ -387,7 +383,7 @@ impl Library {
         let installed = packages.installed();
         let sessions = packages.sessions();
         let removing = packages.removing();
-        let starting = starter.starting();
+        let starting = instances.opening();
         let mut library = Library {
             icons: icons_of(&packages, &installed),
             installed,
@@ -396,8 +392,7 @@ impl Library {
             listings: Vec::new(),
             sources,
             packages,
-            running_apps: running,
-            starter,
+            instances,
             permissions,
             environments,
             places,
@@ -463,7 +458,7 @@ impl Library {
 
     /// Keeps which programs run as the runs' list changes, from now on.
     fn follow_running(&mut self, cx: &mut Context<Library>) {
-        let mut ids = self.running_apps.running_ids();
+        let mut ids = self.instances.running();
         self.running = ids.borrow_and_update().clone();
         follow(
             ids,
@@ -484,10 +479,10 @@ impl Library {
         follow(removing, |_library, _removing, cx| cx.notify(), cx);
     }
 
-    /// Shows the starts under way and their stage each time they change, from now on; they are
-    /// read from the starter as the library is shown.
+    /// Shows the opens under way and their stage each time they change, from now on; they are
+    /// read from the app instances as the library is shown.
     fn follow_starts(&mut self, cx: &mut Context<Library>) {
-        let starting = self.starter.starting();
+        let starting = self.instances.opening();
         follow(starting, |_library, _starting, cx| cx.notify(), cx);
     }
 
@@ -758,7 +753,7 @@ impl Library {
 
     /// Where a start of the app `id` under way is: optimizing its code or starting it; none while
     /// no start of it is under way.
-    pub(crate) fn start_stage(&self, id: &ProgramId) -> Option<StartStage> {
+    pub(crate) fn start_stage(&self, id: &ProgramId) -> Option<OpenStage> {
         self.starting.borrow().get(id).copied()
     }
 
@@ -779,7 +774,7 @@ impl Library {
     /// Stops the program `id` where it stands, without asking it: what ends a program that does
     /// not answer a quit. Nothing where it does not run.
     pub(crate) fn force_quit(&self, id: &ProgramId) {
-        let (runs, id) = (Arc::clone(&self.running_apps), id.clone());
+        let (runs, id) = (Arc::clone(&self.instances), id.clone());
         // The run is ended whether or not the task's handle is kept.
         drop(self.work.spawn(async move { runs.stop(&id).await }));
     }
@@ -865,16 +860,15 @@ impl Library {
             });
             return;
         }
-        let (starter, id) = (Arc::clone(&self.starter), id.clone());
+        let (instances, id) = (Arc::clone(&self.instances), id.clone());
         self.work_then(
             async move {
-                starter
-                    .start(StartRequest {
-                        place: StartPlace::Named(ProgramPlace::Windows),
-                        ..StartRequest::open(id.clone(), Opening::ByTheUser)
-                    })
-                    .await
-                    .map(drop)
+                let configuration = OpenConfiguration {
+                    place: OpenPlace::Named(ProgramPlace::Windows),
+                    ..OpenConfiguration::new(OpenedFor::User)
+                };
+                instances.open(&id, configuration).await.map(drop)?;
+                Ok(())
             },
             Library::program_opened,
             cx,
@@ -889,21 +883,20 @@ impl Library {
             Ok(false) => return,
             Err(why) => return self.failed(format!("{id} could not be opened: {why}"), cx),
         }
-        let (starter, id) = (Arc::clone(&self.starter), id.clone());
+        let (instances, id) = (Arc::clone(&self.instances), id.clone());
         let opening = id.clone();
         self.work_then(
             async move {
-                starter
-                    .start(StartRequest {
-                        place: StartPlace::Named(ProgramPlace::Tab),
-                        ..StartRequest::open(opening.clone(), Opening::ByTheUser)
-                    })
-                    .await
+                let configuration = OpenConfiguration {
+                    place: OpenPlace::Named(ProgramPlace::Tab),
+                    ..OpenConfiguration::new(OpenedFor::User)
+                };
+                instances.open(&opening, configuration).await
             },
             move |library, opened, cx| {
                 let (started, opened) = match opened {
                     Ok(started) => (Some(started), Ok(())),
-                    Err(error) => (None, Err(error)),
+                    Err(error) => (None, Err(error.into())),
                 };
                 tabs.update(cx, |tabs, cx| tabs.started(&id, started, cx));
                 library.program_opened(opened, cx);
@@ -921,10 +914,10 @@ impl Library {
         cx: &mut Context<Library>,
     ) {
         self.opened(id, None, cx);
-        let (starter, running) = (Arc::clone(&self.starter), Arc::clone(&self.running_apps));
-        let (packages, id) = (Arc::clone(&self.packages), id.clone());
+        let (instances, packages) = (Arc::clone(&self.instances), Arc::clone(&self.packages));
+        let id = id.clone();
         self.work_then(
-            async move { opening::open_with(&starter, &running, &packages, &id, request).await },
+            async move { opening::open_with(&instances, &packages, &id, request).await },
             Library::program_opened,
             cx,
         );
@@ -941,12 +934,11 @@ impl Library {
         cx: &mut Context<Library>,
     ) {
         self.opened(id, None, cx);
-        let (starter, running) = (Arc::clone(&self.starter), Arc::clone(&self.running_apps));
-        let (packages, id) = (Arc::clone(&self.packages), id.clone());
+        let (instances, packages) = (Arc::clone(&self.instances), Arc::clone(&self.packages));
+        let id = id.clone();
         self.work_then(
             async move {
-                opening::notification_activated(&starter, &running, &packages, &id, activation)
-                    .await
+                opening::notification_activated(&instances, &packages, &id, activation).await
             },
             Library::program_opened,
             cx,

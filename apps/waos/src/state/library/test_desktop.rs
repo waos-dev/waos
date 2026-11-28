@@ -45,6 +45,7 @@ use super::{
     Library, LibraryDomains, ProgramsOpen, open_library, open_settings_when_asked,
     show_phone_files, work,
 };
+use crate::logic::app_instances::AppInstances;
 use crate::logic::opened_package::tests::{write_package, write_package_of, write_package_showing};
 use crate::logic::package_copies::PackageCopies;
 use crate::logic::phone_files::PhoneFilesAccess;
@@ -54,7 +55,6 @@ use crate::logic::preferences::PreferencesFile;
 use crate::logic::program_faces::ProgramFaces;
 use crate::logic::prompts::{MachinePickerOnRequest, OutputPickerOnRequest, PromptsOnRequest};
 use crate::logic::recording_indicator::RecordingIndicatorOnRequest;
-use crate::logic::running_apps::RunningApps;
 use crate::logic::startup::{self, Outside, Setup};
 use crate::logic::test_engine;
 use crate::logic::test_outputs::StatedOutputs;
@@ -89,7 +89,7 @@ pub(crate) struct LibraryDesktop {
     pub(crate) activity: ActivityRecord,
     /// What the user lets each app use.
     pub(crate) permissions: waos_services::permissions::Permissions,
-    pub(crate) runs: Arc<RunningApps>,
+    pub(crate) runs: Arc<AppInstances>,
     /// What the engine asks the user through, for a test to ask as a program does.
     pub(crate) prompts: Arc<PromptsOnRequest>,
     /// What the engine shows its picker of outputs through, for a test to pick as a program does.
@@ -167,11 +167,11 @@ impl LibraryDesktop {
             .then(|| PreferencesFile::at(folder.path().join("preferences.toml")));
         let copies = PackageCopies::clear(folder.path().join("package-copies")).unwrap();
         let work = work().unwrap();
-        let setup = Setup::on_files(folder.path());
+        let setup = Setup::on_files(folder.path(), work.handle().clone());
         let (started, (prompts, prompted, requests)) = startup::start(
             setup,
-            |running| {
-                let (prompts, prompted) = PromptsOnRequest::new(Arc::clone(running));
+            || {
+                let (prompts, prompted) = PromptsOnRequest::new();
                 let prompts = Arc::new(prompts);
                 (
                     Arc::clone(&prompts) as Arc<dyn Prompts>,
@@ -193,7 +193,7 @@ impl LibraryDesktop {
         .expect("WaOS starts");
         let domains = LibraryDomains::of(&started);
         let startup::Started {
-            running: runs,
+            instances: runs,
             packages,
             permissions,
             activity,

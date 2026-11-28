@@ -204,7 +204,7 @@ impl ProgramView {
     }
 
     /// The shell took the view away, as the window it was in closed: its events end, and the
-    /// program hears of it, as [`RunningProgram::remove_view`](crate::RunningProgram::remove_view)
+    /// program hears of it, as [`AppInstance::remove_view`](crate::AppInstance::remove_view)
     /// does, for a shell's window that holds its view and not its program.
     pub fn remove(&self) {
         if let Some(views) = self.0.views.upgrade() {

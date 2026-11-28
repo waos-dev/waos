@@ -34,7 +34,7 @@ use crate::lifecycle::FreezePolicy;
 use crate::menus::MenuPlaces;
 use crate::network::HttpProxy;
 use crate::program::Program;
-use crate::running::{HeldProgram, Hold, ProgramStart, Programs, RunningProgram};
+use crate::running::{AppInstance, HeldProgram, Hold, ProgramStart, Programs};
 use crate::screens::{Screen, Screens};
 use crate::screenshots::Screenshots;
 use crate::shell::{AcceptedBuffers, GpuId, Shell, ShellClipboardItem};
@@ -277,11 +277,7 @@ impl WaOS {
     /// Starts `program` on a thread of its own, with `environment` as its capabilities and a
     /// `/tmp` of its own. It has no view until it asks for one, and every request goes to the
     /// shell's placement.
-    pub fn run(
-        &self,
-        program: &Program,
-        environment: ProgramEnvironment,
-    ) -> Result<RunningProgram> {
+    pub fn run(&self, program: &Program, environment: ProgramEnvironment) -> Result<AppInstance> {
         self.start(program, environment, None)
     }
 
@@ -292,7 +288,7 @@ impl WaOS {
         &self,
         program: &Program,
         environment: ProgramEnvironment,
-    ) -> Result<(RunningProgram, HeldProgram)> {
+    ) -> Result<(AppInstance, HeldProgram)> {
         let (held, hold) = crate::running::hold();
         let running = self.start(program, environment, Some(hold))?;
         Ok((running, held))
@@ -303,7 +299,7 @@ impl WaOS {
         program: &Program,
         environment: ProgramEnvironment,
         hold: Option<Hold>,
-    ) -> Result<RunningProgram> {
+    ) -> Result<AppInstance> {
         ensure!(
             Engine::same(&self.engine, program.component().engine()),
             "{} was loaded by another engine",
@@ -351,7 +347,7 @@ impl WaOS {
             view_layers: Arc::default(),
             hold,
         };
-        RunningProgram::start(start, temporary)
+        AppInstance::start(start, temporary)
     }
 
     /// The system suspended WaOS (iOS's `didEnterBackground`, Android's `ProcessLifecycleOwner`
@@ -359,7 +355,7 @@ impl WaOS {
     /// policy's grace period, and is frozen then; one started before WaOS resumes starts so.
     /// Resolves once no GPU work of any program is in flight, which the shell awaits before it
     /// lets the system suspend WaOS: iOS refuses GPU work from a suspended app. What tells a
-    /// program has frozen is [`RunningProgram::frozen`].
+    /// program has frozen is [`AppInstance::frozen`].
     pub fn suspend(&self) -> impl Future<Output = ()> + Send + 'static + use<> {
         let gpu_work_done = self.programs.suspend();
         // A program frozen at once steps out of its code at an epoch tick: this one, rather
@@ -549,7 +545,7 @@ mod tests {
     impl ViewPlacement for PlacedOn {
         fn view_requested(
             &self,
-            program: &RunningProgram,
+            program: &AppInstance,
             request: ViewRequest,
         ) -> Result<(), ViewError> {
             program.add_view(request.id, placed_view(&self.0));

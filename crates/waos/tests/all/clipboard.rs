@@ -25,8 +25,7 @@ use tempfile::TempDir;
 #[cfg(target_vendor = "apple")]
 use waos::ProgramOutput;
 use waos::{
-    Answer, ProgramEnd, ProgramEnvironment, ProgramGrants, ProgramView, Question, RunningProgram,
-    WaOS,
+    Answer, AppInstance, ProgramEnd, ProgramEnvironment, ProgramGrants, ProgramView, Question, WaOS,
 };
 use waos_capabilities::{ChangedFuture, DomainRule, FileSystemGrant, NetworkGrant, ProgramFolders};
 
@@ -234,7 +233,7 @@ fn run_until_written(
     shell: &TestShell,
     folders: &Folders,
     output: &Arc<RecordedOutput>,
-) -> (RunningProgram, ProgramView) {
+) -> (AppInstance, ProgramView) {
     let running = start(engine, folders, output, Switches::on());
     let window = within(shell.headless.view(0))
         .and_then(|shown| shown.view())
@@ -252,7 +251,7 @@ fn run_until_written(
 /// Starts `examples/copy-paste` with its switches on and this computer's fonts, as an app gives
 /// them.
 #[cfg(target_vendor = "apple")]
-fn start_copy_paste(engine: &WaOS, output: &Arc<RecordedOutput>) -> RunningProgram {
+fn start_copy_paste(engine: &WaOS, output: &Arc<RecordedOutput>) -> AppInstance {
     let program = engine
         .load(
             Path::new(waos_test_programs::COPY_PASTE),
@@ -272,7 +271,7 @@ fn start(
     folders: &Folders,
     output: &Arc<RecordedOutput>,
     switches: Arc<Switches>,
-) -> RunningProgram {
+) -> AppInstance {
     let program = engine
         .load(
             Path::new(waos_test_programs::CLIPBOARD),

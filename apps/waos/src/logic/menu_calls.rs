@@ -18,7 +18,7 @@ use futures::channel::oneshot;
 use waos::bindings::wasdk::platform::menus::{Image, MenuEntry, TrayIconError};
 use waos::bindings::wasdk::platform::views::ViewId;
 use waos::{
-    MenuChosenFuture, RunningProgram, ShellAttachedMenu, ShellContextMenus, ShellMenuAtIcon,
+    AppInstance, MenuChosenFuture, ShellAttachedMenu, ShellContextMenus, ShellMenuAtIcon,
     ShellTrayIcon, ShellTrayIcons, TrayIconAddFuture, TrayIconReports,
 };
 
@@ -29,7 +29,7 @@ pub(crate) type IconKey = u64;
 pub(crate) enum MenuCall {
     /// A menu opened at a point of one of the program's views, in its physical pixels.
     ContextMenu {
-        program: RunningProgram,
+        program: AppInstance,
         view: ViewId,
         at: (f64, f64),
         entries: Vec<MenuEntry>,
@@ -89,7 +89,7 @@ impl MenusOnRequest {
 impl ShellContextMenus for MenusOnRequest {
     fn show(
         &self,
-        program: &RunningProgram,
+        program: &AppInstance,
         view: ViewId,
         x: f64,
         y: f64,
@@ -110,7 +110,7 @@ impl ShellContextMenus for MenusOnRequest {
 impl ShellTrayIcons for MenusOnRequest {
     fn add(
         &self,
-        _program: &RunningProgram,
+        _program: &AppInstance,
         image: &Image,
         tooltip: Option<&str>,
         reports: TrayIconReports,

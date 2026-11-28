@@ -97,7 +97,7 @@ impl Frames {
     }
 
     /// The next frame, once one is queued; none once closed and drained.
-    pub(in crate::logic) async fn next(&self) -> Option<RunEvent> {
+    pub(crate) async fn next(&self) -> Option<RunEvent> {
         loop {
             let woken = self.wake.notified();
             {

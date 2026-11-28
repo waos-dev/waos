@@ -15,7 +15,7 @@ use waos::bindings::wasdk::platform::hardware_buffers::{
 };
 use waos::bindings::wasdk::platform::windows::Size;
 use waos::{
-    HardwareBuffer, ImageFuture, OpenedImage, RunningProgram, ShellHardwareImageCodecs,
+    AppInstance, HardwareBuffer, ImageFuture, OpenedImage, ShellHardwareImageCodecs,
     ShellImageCodecs, ShellImageSource,
 };
 use waos_headless::testing::Changes;
@@ -195,7 +195,7 @@ impl Shared {
 
     fn opened(
         self: &Arc<Self>,
-        program: &RunningProgram,
+        program: &AppInstance,
         from: OpenedFrom,
     ) -> ImageFuture<OpenedImage> {
         self.ask(Asked::Open {
@@ -247,15 +247,11 @@ impl ShellImageCodecs for TestImageCodecs {
         self.shared.answers().encoded_formats
     }
 
-    fn open(&self, program: &RunningProgram, data: Vec<u8>) -> ImageFuture<OpenedImage> {
+    fn open(&self, program: &AppInstance, data: Vec<u8>) -> ImageFuture<OpenedImage> {
         self.shared.opened(program, OpenedFrom::Bytes(data.len()))
     }
 
-    fn open_file(
-        &self,
-        program: &RunningProgram,
-        path: &std::path::Path,
-    ) -> ImageFuture<OpenedImage> {
+    fn open_file(&self, program: &AppInstance, path: &std::path::Path) -> ImageFuture<OpenedImage> {
         self.shared
             .opened(program, OpenedFrom::File(path.to_owned()))
     }

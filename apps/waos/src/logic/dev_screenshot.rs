@@ -20,15 +20,15 @@ use waos_dev_protocol::{
 };
 use waos_package::ProgramId;
 
+use super::app_instances::{AppInstances, DrivenProgram};
 use super::asking_now::AskingNow;
 use super::dev_refusal;
-use super::running_apps::{DrivenProgram, RunningApps};
 
 /// Answers a connection's `Screenshot`: the pictures of the windows of the program `id`, or of
 /// `window` alone, or why neither was taken.
 pub(crate) async fn answer(
     mut connection: ServerConnection,
-    runs: &RunningApps,
+    runs: &AppInstances,
     asking: &AskingNow,
     id: &ProgramId,
     window: Option<WindowId>,

@@ -19,8 +19,8 @@ use futures::FutureExt;
 use tempfile::TempDir;
 use waos::bindings::wasdk::media::cameras::{CameraError, CameraInterruption, CaptureState};
 use waos::{
-    Answer, ProgramEnd, ProgramEnvironment, ProgramGrants, Question, RecordingDevice,
-    RunningProgram, WaOS,
+    Answer, AppInstance, ProgramEnd, ProgramEnvironment, ProgramGrants, Question, RecordingDevice,
+    WaOS,
 };
 use waos_capabilities::{ProgramFolders, Setting};
 
@@ -291,7 +291,7 @@ fn sizes(sizes: &[waos::bindings::wasdk::platform::windows::Size]) -> Vec<String
 
 /// `examples/cameras` running with grants of the test's, in folders of its own.
 struct Run {
-    running: RunningProgram,
+    running: AppInstance,
     output: Arc<RecordedOutput>,
     _folders: TempDir,
 }

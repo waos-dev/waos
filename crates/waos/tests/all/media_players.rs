@@ -21,7 +21,7 @@ use waos::bindings::wasdk::media::media_players::{
     MediaTrackKind, PauseReason, PlayerActivity, PlayerState, PlayerStatus,
 };
 use waos::bindings::wasdk::platform::windows::Size;
-use waos::{ProgramEnd, ProgramEnvironment, ProgramGrants, RunningProgram, WaOS};
+use waos::{AppInstance, ProgramEnd, ProgramEnvironment, ProgramGrants, WaOS};
 use waos_capabilities::ProgramFolders;
 
 use crate::reaching::{TestGrants, off};
@@ -218,7 +218,7 @@ fn ready(size: Option<(f64, f64)>) -> PlayerState {
 /// `examples/media-players` running with grants of the test's, the sources it plays written in
 /// its `/data/sources`, beside a clip of its own, `/data/clip.mp4`.
 struct Run {
-    running: RunningProgram,
+    running: AppInstance,
     output: Arc<RecordedOutput>,
     folders: TempDir,
 }

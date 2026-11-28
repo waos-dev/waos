@@ -1,16 +1,16 @@
-//! What `waos launch` and `waos stop` ask. A launch starts an
-//! installed program, a development install or any other, in place of its run if it runs, which
-//! ends `Replaced` (`app_starter`), with the launch's arguments and the variables it
-//! alone adds, and its output going to the attaches (`launch_outputs`). Where its
-//! code is compiled first, after a compiler change, the starter says the start is `Optimizing`,
-//! and the connection hears `Compiling`. The launch is answered `Launched` once the
-//! program runs, and the program runs on whoever attaches or not, until it ends or is stopped; a
-//! launch whose connection closes while its code compiles, as Ctrl-C in `waos run` closes it, is
-//! not started. A stop ends the program running, however it was started.
+//! What `waos launch` and `waos stop` ask. A launch opens an installed app, a development install
+//! or any other, in place of its instance if it runs, which ends `Replaced` (`app_instances`),
+//! with the launch's arguments and the variables it alone adds, and its output going to the
+//! attaches (`launch_outputs`). Where its code is compiled first, after a compiler change, the app
+//! instances say the open is `Optimizing`, and the connection hears `Compiling`. The launch is
+//! answered `Launched` once the instance runs, and it runs on whoever attaches or not, until it
+//! ends or is stopped; a launch whose connection closes while its code compiles, as Ctrl-C in
+//! `waos run` closes it, is not started. A stop ends the app's instance running, however it was
+//! opened.
 //!
-//! The invariant: a launched run's end is told to its output, then the run is taken out of the
-//! running apps, by a task of the server's runtime (`app_starter`), so every attach
-//! hears how it ended and the runs never hold an ended program.
+//! The invariant: a launched instance's end is told to its output, then the instance is taken out
+//! of the list, by a task of the app instances' runtime (`app_instances`), so every attach hears
+//! how it ended and the list never holds an ended instance.
 
 use std::sync::Arc;
 
@@ -21,14 +21,13 @@ use waos_dev_protocol::{
 use waos_package::ProgramId;
 use waos_services::packages::PackageManager;
 
-use super::app_starter::{AppStarter, Opening, StartPlace, StartRequest, StartStage};
+use super::app_instances::{AppInstances, OpenConfiguration, OpenPlace, OpenStage, OpenedFor};
 use super::dev_refusal;
-use super::running_apps::{IfRunning, RunningApps};
 
 /// What launching and stopping need of the app.
 #[derive(Clone)]
 pub(crate) struct LaunchContext {
-    pub(crate) starter: Arc<AppStarter>,
+    pub(crate) instances: Arc<AppInstances>,
     pub(crate) packages: Arc<PackageManager>,
 }
 
@@ -52,7 +51,7 @@ pub(crate) async fn launch(connection: ServerConnection, launch: Launch, context
     let _ = writing.send(&answer).await;
 }
 
-/// Starts the installed program `launch` names, telling `writing` `Compiling` while its code is
+/// Opens the installed app `launch` names, telling `writing` `Compiling` while its code is
 /// compiled first; not started where `reading` closes before it starts.
 async fn start(
     writing: &mut ServerWriteHalf,
@@ -68,20 +67,20 @@ async fn start(
     if context.packages.installed_program(&id).is_none() {
         return Err(dev_refusal::not_installed(&id));
     }
-    let request = StartRequest {
-        if_running: IfRunning::Replace,
-        place: StartPlace::AsItWas,
+    let configuration = OpenConfiguration {
+        replaces_running: true,
+        place: OpenPlace::AsItWas,
         arguments,
         variables,
-        ..StartRequest::open(id.clone(), Opening::ByTheDeveloper)
+        ..OpenConfiguration::new(OpenedFor::Development)
     };
-    let launching = context.starter.start(request);
+    let launching = context.instances.open(&id, configuration);
     let closing = closed(reading);
-    let mut starting = context.starter.starting();
+    let mut starting = context.instances.opening();
     let mut told = false;
     tokio::pin!(launching, closing);
     loop {
-        let optimizing = starting.borrow_and_update().get(&id) == Some(&StartStage::Optimizing);
+        let optimizing = starting.borrow_and_update().get(&id) == Some(&OpenStage::Optimizing);
         if optimizing && !told {
             told = true;
             // A client gone meanwhile hears nothing; the launch goes on.
@@ -123,8 +122,9 @@ async fn closed(mut reading: ServerReadHalf) {
     }
 }
 
-/// Serves a connection's `Stop`: the program `id` ended, however it was started, or why not.
-pub(crate) async fn stop(mut connection: ServerConnection, id: &ProgramId, runs: &RunningApps) {
+/// Serves a connection's `Stop`: the instance of the app `id` ended, however it was opened, or why
+/// not.
+pub(crate) async fn stop(mut connection: ServerConnection, id: &ProgramId, runs: &AppInstances) {
     let answer = if runs.stop(id).await {
         StopAnswer::Stopped
     } else {

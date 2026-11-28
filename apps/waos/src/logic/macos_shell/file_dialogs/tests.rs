@@ -29,7 +29,7 @@ fn file_dialogs_id() -> ProgramId {
 fn file_dialogs_through(
     window_processes: &Arc<WindowProcesses>,
     printed: &Arc<Printed>,
-) -> RunningProgram {
+) -> AppInstance {
     let mut shell = test_engine::shell(Arc::new(NoWindows));
     shell.file_dialogs = Some(Arc::clone(window_processes) as Arc<dyn ShellFileDialogs>);
     let engine = test_engine::engine_over(shell, EngineTime::Real);
@@ -150,7 +150,7 @@ async fn a_file_dialog_whose_app_never_comes_fails_with_why() {
     launches.fail(0, "Launch Services: no app").await;
     launches.fail(1, "Launch Services: no app").await;
     printed
-        .line("open: failed (the program's app did not start: Launch Services: no app)")
+        .line("open: failed (the app's window process did not start: Launch Services: no app)")
         .await;
     launches.until(3).await;
     assert_eq!(

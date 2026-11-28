@@ -1,17 +1,15 @@
-//! WaOS's prompts over its own windows: over each of a program's windows, the prompt shown for it,
-//! in the middle of the window over a dimmed backdrop that keeps the program's canvas from the
+//! WaOS's prompts over its own windows: over each of an app's windows, the prompt shown for the
+//! app, in the middle of the window over a dimmed backdrop that keeps the app's canvas from the
 //! pointer ([`PromptOver`]), rebuilt when a prompt comes or goes. A prompt's window of its own is
 //! the prompt alone (`PromptWindows::content_of`).
 
 use std::fmt::{self, Debug};
 
+use crate::state::prompt_windows::ShownPrompts;
 use waft::{
     App, BorderRadius, BuildContext, Center, ClipRRect, Color, ColoredBox, Entity, IntoWidget,
     SizedBox, StatelessWidget, WidgetRef,
 };
-use waos::RunningProgram;
-
-use crate::state::prompt_windows::ShownPrompts;
 
 /// Over the program's window, behind the prompt: dims it.
 const BACKDROP: Color = Color::from_argb(96, 0, 0, 0);
@@ -20,16 +18,17 @@ const BACKDROP: Color = Color::from_argb(96, 0, 0, 0);
 const WIDTH: f64 = 380.0;
 const CORNER_RADIUS: f64 = 8.0;
 
-/// What is shown over a window of `program`'s: its prompt shown, over the backdrop, or nothing.
+/// What is shown over a window of the app `app`, by the name its instance runs under: its prompt
+/// shown, over the backdrop, or nothing.
 pub(crate) struct PromptOver {
     pub(crate) shown: Entity<ShownPrompts>,
-    pub(crate) program: RunningProgram,
+    pub(crate) app: String,
 }
 
 impl Debug for PromptOver {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("PromptOver")
-            .field("program", &self.program.name())
+            .field("app", &self.app)
             .finish_non_exhaustive()
     }
 }
@@ -40,7 +39,7 @@ impl StatelessWidget for PromptOver {
             .read(app)
             .prompts()
             .iter()
-            .find(|shown| shown.program == self.program)
+            .find(|shown| shown.app.as_str() == self.app)
             .map_or_else(
                 || SizedBox::shrink().into_widget(),
                 |shown| over(&shown.prompt),

@@ -1,12 +1,12 @@
 //! A program's name as its user knows it: an installed program's name, which its package gives,
 //! else what it runs as, as a program `waos` sends runs under its id.
 
-use waos::RunningProgram;
+use waos::AppInstance;
 use waos_package::ProgramId;
 use waos_services::packages::PackageManager;
 
 /// `program`'s name: its name in `packages` where it is installed there, else what it runs as.
-pub(crate) fn program_name(packages: &PackageManager, program: &RunningProgram) -> String {
+pub(crate) fn program_name(packages: &PackageManager, program: &AppInstance) -> String {
     name_of(packages, program.name())
 }
 

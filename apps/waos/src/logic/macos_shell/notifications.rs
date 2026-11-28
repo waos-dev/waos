@@ -34,9 +34,8 @@ use std::time::SystemTime;
 
 use waos::bindings::wasdk::platform::notifications::NotificationError;
 use waos::{
-    Notification, NotificationFuture, RunningProgram, ShellNotificationScheduling,
-    ShellNotifications, ShellSystemPermissions, SystemPermission, SystemPermissionFuture,
-    SystemPermissionState,
+    AppInstance, Notification, NotificationFuture, ShellNotificationScheduling, ShellNotifications,
+    ShellSystemPermissions, SystemPermission, SystemPermissionFuture, SystemPermissionState,
 };
 
 use super::window_processes::{WindowProcesses, app_id};
@@ -66,8 +65,8 @@ impl AppNotifications {
 
     /// Puts macOS's question for `program`'s notifications in its app, launched for it if it does
     /// not run, and answers what macOS says then; what it said before where the app never came.
-    fn request_from_macos(&self, program: &RunningProgram) -> SystemPermissionFuture {
-        let app = self.window_processes.of(program);
+    fn request_from_macos(&self, program: &AppInstance) -> SystemPermissionFuture {
+        let app = self.window_processes.of_instance(program);
         let before = self.permission_state(program);
         Box::pin(async move {
             let answered = match app.await {
@@ -83,21 +82,18 @@ impl AppNotifications {
 
     /// What the app of `program` last said macOS says of its notifications; not asked for a
     /// program with no app, whose question then finds no app to put it.
-    fn permission_state(&self, program: &RunningProgram) -> SystemPermissionState {
+    fn permission_state(&self, program: &AppInstance) -> SystemPermissionState {
         match app_id(program) {
             Ok(id) => self.permissions.state(&id),
             Err(_) => SystemPermissionState::NotAsked,
         }
     }
 
-    /// Has the app of each of `programs` that runs read macOS's permission for the program's
-    /// notifications again, telling it as it tells every reading; launches no app for it, since an
-    /// app reads it as WaOS welcomes it.
-    pub(crate) fn read_system_permissions(&self, programs: &[RunningProgram]) {
-        let running = programs
-            .iter()
-            .filter_map(|program| self.window_processes.running(program));
-        for app in running {
+    /// Has the window process of each app that runs one read macOS's permission for the app's
+    /// notifications again, telling it as it tells every reading; launches none for it, since a
+    /// window process reads it as WaOS welcomes it.
+    pub(crate) fn read_system_permissions(&self) {
+        for app in self.window_processes.all_running() {
             app.read_notification_permission();
         }
     }
@@ -106,11 +102,11 @@ impl AppNotifications {
     /// it, or why not.
     fn post_in_app(
         &self,
-        program: &RunningProgram,
+        program: &AppInstance,
         notification: &Notification,
         at: Option<SystemTime>,
     ) -> NotificationFuture {
-        let app = self.window_processes.of(program);
+        let app = self.window_processes.of_instance(program);
         let notification = notification.clone();
         Box::pin(async move {
             match app.await {
@@ -122,14 +118,14 @@ impl AppNotifications {
 }
 
 impl ShellNotifications for AppNotifications {
-    fn post(&self, program: &RunningProgram, notification: &Notification) -> NotificationFuture {
+    fn post(&self, program: &AppInstance, notification: &Notification) -> NotificationFuture {
         self.post_in_app(program, notification, None)
     }
 
-    fn remove(&self, program: &RunningProgram, id: &str) {
+    fn remove(&self, program: &AppInstance, id: &str) {
         let id = id.to_owned();
         self.window_processes
-            .with_app(program, move |app| match app {
+            .with_instance(program, move |app| match app {
                 Ok(app) => app.remove_notification(id),
                 Err(why) => tracing::warn!(why, "a notification is left as it is"),
             });
@@ -147,7 +143,7 @@ impl ShellNotifications for AppNotifications {
 impl ShellNotificationScheduling for AppNotifications {
     fn schedule(
         &self,
-        program: &RunningProgram,
+        program: &AppInstance,
         notification: &Notification,
         at: SystemTime,
     ) -> NotificationFuture {
@@ -162,7 +158,7 @@ impl ShellSystemPermissions for AppNotifications {
     fn state(
         &self,
         permission: SystemPermission<'_>,
-        program: &RunningProgram,
+        program: &AppInstance,
     ) -> SystemPermissionState {
         match permission {
             SystemPermission::Notifications => self.permission_state(program),
@@ -173,7 +169,7 @@ impl ShellSystemPermissions for AppNotifications {
     fn request(
         &self,
         permission: SystemPermission<'_>,
-        program: &RunningProgram,
+        program: &AppInstance,
     ) -> SystemPermissionFuture {
         match permission {
             SystemPermission::Notifications => self.request_from_macos(program),

@@ -23,7 +23,7 @@ use waos::bindings::wasdk::media::media_players::{
     MediaMetadata, MediaTrack, PlayerError, PlayerErrorKind, SeekTolerance,
 };
 use waos::bindings::wasdk::platform::windows::Size;
-use waos::{MediaAssetFuture, RunningProgram, ShellMediaAsset, ShellMediaAssets, VideoFrame};
+use waos::{AppInstance, MediaAssetFuture, ShellMediaAsset, ShellMediaAssets, VideoFrame};
 
 use super::app_thread_bound::{AppThreadBound, AppThreadCalls};
 use crate::logic::camera_values::waft_size;
@@ -77,7 +77,7 @@ struct AssetsOnRequest {
 }
 
 impl ShellMediaAssets for AssetsOnRequest {
-    fn open(&self, program: &RunningProgram, url: &str) -> Box<dyn ShellMediaAsset> {
+    fn open(&self, program: &AppInstance, url: &str) -> Box<dyn ShellMediaAsset> {
         tracing::info!(
             program = program.name(),
             url,

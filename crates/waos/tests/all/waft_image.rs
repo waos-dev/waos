@@ -8,7 +8,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use waos::{ProgramEnd, ProgramEnvironment, ProgramOutput, ProgramView, RunningProgram, WaOS};
+use waos::{AppInstance, ProgramEnd, ProgramEnvironment, ProgramOutput, ProgramView, WaOS};
 
 use crate::test_shell::image_codecs::{
     Asked, ImageAnswers, ImageFacts, OpenedFrom, TestImageCodecs,
@@ -58,7 +58,7 @@ fn a_memory_image_decodes_into_the_programs_memory_without_hardware_codecs_and_d
 }
 
 /// Waft-image running on `engine`, over `shell`, and its window's view, once it has arrived.
-fn run(engine: &WaOS, shell: &TestShell) -> (RunningProgram, ProgramView) {
+fn run(engine: &WaOS, shell: &TestShell) -> (AppInstance, ProgramView) {
     let program = engine
         .load(
             Path::new(waos_test_programs::WAFT_IMAGE),
@@ -118,7 +118,7 @@ fn middle_of(view: &ProgramView) -> Option<[u8; 4]> {
 }
 
 /// Closes the window, which ends the program.
-fn end(running: &RunningProgram, view: &ProgramView) {
+fn end(running: &AppInstance, view: &ProgramView) {
     view.close_requested();
     let end = within(running.ended());
     assert!(matches!(end, ProgramEnd::Returned(Ok(()))), "{end:?}");

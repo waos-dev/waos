@@ -16,7 +16,7 @@ use std::thread;
 
 use tempfile::TempDir;
 use waos::{
-    ProgramEnd, ProgramEnvironment, ProgramGrants, ProgramOutput, ProgramView, RunningProgram, WaOS,
+    AppInstance, ProgramEnd, ProgramEnvironment, ProgramGrants, ProgramOutput, ProgramView, WaOS,
 };
 use waos_capabilities::ProgramFolders;
 
@@ -79,7 +79,7 @@ fn trailers_go_both_ways_and_a_307_keeps_a_held_body_but_not_a_streamed_one() {
 }
 
 /// Closes the window, which ends the program.
-fn end(running: &RunningProgram, view: &ProgramView, output: &RecordedOutput) {
+fn end(running: &AppInstance, view: &ProgramView, output: &RecordedOutput) {
     view.close_requested();
     let end = within(running.ended());
     assert!(

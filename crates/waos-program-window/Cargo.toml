@@ -12,6 +12,8 @@ description = "A program's windows as its user meets them, on any desktop: each 
 waos.workspace = true
 # A program's calls on its view, as the values they are on both sides of a process.
 waos-window-messages.workspace = true
+# An app's id, which WaOS's prompts for the app are shown by.
+waos-package.workspace = true
 futures.workspace = true
 tracing.workspace = true
 waft.workspace = true

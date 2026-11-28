@@ -16,14 +16,14 @@ use crate::bindings::wasdk::platform::menus::{
     HostTrayIconWithStore, HostTrayIcons, HostTrayIconsWithStore, Image, MenuEntry, TrayIconError,
     TrayIconEvent,
 };
-use crate::running::RunningProgram;
+use crate::running::AppInstance;
 use crate::stream::stream_holding;
 use crate::views::ProgramView;
 
 /// What the menus interface reads and writes in a program's store.
 pub(crate) struct MenusCtx<'a> {
     pub(crate) table: &'a mut ResourceTable,
-    pub(crate) program: &'a RunningProgram,
+    pub(crate) program: &'a AppInstance,
     pub(crate) places: &'a MenuPlaces,
 }
 

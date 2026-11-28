@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use waos::bindings::wasdk::platform::opener::OpenError;
-use waos::{OpenFuture, RunningProgram, ShellOpener};
+use waos::{AppInstance, OpenFuture, ShellOpener};
 use waos_headless::testing::Changes;
 
 /// What was opened, and what no app opens.
@@ -67,7 +67,7 @@ impl TestOpener {
 }
 
 impl ShellOpener for TestOpener {
-    fn open_link(&self, program: &RunningProgram, link: &str) -> OpenFuture {
+    fn open_link(&self, program: &AppInstance, link: &str) -> OpenFuture {
         let call = Opened::Link {
             program: program.name().to_owned(),
             link: link.to_owned(),
@@ -75,7 +75,7 @@ impl ShellOpener for TestOpener {
         self.answer(call, link)
     }
 
-    fn open_file(&self, program: &RunningProgram, path: &Path) -> OpenFuture {
+    fn open_file(&self, program: &AppInstance, path: &Path) -> OpenFuture {
         let call = Opened::File {
             program: program.name().to_owned(),
             path: path.to_owned(),
@@ -83,7 +83,7 @@ impl ShellOpener for TestOpener {
         self.answer(call, &path.to_string_lossy())
     }
 
-    fn reveal_file(&self, program: &RunningProgram, path: &Path) -> OpenFuture {
+    fn reveal_file(&self, program: &AppInstance, path: &Path) -> OpenFuture {
         let call = Opened::Revealed {
             program: program.name().to_owned(),
             path: path.to_owned(),

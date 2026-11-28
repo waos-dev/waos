@@ -9,8 +9,8 @@ use futures::FutureExt;
 use futures::channel::oneshot;
 use futures::future::ready;
 use waos::{
-    AudioDeviceError, AudioDevices, AudioOutput, AudioOutputPickedFuture, RecordingDevice,
-    RunningProgram, ShellAudioOutputPicker, ShellRecordingIndicator,
+    AppInstance, AudioDeviceError, AudioDevices, AudioOutput, AudioOutputPickedFuture,
+    RecordingDevice, ShellAudioOutputPicker, ShellRecordingIndicator,
 };
 use waos_capabilities::web_audio_api::AudioBuffer;
 use waos_capabilities::web_audio_api::context::{AudioContext, AudioContextOptions};
@@ -157,11 +157,7 @@ impl TestSound {
 }
 
 impl ShellAudioOutputPicker for TestSound {
-    fn pick(
-        &self,
-        _program: &RunningProgram,
-        outputs: Vec<AudioOutput>,
-    ) -> AudioOutputPickedFuture {
+    fn pick(&self, _program: &AppInstance, outputs: Vec<AudioOutput>) -> AudioOutputPickedFuture {
         let ids = outputs.into_iter().map(|output| output.id).collect();
         self.shown.lock().unwrap().push(ids);
         self.changes.announce();
@@ -175,12 +171,7 @@ impl ShellAudioOutputPicker for TestSound {
 }
 
 impl ShellRecordingIndicator for TestSound {
-    fn recording_changed(
-        &self,
-        program: &RunningProgram,
-        device: RecordingDevice,
-        recording: bool,
-    ) {
+    fn recording_changed(&self, program: &AppInstance, device: RecordingDevice, recording: bool) {
         self.recording
             .lock()
             .unwrap()

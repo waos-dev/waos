@@ -63,6 +63,12 @@ impl InstalledAppsInMemory {
         }
     }
 
+    /// Puts `app` in the store, in place of the app of its id where one is there, as a test fills
+    /// it with an app its build made; the package manager over the store announces no change.
+    pub fn put(&self, app: AppInMemory) {
+        self.locked().insert(app.program.manifest.id().clone(), app);
+    }
+
     fn locked(&self) -> MutexGuard<'_, BTreeMap<ProgramId, AppInMemory>> {
         locked(&self.apps)
     }

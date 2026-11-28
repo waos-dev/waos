@@ -329,27 +329,15 @@ impl Library {
         });
     }
 
-    /// A program asks its user to change `switch`, and waits on `left` for the user to leave
-    /// the page: its own page of the switch's kind opens, under its name once installed and its
-    /// id before; the kind's page, whose default it follows, for a program the engine runs under
-    /// no id.
+    /// An app asks its user to change `switch`, and waits on `left` for the user to leave the
+    /// page: its own page of the switch's kind opens, under its name once installed and its id
+    /// before.
     fn settings_asked(&mut self, asked: SettingsOpened, cx: &mut Context<Library>) {
-        let (page, name) = match asked.program.name().parse::<ProgramId>() {
-            Ok(id) => {
-                let name = self
-                    .installed_program(&id)
-                    .map_or_else(|| id.to_string(), |program| program.name());
-                (
-                    SettingsPage::AppPermission(id, Permission::of_switch(asked.switch)),
-                    name,
-                )
-            }
-            Err(_) => (
-                SettingsPage::Permission(Permission::of_switch(asked.switch)),
-                asked.program.name().to_owned(),
-            ),
-        };
-        tracing::info!(name, switch = ?asked.switch, "a program asks its user to change a switch");
+        let name = self
+            .installed_program(&asked.app)
+            .map_or_else(|| asked.app.to_string(), |program| program.name());
+        let page = SettingsPage::AppPermission(asked.app, Permission::of_switch(asked.switch));
+        tracing::info!(name, switch = ?asked.switch, "an app asks its user to change a switch");
         self.show_page(LibraryPage::Settings(page), cx);
         self.switch_asked = Some(SwitchAsked {
             name,

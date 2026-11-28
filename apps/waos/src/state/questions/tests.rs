@@ -4,7 +4,8 @@
 //! no window, `examples/forever`, a console program started to hear a click on its notification,
 //! has a window of its own, whose answer reaches the program and
 //! which closes with it; a program's question about opening links of a scheme is put the same
-//! way; a question whose program ends goes unanswered; and the picker of a program's outputs, a
+//! way; a question an app with no window asks itself as it starts, for the inspector role it
+//! imports, goes unanswered once the app is stopped, its window closing; and the picker of a program's outputs, a
 //! question too, answers the output the user taps, or none when they cancel it, as the picker of a
 //! machine for it does; and the phone's files, where WaOS may not reach them: This computer
 //! picked, or a file or folder picked on the phone's storage, opens the system's page for them,
@@ -18,9 +19,9 @@ use waft::ui::{View as _, ViewId};
 use waft_test::TestWindow;
 use waos::bindings::wasdk::platform::notifications::Activation;
 use waos::{
-    Answer, AnswerFuture, AudioOutput, AudioOutputPickedFuture, MachineChoice, Question,
-    RunningProgram, ShellAudioOutputPicker, ShellMachinePicker, ShellSystemPermissions,
-    SystemPermission, SystemPermissionState,
+    Answer, AnswerFuture, AppInstance, AudioOutput, AudioOutputPickedFuture, MachineChoice,
+    Question, ShellAudioOutputPicker, ShellMachinePicker, ShellSystemPermissions, SystemPermission,
+    SystemPermissionState,
 };
 use waos_package::ProgramId;
 use waos_services::permissions::{App, Prompts, Setting};
@@ -30,6 +31,7 @@ use crate::state::library::test_desktop::{DesktopKind, LibraryDesktop};
 
 const PERMISSIONS: &str = "dev.example.permissions";
 const FOREVER: &str = "dev.example.forever";
+const INSPECTOR: &str = "dev.example.inspector";
 
 /// The desktop with no library window: only the programs' and the questions'.
 fn desktop() -> LibraryDesktop {
@@ -84,8 +86,8 @@ fn view_of(window: &TestWindow) -> ViewId {
 }
 
 /// The one program running.
-fn the_program(desktop: &LibraryDesktop) -> RunningProgram {
-    let programs = futures::executor::block_on(desktop.runs.programs());
+fn the_program(desktop: &LibraryDesktop) -> AppInstance {
+    let programs = desktop.runs.instances();
     assert_eq!(programs.len(), 1);
     programs.into_iter().next().unwrap()
 }
@@ -150,23 +152,28 @@ fn a_question_of_a_program_with_no_window_has_a_window_of_its_own() {
 }
 
 #[test]
-fn a_question_whose_program_ends_goes_unanswered() {
+fn a_question_whose_app_is_stopped_goes_unanswered() {
     let mut desktop = desktop();
     start_console_program(
         &mut desktop,
-        FOREVER,
-        "Forever",
-        waos_test_programs::FOREVER,
+        INSPECTOR,
+        "Inspector",
+        waos_test_programs::IMPORTS_INSPECT,
     );
-    let mut answered = ask(&desktop, Question::Microphone);
-    desktop.settle_until("the question's window", |desktop| {
-        window_titled(desktop, "Forever").is_some()
-    });
+    desktop.settle_until(
+        "the app's own question, in a window of its own",
+        |desktop| desktop.shows("Allow Inspector to see what your other programs do?"),
+    );
+    let window = window_titled(&desktop, "Inspector").expect("the question's window");
     futures::executor::block_on(desktop.runs.stop_all());
-    desktop.settle_until("the question's window closes", |desktop| {
-        window_titled(desktop, "Forever").is_some_and(|window| window.closes() == 1)
-    });
-    assert_eq!(answered.as_mut().now_or_never(), Some(None));
+    desktop.settle_until("the question's window closes", |_| window.closes() == 1);
+    let id: ProgramId = INSPECTOR.parse().unwrap();
+    let settings = desktop.permissions.app_settings(&id).unwrap();
+    assert_eq!(
+        settings.roles.get(&waos::Role::Inspector),
+        None,
+        "no answer kept"
+    );
 }
 
 #[test]

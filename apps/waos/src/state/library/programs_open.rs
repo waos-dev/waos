@@ -14,11 +14,11 @@ use std::sync::Arc;
 
 use waft::ui::ViewRef;
 use waft::{Context, Entity};
-use waos::RunningProgram;
+use waos::AppInstance;
 use waos_package::ProgramId;
 
 use super::{Library, WantsToBeSeen};
-use crate::logic::app_starter::{Opening, StartPlace, StartRequest};
+use crate::logic::app_instances::{OpenConfiguration, OpenPlace, OpenedFor};
 use crate::logic::program_faces::program_face;
 use crate::logic::program_places::ProgramPlace;
 use crate::state::ViewWindows;
@@ -104,7 +104,7 @@ impl Library {
             close_window_of(&view);
             let name = id.as_str().to_owned();
             windows.update(cx, |windows, _| {
-                windows.bring_forward(|running: &RunningProgram| running.name() == name);
+                windows.bring_forward(|running: &AppInstance| running.name() == name);
             });
             return;
         }
@@ -132,20 +132,19 @@ impl Library {
             );
         }
         self.add_recent(id, cx);
-        let (starter, opening) = (Arc::clone(&self.starter), id.clone());
+        let (instances, opening) = (Arc::clone(&self.instances), id.clone());
         let name = id.as_str().to_owned();
         self.work_then(
             async move {
-                starter
-                    .start(StartRequest {
-                        place: StartPlace::Named(ProgramPlace::Windows),
-                        ..StartRequest::open(opening.clone(), Opening::ByTheUser)
-                    })
-                    .await
+                let configuration = OpenConfiguration {
+                    place: OpenPlace::Named(ProgramPlace::Windows),
+                    ..OpenConfiguration::new(OpenedFor::User)
+                };
+                instances.open(&opening, configuration).await
             },
             move |library, started, cx| match started {
                 Ok(opened) => windows.update(cx, |windows, cx| {
-                    windows.prepared_started(opened.program().clone(), cx);
+                    windows.prepared_started(opened.instance().clone(), cx);
                 }),
                 Err(error) => {
                     windows.update(cx, |windows, _| windows.prepared_unused(&name));

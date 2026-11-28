@@ -24,7 +24,7 @@ use std::sync::mpsc;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use super::app_starter::AppStarter;
+use super::app_instances::AppInstances;
 use super::asking_now::AskingNow;
 use super::dev_attach::{self, AttachContext};
 use super::dev_extensions;
@@ -38,7 +38,6 @@ use super::dev_settings::{self, SettingsContext};
 use super::developer_access::DeveloperAccess;
 use super::environments::ProgramEnvironments;
 use super::opening;
-use super::running_apps::RunningApps;
 use super::{dev_input, dev_resize, dev_screenshot};
 use tokio::sync::{oneshot, watch};
 use tokio::task::JoinSet;
@@ -62,9 +61,8 @@ const HANDSHAKE_WAIT: Duration = Duration::from_secs(10);
 /// The domains the dev server serves `waos` with, each handed to it by name.
 #[derive(Clone)]
 pub(crate) struct ServedDomains {
-    pub(crate) running: Arc<RunningApps>,
+    pub(crate) instances: Arc<AppInstances>,
     pub(crate) packages: Arc<PackageManager>,
-    pub(crate) starter: Arc<AppStarter>,
     pub(crate) permissions: Permissions,
     pub(crate) environments: Arc<ProgramEnvironments>,
     /// The engine, which counts today's activity of each app, for an inspection.
@@ -225,7 +223,7 @@ async fn serve(mut listener: Listener, context: ServerContext, mut stopped: ones
             _ = &mut stopped => break,
         }
     }
-    context.served.running.stop_all().await;
+    context.served.instances.stop_all().await;
     let closing = async { while connections.join_next().await.is_some() {} };
     if tokio::time::timeout(CLOSING_WAIT, closing).await.is_err() {
         tracing::warn!("some connections did not close in time");
@@ -273,7 +271,7 @@ impl ConnectionContext {
 
     fn launch(&self) -> LaunchContext {
         LaunchContext {
-            starter: Arc::clone(&self.served.starter),
+            instances: Arc::clone(&self.served.instances),
             packages: Arc::clone(&self.served.packages),
         }
     }
@@ -382,7 +380,7 @@ async fn serve_request(
     request: Request,
     context: &ConnectionContext,
 ) {
-    let runs = &context.served.running;
+    let runs = &context.served.instances;
     match request {
         Request::Install(install) => {
             dev_install::install(connection, install, &context.install()).await;
@@ -397,7 +395,7 @@ async fn serve_request(
         Request::Attach { id } => {
             let attach = AttachContext {
                 runs,
-                outputs: context.served.starter.outputs(),
+                outputs: context.served.instances.outputs(),
                 asking: &context.asking,
             };
             dev_attach::serve(connection, &id, attach).await;
@@ -417,9 +415,7 @@ async fn serve_request(
                 files,
                 links: Vec::new(),
             };
-            let served = &context.served;
-            let packages = &served.packages;
-            opening::answer(connection, &served.starter, runs, packages, &id, request).await;
+            opening::answer(connection, runs, &context.served.packages, &id, request).await;
         }
         Request::Screenshot { id, window } => {
             dev_screenshot::answer(connection, runs, &context.asking, &id, window).await;
@@ -464,7 +460,7 @@ pub(crate) mod tests {
     use std::time::{Duration, Instant};
 
     use serde::de::DeserializeOwned;
-    use waos::{PlatformState, RunningProgram, Shell};
+    use waos::{AppInstance, PlatformState, Shell};
 
     use waos_dev_protocol::{
         Answer, Asked, ClientConnection, Component, DeviceAddress, FileDialog, Fingerprint, Hello,
@@ -481,7 +477,6 @@ pub(crate) mod tests {
     use crate::logic::opened_package::tests::write_package;
     use crate::logic::program_places::ProgramPlace;
     use crate::logic::quit_question::every_program_agrees;
-    use crate::logic::running_apps::RunningApps;
     use crate::logic::startup::{self, Outside, Setup};
     use crate::logic::test_engine::{self, NoWindows, REFUSAL, WITHIN};
     use crate::logic::test_installs;
@@ -514,19 +509,21 @@ pub(crate) mod tests {
     pub(crate) struct TestServer {
         pub(crate) folder: PathBuf,
         pub(crate) socket: PathBuf,
-        runs: Arc<RunningApps>,
+        pub(crate) instances: Arc<AppInstances>,
         pub(crate) storage: waos_services::app_storage::AppStorage,
         pub(crate) permissions: waos_services::permissions::Permissions,
         /// What the server's programs' users are asked, which a test notes as the prompts do.
         pub(crate) asking: Arc<AskingNow>,
         pub(crate) packages: Arc<waos_services::packages::PackageManager>,
-        pub(crate) starter: Arc<crate::logic::app_starter::AppStarter>,
         pub(crate) places: crate::logic::program_places::ProgramPlaces,
         /// Its developer access, off until a test turns it on, listening on the loopback.
         pub(crate) access: DeveloperAccess,
         server: Option<DevServer>,
         /// The headless shell its programs draw on, where they draw.
         headless: Option<waos_headless::HeadlessShell>,
+        /// Where its WaOS's own tasks run, as the app's library runtime holds them: not the test's
+        /// own, which a test blocks as it installs.
+        runtime: Option<tokio::runtime::Runtime>,
     }
 
     impl TestServer {
@@ -605,9 +602,8 @@ pub(crate) mod tests {
         fn asking_prompts(test: &str) -> (TestServer, crate::logic::prompts::PromptRequests) {
             TestServer::over_with(
                 test,
-                |running| {
-                    let (prompts, requests) =
-                        crate::logic::prompts::PromptsOnRequest::new(Arc::clone(running));
+                || {
+                    let (prompts, requests) = crate::logic::prompts::PromptsOnRequest::new();
                     (Arc::new(prompts) as Arc<dyn Prompts>, requests)
                 },
                 || {
@@ -619,7 +615,7 @@ pub(crate) mod tests {
 
         /// A server of the test's own over the shell `outside` makes, with nobody to ask.
         fn over(test: &str, outside: impl FnOnce() -> (Shell, PlatformState)) -> TestServer {
-            let prompts = |_: &Arc<RunningApps>| (Arc::new(NoPrompts) as Arc<dyn Prompts>, ());
+            let prompts = || (Arc::new(NoPrompts) as Arc<dyn Prompts>, ());
             TestServer::over_with(test, prompts, outside).0
         }
 
@@ -627,14 +623,19 @@ pub(crate) mod tests {
         /// `prompts` makes, with what it keeps of them.
         fn over_with<P>(
             test: &str,
-            prompts: impl FnOnce(&Arc<RunningApps>) -> (Arc<dyn Prompts>, P),
+            prompts: impl FnOnce() -> (Arc<dyn Prompts>, P),
             outside: impl FnOnce() -> (Shell, PlatformState),
         ) -> (TestServer, P) {
             let folder =
                 std::env::temp_dir().join(format!("waos-app-{}-{test}", std::process::id()));
             let _ = fs::remove_dir_all(&folder);
             let socket = Self::test_listener(&folder, test);
-            let setup = Setup::on_files(&folder);
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(2)
+                .enable_all()
+                .build()
+                .expect("the server's runtime");
+            let setup = Setup::on_files(&folder, runtime.handle().clone());
             let (started, (asking, prompted)) = startup::start(setup, prompts, |before, kept| {
                 let (shell, platform) = outside();
                 let asking = AskingNow::new(before.permissions.asking());
@@ -643,20 +644,18 @@ pub(crate) mod tests {
             })
             .expect("WaOS starts");
             let startup::Started {
-                running,
+                instances,
                 packages,
                 permissions,
                 storage,
                 engine,
                 environments,
                 places,
-                starter,
                 ..
             } = started;
             let served = ServedDomains {
-                running: Arc::clone(&running),
+                instances: Arc::clone(&instances),
                 packages: Arc::clone(&packages),
-                starter: Arc::clone(&starter),
                 permissions: permissions.clone(),
                 environments,
                 engine,
@@ -667,16 +666,16 @@ pub(crate) mod tests {
             let server = TestServer {
                 folder,
                 socket,
-                runs: running,
+                instances,
                 storage,
                 permissions,
                 asking,
                 packages,
-                starter,
                 places,
                 access,
                 server: Some(server),
                 headless: None,
+                runtime: Some(runtime),
             };
             (server, prompted)
         }
@@ -949,13 +948,13 @@ pub(crate) mod tests {
         }
 
         /// The programs running now, in no order.
-        pub(crate) async fn programs(&self) -> Vec<RunningProgram> {
-            self.runs.programs().await
+        pub(crate) async fn programs(&self) -> Vec<AppInstance> {
+            self.instances.instances()
         }
 
         /// Waits until the runs are exactly `names`.
         pub(crate) async fn wait_for_runs(&self, names: &[&str]) {
-            let mut running = self.runs.running_ids();
+            let mut running = self.instances.running();
             let named = |ids: &std::collections::BTreeSet<ProgramId>| {
                 ids.iter()
                     .map(ToString::to_string)
@@ -971,6 +970,10 @@ pub(crate) mod tests {
     impl Drop for TestServer {
         fn drop(&mut self) {
             drop(self.server.take());
+            if let Some(runtime) = self.runtime.take() {
+                // A test drops its server inside its own runtime, which may not wait for another.
+                runtime.shutdown_background();
+            }
             let _ = fs::remove_dir_all(&self.folder);
         }
     }
@@ -1356,7 +1359,7 @@ pub(crate) mod tests {
             .join(FOREVER_DEVELOPMENT);
         assert!(program.join("data").is_dir());
         assert!(program.join("cache").is_dir());
-        let names = server.runs.programs().await;
+        let names = server.instances.instances();
         assert_eq!(names[0].name(), FOREVER_DEVELOPMENT);
         let development = server
             .packages
@@ -1425,11 +1428,10 @@ pub(crate) mod tests {
         let package = write_package(&packages, FOREVER, "Forever", "1.0.0", &component, &key);
         crate::logic::test_installs::install_package(&server.packages, &package);
         let id: ProgramId = FOREVER.parse().unwrap();
-        let opened = crate::logic::app_starter::StartRequest::open(
-            id.clone(),
-            crate::logic::app_starter::Opening::ByTheUser,
+        let configuration = crate::logic::app_instances::OpenConfiguration::new(
+            crate::logic::app_instances::OpenedFor::User,
         );
-        server.starter.start(opened).await.unwrap();
+        server.instances.open(&id, configuration).await.unwrap();
         let mut client = server.attach(&id).await;
         started(&mut client).await;
         let mut frames = Vec::new();
@@ -1777,9 +1779,9 @@ pub(crate) mod tests {
             .run(FOREVER, Path::new(waos_test_programs::FOREVER))
             .await;
         started(&mut client).await;
-        let programs = server.runs.programs().await;
+        let programs = server.instances.instances();
         assert_eq!(programs.len(), 1);
-        let asked = programs.iter().map(RunningProgram::request_exit);
+        let asked = programs.iter().map(AppInstance::request_exit);
         let agreed = tokio::time::timeout(WITHIN, every_program_agrees(asked)).await;
         assert_eq!(agreed, Ok(true));
     }

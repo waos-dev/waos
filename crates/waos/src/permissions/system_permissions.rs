@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use tokio::sync::watch;
 
-use crate::running::RunningProgram;
+use crate::running::AppInstance;
 use crate::shell::{ShellSystemPermissions, SystemPermission, SystemPermissionState};
 
 /// One program's permissions with the system. Every clone asks the same shell for the same
@@ -23,7 +23,7 @@ use crate::shell::{ShellSystemPermissions, SystemPermission, SystemPermissionSta
 pub(crate) struct ProgramSystemPermissions {
     /// None where the system guards nothing beyond what the user allowed in WaOS.
     shell: Option<Arc<dyn ShellSystemPermissions>>,
-    program: RunningProgram,
+    program: AppInstance,
     /// Told each time the system answered a request made here.
     answered: Arc<watch::Sender<()>>,
 }
@@ -31,7 +31,7 @@ pub(crate) struct ProgramSystemPermissions {
 impl ProgramSystemPermissions {
     pub(crate) fn new(
         shell: Option<Arc<dyn ShellSystemPermissions>>,
-        program: RunningProgram,
+        program: AppInstance,
     ) -> ProgramSystemPermissions {
         ProgramSystemPermissions {
             shell,

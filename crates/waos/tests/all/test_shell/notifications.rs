@@ -15,8 +15,8 @@ use std::time::SystemTime;
 
 use waos::bindings::wasdk::platform::notifications::NotificationError;
 use waos::{
-    Notification, NotificationFuture, RunningProgram, ShellNotificationScheduling,
-    ShellNotifications, SystemPermissionState,
+    AppInstance, Notification, NotificationFuture, ShellNotificationScheduling, ShellNotifications,
+    SystemPermissionState,
 };
 use waos_headless::testing::Changes;
 
@@ -104,7 +104,7 @@ impl TestNotifications {
 
     /// Whether the system refuses `program`'s `notification`, which it keeps as refused; a system
     /// that keeps a permission for each program has said what it did of the program's.
-    fn refuses(&self, program: &RunningProgram, notification: &Notification) -> bool {
+    fn refuses(&self, program: &AppInstance, notification: &Notification) -> bool {
         let refusing = self.refusing.load(Ordering::SeqCst);
         if refusing {
             let refused = (program.name().to_owned(), notification.id.clone());
@@ -117,7 +117,7 @@ impl TestNotifications {
 
     /// What the system last said of its permission for `program`'s notifications: allowed where it
     /// keeps none for a program, not asked while it said nothing.
-    pub fn permission_state(&self, program: &RunningProgram) -> SystemPermissionState {
+    pub fn permission_state(&self, program: &AppInstance) -> SystemPermissionState {
         if !self.keeps_permissions.load(Ordering::SeqCst) {
             return SystemPermissionState::Allowed;
         }
@@ -126,7 +126,7 @@ impl TestNotifications {
     }
 
     /// The system's question for `program`'s notifications, answered at once.
-    pub fn request_permission(&self, program: &RunningProgram) -> SystemPermissionState {
+    pub fn request_permission(&self, program: &AppInstance) -> SystemPermissionState {
         self.asked.lock().unwrap().push(program.name().to_owned());
         let state = self.read_permission(program);
         self.changes.announce();
@@ -134,7 +134,7 @@ impl TestNotifications {
     }
 
     /// The system's permission for `program` as it stands now, which it has said from now on.
-    fn read_permission(&self, program: &RunningProgram) -> SystemPermissionState {
+    fn read_permission(&self, program: &AppInstance) -> SystemPermissionState {
         let state = if self.refusing.load(Ordering::SeqCst) {
             SystemPermissionState::Denied
         } else {
@@ -162,7 +162,7 @@ impl TestNotifications {
 }
 
 impl ShellNotifications for TestNotifications {
-    fn post(&self, program: &RunningProgram, notification: &Notification) -> NotificationFuture {
+    fn post(&self, program: &AppInstance, notification: &Notification) -> NotificationFuture {
         if self.refuses(program, notification) {
             return Box::pin(ready(Err(NotificationError::Denied)));
         }
@@ -180,7 +180,7 @@ impl ShellNotifications for TestNotifications {
         Box::pin(ready(Ok(())))
     }
 
-    fn remove(&self, program: &RunningProgram, id: &str) {
+    fn remove(&self, program: &AppInstance, id: &str) {
         let name = program.name();
         self.removed
             .lock()
@@ -206,7 +206,7 @@ impl ShellNotifications for TestNotifications {
 impl ShellNotificationScheduling for TestNotifications {
     fn schedule(
         &self,
-        program: &RunningProgram,
+        program: &AppInstance,
         notification: &Notification,
         at: SystemTime,
     ) -> NotificationFuture {

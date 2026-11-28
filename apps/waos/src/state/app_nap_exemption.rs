@@ -118,7 +118,7 @@ mod host {
     use waos_services::packages::InstallSessionInfo;
 
     use super::{AppNapExemption, WindowKey};
-    use crate::logic::app_starter::StartStage;
+    use crate::logic::app_instances::OpenStage;
     use crate::logic::macos_shell::WindowPresence;
     use crate::state::desktop_host::with_macos_platform;
 
@@ -162,12 +162,12 @@ mod host {
     pub(crate) fn follow_starts(
         app: &mut App,
         activity: Entity<AppNapExemption>,
-        mut starting: watch::Receiver<BTreeMap<ProgramId, StartStage>>,
+        mut starting: watch::Receiver<BTreeMap<ProgramId, OpenStage>>,
     ) {
-        let optimizing = |starting: &BTreeMap<ProgramId, StartStage>| {
+        let optimizing = |starting: &BTreeMap<ProgramId, OpenStage>| {
             starting
                 .iter()
-                .filter(|(_, stage)| **stage == StartStage::Optimizing)
+                .filter(|(_, stage)| **stage == OpenStage::Optimizing)
                 .map(|(id, _)| id.clone())
                 .collect()
         };

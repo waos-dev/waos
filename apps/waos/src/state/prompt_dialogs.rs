@@ -1,6 +1,7 @@
-//! WaOS's prompts on macOS, each in a dialog window of its own in the program's app and drawn by
-//! WaOS: for each prompt WaOS makes a composition layer, places it in a layer context of its own,
-//! and asks the program's window process for a dialog showing that context (`logic::macos_shell`);
+//! WaOS's prompts on macOS, each in a dialog window of its own in the app's window process and
+//! drawn by WaOS: for each prompt WaOS makes a composition layer, places it in a layer context of
+//! its own, and asks the app's window process, by the app's id, for a dialog showing that context
+//! (`logic::macos_shell`);
 //! once the dialog reports its size and scale, WaOS asks Waft's view embedder for a view drawing
 //! into the layer (`ViewEmbedder::add_view`), its initial data naming the prompt ([`dialog_data`]);
 //! the view arrives as every view does, and WaOS's one builder builds the prompt's widget in it
@@ -10,16 +11,17 @@
 //! of WaOS's own, `logic::forwarded_pointers`), its keys (the framework's own entry,
 //! `KeyEventManager::handle_key_data`, as Waft's shell hands it its host's keys, so they go where
 //! the framework's focus is) and its focus (`send_view_focus_event`). The view's cursor and focus
-//! requests go to the dialog ([`DialogHost`]); it takes no text. A prompt takes the getter of its
-//! program's app: a program whose app does not run has it launched, with no window and in the
-//! background, and the prompt waits for it, its dialog shown there once it said hello; a prompt
-//! whose app never comes is put away unanswered, as one whose dialog went.
+//! requests go to the dialog ([`DialogHost`]); it takes no text. An app whose window process does
+//! not run has it launched for the prompt, with no window and in the background, whether or not an
+//! instance of the app runs, and its dialog is shown there once it said hello; a prompt whose
+//! window process never comes is put away unanswered, as one whose dialog went.
 //!
 //! The invariant a later editor will break: a prompt's layer, context and view are kept from the
-//! moment its app is there until its answer is dropped, when the view is removed, the dialog hidden
-//! and the context let go, once; a prompt whose answer is dropped while its app comes is never
-//! shown, and a view that arrives for a prompt no longer shown is removed as it arrives; what a
-//! dialog reports before its view arrives is kept, and given to the view as it arrives.
+//! moment it is shown until its answer is dropped, when the view is removed, the dialog hidden and
+//! the context let go, once; a prompt whose answer is dropped while its window process comes is
+//! never shown there, and a view that arrives for a prompt no longer shown is removed as it
+//! arrives; what a dialog reports before its view arrives is kept, and given to the view as it
+//! arrives.
 
 use std::rc::Rc;
 use std::sync::Arc;
@@ -33,24 +35,20 @@ use waft::ui::{
 };
 use waft::{App, Context, Entity, WeakEntity, WidgetRef, WidgetsBinding, WidgetsBindingObserver};
 use waft_services::KeyEventManager;
-use waos::RunningProgram;
+use waos_package::ProgramId;
 use waos_program_window::{PROMPT_SIZE, PromptPlacement, ShownPrompt};
 use waos_window_messages::{HostedLayers, PromptCall, PromptId, PromptReport};
 
 use crate::logic::forwarded_pointers::ForwardedDevices;
-use crate::logic::macos_shell::{
-    CanvasPlace, DialogReport, ReachedApp, WindowProcess, WindowProcesses,
-};
+use crate::logic::macos_shell::{CanvasPlace, DialogReport, WindowProcesses};
 use crate::os::LayerContext;
 use crate::state::macos_shell::place_in_context;
 
 /// What the initial data of a prompt's view starts with, the prompt's id following.
 const DIALOG_DATA: &str = "waos-prompt-dialog:";
 
-/// The placement of the programs' prompts on macOS.
+/// The placement of the apps' prompts on macOS.
 pub(crate) struct PromptDialogs {
-    /// How a prompt reaches its program's app.
-    window_processes: Arc<WindowProcesses>,
     /// What each prompt's layer is made on.
     compositor: Arc<dyn Compositor>,
     shown: Entity<ShownDialogs>,
@@ -58,25 +56,18 @@ pub(crate) struct PromptDialogs {
     hidden: UnboundedSender<PromptId>,
 }
 
-/// The prompts shown in dialogs, in the order shown, and those whose app is coming.
+/// The prompts shown in dialogs, in the order shown.
 pub(crate) struct ShownDialogs {
+    /// Where each prompt's dialog is shown, by its app's id.
+    window_processes: Arc<WindowProcesses>,
     dialogs: Vec<Dialog>,
-    /// The prompts waiting for their program's app, in the order asked.
-    awaiting: Vec<AwaitingApp>,
     last_prompt: PromptId,
 }
 
-/// A prompt waiting for its program's app, which it is shown in once the app is there.
-struct AwaitingApp {
-    prompt: PromptId,
-    content: WidgetRef,
-    dismissed: Rc<dyn Fn(&mut App)>,
-}
-
-/// A prompt shown in a dialog of its program's app.
+/// A prompt shown in a dialog of its app's window process, or to be once that is there.
 struct Dialog {
     prompt: PromptId,
-    process: Arc<WindowProcess>,
+    app: ProgramId,
     content: WidgetRef,
     dismissed: Rc<dyn Fn(&mut App)>,
     layer: Arc<dyn CompositionLayer>,
@@ -112,8 +103,8 @@ impl PromptDialogs {
         reports: UnboundedReceiver<DialogReport>,
     ) -> PromptDialogs {
         let shown = app.new_entity(|_| ShownDialogs {
+            window_processes,
             dialogs: Vec::new(),
-            awaiting: Vec::new(),
             last_prompt: 0,
         });
         take_reports(app, &shown, reports);
@@ -124,7 +115,6 @@ impl PromptDialogs {
         let (hidden, taken_away) = mpsc::unbounded();
         take_away_when_dropped(app, &shown, taken_away);
         PromptDialogs {
-            window_processes,
             compositor,
             shown,
             hidden,
@@ -148,44 +138,22 @@ fn prompt_of(view: &ViewRef) -> Option<PromptId> {
 }
 
 impl PromptPlacement for PromptDialogs {
-    /// In a dialog of the program's app, once the app is there: launched for the prompt when it
-    /// does not run.
+    /// In a dialog of the app's window process, launched for the prompt where it does not run.
     fn show(
         &self,
         app: &mut App,
-        program: &RunningProgram,
+        id: &ProgramId,
         prompt: WidgetRef,
         dismissed: Rc<dyn Fn(&mut App)>,
     ) -> ShownPrompt {
-        let shown = self
-            .shown
-            .update(app, |shown, _cx| shown.await_app(prompt, dismissed));
-        self.show_once_reached(app, program, shown);
+        let compositor = Arc::clone(&self.compositor);
+        let shown = self.shown.update(app, |shown, cx| {
+            shown.show(id.clone(), &*compositor, prompt, dismissed, cx)
+        });
         let hidden = self.hidden.clone();
         ShownPrompt::new(move || {
             let _ = hidden.unbounded_send(shown);
         })
-    }
-}
-
-impl PromptDialogs {
-    /// Shows `prompt` in a dialog of `program`'s app once the getter hands the app over, on the
-    /// main thread.
-    fn show_once_reached(&self, app: &mut App, program: &RunningProgram, prompt: PromptId) {
-        let reached = self.window_processes.of(program);
-        let (shown, compositor) = (self.shown.downgrade(), Arc::clone(&self.compositor));
-        app.spawn(async move |cx| {
-            let reached = reached.await;
-            cx.update(|app| {
-                let Some(shown) = shown.upgrade() else {
-                    return;
-                };
-                let afterwards = shown.update(app, |shown, cx| {
-                    shown.app_reached(prompt, reached, &*compositor, cx)
-                });
-                afterwards.carry_out(app);
-            });
-        });
     }
 }
 
@@ -201,75 +169,33 @@ impl ShownDialogs {
             .then(|| dialog.content.clone())
     }
 
-    /// `content`, a prompt waiting for its program's app; answers the prompt's id.
-    fn await_app(&mut self, content: WidgetRef, dismissed: Rc<dyn Fn(&mut App)>) -> PromptId {
-        self.last_prompt += 1;
-        let prompt = self.last_prompt;
-        self.awaiting.push(AwaitingApp {
-            prompt,
-            content,
-            dismissed,
-        });
-        prompt
-    }
-
-    /// The getter handed over what `reached` says for the app of `prompt`: the prompt is shown in a
-    /// dialog there, its layer made on `compositor`; or put away unanswered when the app never came.
-    /// Nothing for a prompt put away meanwhile.
-    fn app_reached(
-        &mut self,
-        prompt: PromptId,
-        reached: ReachedApp,
-        compositor: &dyn Compositor,
-        cx: &mut Context<ShownDialogs>,
-    ) -> Afterwards {
-        let Some(index) = self
-            .awaiting
-            .iter()
-            .position(|awaiting| awaiting.prompt == prompt)
-        else {
-            return Afterwards::Nothing;
-        };
-        let AwaitingApp {
-            content, dismissed, ..
-        } = self.awaiting.remove(index);
-        match reached {
-            Ok(process) => {
-                self.show(prompt, process, compositor, content, dismissed, cx);
-                Afterwards::Nothing
-            }
-            Err(why) => {
-                tracing::warn!(prompt, why, "a prompt's program's app never came");
-                Afterwards::Dismiss(dismissed)
-            }
-        }
-    }
-
-    /// Shows `content`, the prompt `prompt`, in a dialog of `process`'s program's app, its layer
-    /// made by `compositor`.
+    /// Shows `content`, a prompt for the app `app`, in a dialog of the app's window process, its
+    /// layer made by `compositor`; answers the prompt's id.
     fn show(
         &mut self,
-        prompt: PromptId,
-        process: Arc<WindowProcess>,
+        app: ProgramId,
         compositor: &dyn Compositor,
         content: WidgetRef,
         dismissed: Rc<dyn Fn(&mut App)>,
         cx: &mut Context<ShownDialogs>,
-    ) {
+    ) -> PromptId {
+        self.last_prompt += 1;
+        let prompt = self.last_prompt;
         let context = LayerContext::new();
         let layers = HostedLayers {
             context_id: context.id(),
         };
         tracing::info!(
-            program = process.program().name(),
+            %app,
             prompt,
             context = layers.context_id,
-            "a prompt is shown in a dialog of the program's app"
+            "a prompt is shown in a dialog of the app's window process"
         );
-        process.show_prompt(prompt, PROMPT_SIZE, layers);
+        self.window_processes
+            .show_prompt(&app, prompt, PROMPT_SIZE, layers);
         self.dialogs.push(Dialog {
             prompt,
-            process,
+            app,
             content,
             dismissed,
             layer: compositor.make_layer(false),
@@ -282,12 +208,12 @@ impl ShownDialogs {
             devices: ForwardedDevices::default(),
         });
         cx.notify();
+        prompt
     }
 
     /// The answer to `prompt` was dropped: its view is removed, its dialog hidden and its context
-    /// let go; one still waiting for its app is never shown.
+    /// let go; one still waiting for its window process is never shown there.
     fn hide(&mut self, prompt: PromptId, cx: &mut Context<ShownDialogs>) {
-        self.awaiting.retain(|awaiting| awaiting.prompt != prompt);
         let Some(index) = self.index_of(prompt) else {
             return;
         };
@@ -295,7 +221,7 @@ impl ShownDialogs {
         if let Some(view) = &dialog.view {
             remove_view(cx, view.id());
         }
-        dialog.process.hide_prompt(prompt);
+        self.window_processes.hide_prompt(&dialog.app, prompt);
         cx.notify();
     }
 
@@ -334,7 +260,8 @@ impl ShownDialogs {
             return Afterwards::Nothing;
         };
         let host = Rc::new(DialogHost {
-            process: Arc::clone(&dialog.process),
+            window_processes: Arc::clone(&self.window_processes),
+            app: dialog.app.clone(),
             prompt: dialog.prompt,
         });
         let platform = cx.platform();
@@ -487,8 +414,16 @@ impl Afterwards {
 /// What WaOS's view of a prompt asks of the system, as its dialog answers it: its cursor and its
 /// focus are the dialog's; it takes no text, and has no system bars over it.
 struct DialogHost {
-    process: Arc<WindowProcess>,
+    window_processes: Arc<WindowProcesses>,
+    app: ProgramId,
     prompt: PromptId,
+}
+
+impl DialogHost {
+    fn call(&self, call: PromptCall) {
+        self.window_processes
+            .call_prompt(&self.app, self.prompt, call);
+    }
 }
 
 impl ViewHost for DialogHost {
@@ -498,13 +433,11 @@ impl ViewHost for DialogHost {
 
     /// The dialog's, whichever device asks: its app has one cursor.
     fn activate_system_cursor(&self, _device: i64, kind: SystemMouseCursorKind) {
-        self.process
-            .call_prompt(self.prompt, PromptCall::SetCursor(kind));
+        self.call(PromptCall::SetCursor(kind));
     }
 
     fn request_focus_change(&self, state: ViewFocusState, direction: ViewFocusDirection) {
-        self.process
-            .call_prompt(self.prompt, PromptCall::ChangeFocus { state, direction });
+        self.call(PromptCall::ChangeFocus { state, direction });
     }
 
     fn system_bars(&self) -> Option<&dyn waft::ui::SystemBars> {

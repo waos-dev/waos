@@ -48,7 +48,7 @@ use crate::bindings::wasdk::platform::permissions::State;
 use crate::engine_time::EngineClock;
 use crate::lifecycle::{FreezeInhibitorKind, Lifecycle};
 use crate::permissions::{Permission, ProgramPermissions, state_of};
-use crate::running::RunningProgram;
+use crate::running::AppInstance;
 use crate::shell::{RecordingDevice, ShellAudioOutputPicker};
 pub use base_context::BaseContext;
 pub use context::Context;
@@ -92,7 +92,7 @@ impl ProgramAudio {
         output_picker: Option<Arc<dyn ShellAudioOutputPicker>>,
         access: ProgramAccess,
         recordings_shown: bool,
-        program: &RunningProgram,
+        program: &AppInstance,
     ) -> ProgramAudio {
         ProgramAudio {
             devices,

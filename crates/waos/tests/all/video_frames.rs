@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use tempfile::TempDir;
-use waos::{ProgramEnd, ProgramEnvironment, RunningProgram, WaOS};
+use waos::{AppInstance, ProgramEnd, ProgramEnvironment, WaOS};
 use waos_capabilities::ProgramFolders;
 
 #[cfg(target_vendor = "apple")]
@@ -94,7 +94,7 @@ fn a_shell_whose_system_hands_out_no_frames_gives_the_program_no_readers() {
 
 /// `examples/video-frames` running, a clip of its own at `/data/clip.mp4`.
 struct Run {
-    running: RunningProgram,
+    running: AppInstance,
     output: Arc<RecordedOutput>,
     _folders: TempDir,
 }

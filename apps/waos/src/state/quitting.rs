@@ -22,17 +22,17 @@ use futures::channel::oneshot;
 use futures::future::Shared;
 use waft::ui::AppExitResponse;
 use waft::{App, AppLifecycleListener, AsyncApp, Task};
-use waos::{RunningProgram, WaOS};
+use waos::{AppInstance, WaOS};
 
+use crate::logic::app_instances::AppInstances;
 use crate::logic::dev_server::DevServer;
 use crate::logic::quit_question::every_program_agrees;
-use crate::logic::running_apps::RunningApps;
 
-/// From now on, a quit asks every program in `runs` first, and once they agree stops `server`
+/// From now on, a quit asks every app instance among `runs` first, and once they agree stops `server`
 /// and keeps the days `engine` counted.
 pub(crate) fn ask_programs_before_quitting(
     app: &mut App,
-    runs: Arc<RunningApps>,
+    runs: Arc<AppInstances>,
     server: DevServer,
     engine: Arc<WaOS>,
 ) {
@@ -47,14 +47,14 @@ pub(crate) fn ask_programs_before_quitting(
 /// server is stopped, if every one agreed; cancel if any refused.
 fn answer_quit(
     app: &mut App,
-    runs: &Arc<RunningApps>,
+    runs: &Arc<AppInstances>,
     stop: &Rc<ServerStop>,
 ) -> Task<AppExitResponse> {
     tracing::info!("WaOS is asked to quit: asking every program");
     let (runs, stop) = (Arc::clone(runs), Rc::clone(stop));
     app.spawn(async move |cx| {
-        let programs = runs.programs().await;
-        let asked = programs.iter().map(RunningProgram::request_exit);
+        let programs = runs.instances();
+        let asked = programs.iter().map(AppInstance::request_exit);
         if !every_program_agrees(asked).await {
             tracing::info!("a program refused: WaOS stays");
             return AppExitResponse::Cancel;
