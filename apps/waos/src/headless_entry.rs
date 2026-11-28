@@ -121,7 +121,6 @@ impl HeadlessDaemon {
             freeze: FreezePolicy::default(),
             time: EngineTime::Real,
             usual_place: ProgramPlace::Windows,
-            work: runtime.clone(),
         };
         let display = config.display;
         let (started, (prompted, asking)) = startup::start(
@@ -142,7 +141,6 @@ impl HeadlessDaemon {
             permissions,
             engine,
             environments,
-            outputs,
             starter,
             ..
         } = started;
@@ -152,7 +150,6 @@ impl HeadlessDaemon {
             starter,
             permissions,
             environments,
-            outputs,
             engine: Arc::clone(&engine),
         };
 

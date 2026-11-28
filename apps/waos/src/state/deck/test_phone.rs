@@ -257,7 +257,7 @@ impl TestPhone {
         let work = work().unwrap();
         let setup = Setup {
             usual_place: usual,
-            ..Setup::for_tests(folder.path(), work.handle().clone())
+            ..Setup::for_tests(folder.path())
         };
         let ((started, (prompts, prompted, requests)), tab_requests) = {
             let (tabs_on_request, tab_requests) = TabsOnRequest::new();

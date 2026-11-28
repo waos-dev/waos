@@ -4,10 +4,10 @@
 //! over the store ([`open_domains`]): the package manager, compiling installs and stopping apps
 //! among the running ones, Permissions, asking through the prompts and following the package
 //! manager's record, the sources, app storage and the activity record; then the engine, over the
-//! shell made from those, keeping its days in the activity record and showing an inspector the
-//! apps on this computer (`inspected_programs`); what each app runs with (`environments`); and the
-//! one way to start an installed app (`app_starter`), where its views go (`program_places`) and
-//! what it writes (`launch_outputs`).
+//! shell made from those, keeping its days in the activity record; what each app runs with
+//! (`environments`); and the one way to start an installed app (`app_starter`), where its views go
+//! (`program_places`), which hands an inspector the apps on this computer with its run
+//! (`inspected_programs`).
 //!
 //! What differs between one WaOS and another is passed in: where it keeps its files and how it
 //! compiles and reaches the network ([`Setup`]), what asks the user, and the shell's parts with
@@ -16,16 +16,13 @@
 //!
 //! The invariant: each domain is made once, here, from the others it needs, so no domain is handed
 //! another after it is made; the running apps and the package manager are made before the engine,
-//! since what an inspector and the shell's parts see of the apps reads them, and so the compiler
-//! the package manager is handed is made before the engine. One value is set late still: what
-//! starts an app held for an inspector, handed to the inspector's view once the app starter
-//! exists (`ProgramsOnThisComputer::serve_starts`).
+//! since the package manager stops apps among the running ones and the shell's parts read what it
+//! installs, and so the compiler the package manager is handed is made before the engine.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{Context as _, Result};
-use waos::inspection::InspectedPrograms;
 use waos::{
     AudioDevices, Compiler, EngineTime, FreezePolicy, HttpProxy, PlatformState, Shell, WaOS,
     WaOSConfig,
@@ -39,9 +36,6 @@ use waos_services::sources::{SourceProxy, Sources, SourcesFile};
 
 use super::app_starter::AppStarter;
 use super::environments::ProgramEnvironments;
-use super::held_starts::HeldStarts;
-use super::inspected_programs::ProgramsOnThisComputer;
-use super::launch_outputs::LaunchOutputs;
 use super::program_places::{ProgramPlace, ProgramPlaces};
 use super::running_apps::RunningApps;
 
@@ -65,9 +59,6 @@ pub(crate) struct Setup {
     pub(crate) time: EngineTime,
     /// Where an app's views go unless it was opened somewhere else.
     pub(crate) usual_place: ProgramPlace,
-    /// The runtime an inspector's start of an app runs on, which outlives the inspector that
-    /// asked.
-    pub(crate) work: tokio::runtime::Handle,
 }
 
 /// What the engine's shell is made from: the domains opened before the engine.
@@ -125,9 +116,6 @@ pub(crate) struct Started {
     pub(crate) engine: Arc<WaOS>,
     pub(crate) environments: Arc<ProgramEnvironments>,
     pub(crate) places: ProgramPlaces,
-    /// What each app writes, which the dev server's attaches read; a phone has no dev server yet.
-    #[cfg_attr(mobile, expect(dead_code, reason = "the dev server's alone"))]
-    pub(crate) outputs: Arc<LaunchOutputs>,
     pub(crate) starter: Arc<AppStarter>,
 }
 
@@ -162,12 +150,6 @@ pub(crate) fn start<P, S>(
         places: &places,
     };
     let outside = outside(before, prompted)?;
-    let inspected = Arc::new(ProgramsOnThisComputer::new(
-        storage.clone(),
-        permissions.clone(),
-        Arc::clone(&packages),
-        Arc::clone(&running),
-    ));
     let config = WaOSConfig {
         freeze: setup.freeze,
         compiler: setup.compiler,
@@ -175,7 +157,6 @@ pub(crate) fn start<P, S>(
         time: setup.time,
         temporary_folders: setup.temporary_folders,
         audit: Some(Arc::new(activity.clone())),
-        inspected_programs: Some(Arc::clone(&inspected) as Arc<dyn InspectedPrograms>),
     };
     let engine =
         WaOS::new(config, outside.shell, outside.platform).context("starting the engine")?;
@@ -186,20 +167,15 @@ pub(crate) fn start<P, S>(
         permissions.clone(),
         storage.clone(),
     );
-    let outputs = Arc::new(LaunchOutputs::default());
     let starter = Arc::new(AppStarter::new(
         Arc::clone(&running),
         Arc::clone(&packages),
+        permissions.clone(),
+        storage.clone(),
         Arc::clone(&engine),
         Arc::clone(&environments),
         places.clone(),
-        Arc::clone(&outputs),
     ));
-    let starts = HeldStarts {
-        starter: Arc::clone(&starter),
-        packages: Arc::clone(&packages),
-    };
-    inspected.serve_starts(starts, setup.work);
     let started = Started {
         running,
         packages,
@@ -210,7 +186,6 @@ pub(crate) fn start<P, S>(
         engine,
         environments,
         places,
-        outputs,
         starter,
     };
     Ok((started, outside.own))
@@ -295,9 +270,8 @@ pub(crate) mod tests {
 
     impl Setup {
         /// A test's WaOS in `folder`: the tests' compiler, compiling each component once in a
-        /// test run (`test_installs`), no proxy, the real time, its apps in windows, and an
-        /// inspector's starts on `work`.
-        pub(crate) fn for_tests(folder: &Path, work: tokio::runtime::Handle) -> Setup {
+        /// test run (`test_installs`), no proxy, the real time, and its apps in windows.
+        pub(crate) fn for_tests(folder: &Path) -> Setup {
             Setup {
                 store: folder.join("store"),
                 temporary_folders: folder.join("tmp"),
@@ -308,7 +282,6 @@ pub(crate) mod tests {
                 freeze: FreezePolicy::default(),
                 time: EngineTime::Real,
                 usual_place: ProgramPlace::Windows,
-                work,
             }
         }
     }

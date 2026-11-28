@@ -1,23 +1,23 @@
-//! The programs an inspector sees on this computer: every program installed, by the package
-//! manager's manifests; and every one running, by the runs, one not installed by its id alone. Each change to them as it
-//! happens, an install or a removal as the package manager announces it, whoever made it, a start
-//! or an end as the runs list it;
-//! each one's icon, read as it is asked for; and a program started held (`held_starts`), or ended,
-//! on WaOS's own runtime, so it outlives the inspector that asked.
+//! The apps an inspector sees on this computer, which the app starter hands with the run of an
+//! app that asks for the inspector role: every app installed, by the package manager's
+//! manifests; and every one running, by the running apps, one not installed by its id alone. Each
+//! change to them as it happens, an install or a removal as the package manager announces it,
+//! whoever made it, a start or an end as the running apps list it; each one's icon, read as it is
+//! asked for; an app started held (`held_starts`), or ended, on the runtime the inspector was
+//! started on, so it outlives the inspector that asked; and what an app that does not run sees of
+//! the files, by the folders app storage keeps and its permissions.
 //!
-//! The invariant: a program is named by its id, as the runs name the program they run, so what an
-//! inspector reads of a running one the engine finds under that name.
+//! The invariant: an app is named by its id, as the running apps name the program they run, so
+//! what an inspector reads of a running one the engine finds under that name.
 
 use std::collections::BTreeSet;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use futures::stream::{self, BoxStream};
 use futures::{FutureExt, StreamExt};
-use waos::HeldProgram;
-use waos::inspection::InspectedPrograms;
-use waos::inspection::ProgramStorage;
-use waos::inspection::bindings::wasdk::inspect::devices::{Program, ProgramChange, StartError};
+use waos_capabilities::wit::wasdk::inspect::devices::{Program, ProgramChange, StartError};
+use waos_capabilities::{AppFiles, AppHold, InspectedApps};
 use waos_package::ProgramId;
 use waos_services::app_storage::AppStorage;
 use waos_services::packages::{InstalledProgram, PackageManager};
@@ -29,50 +29,49 @@ use super::running_apps::RunningApps;
 /// What this computer is called to an inspector, as its machine is to a program.
 const THIS_COMPUTER: &str = "This computer";
 
-/// The programs on this computer, as an inspector sees them.
+/// The apps on this computer, as an inspector sees them.
 pub(crate) struct ProgramsOnThisComputer {
     storage: AppStorage,
     permissions: Permissions,
     packages: Arc<PackageManager>,
     runs: Arc<RunningApps>,
-    /// What starts a program held, and the runtime it starts on, which outlives the inspector
-    /// that asked; served once WaOS can start programs, after the engine is made.
-    starts: OnceLock<(Arc<HeldStarts>, tokio::runtime::Handle)>,
+    /// What starts an app held.
+    starts: HeldStarts,
+    /// The runtime a start or an end runs on, which outlives the inspector that asked.
+    runtime: tokio::runtime::Handle,
 }
 
 impl ProgramsOnThisComputer {
+    /// The apps `packages` installs and those `runs` runs, each with its own folders in `storage`
+    /// and what `permissions` let it use, started held by `starts` and ended on `runtime`.
     pub(crate) fn new(
         storage: AppStorage,
         permissions: Permissions,
-        packages: Arc<PackageManager>,
         runs: Arc<RunningApps>,
+        starts: HeldStarts,
+        runtime: tokio::runtime::Handle,
     ) -> ProgramsOnThisComputer {
         ProgramsOnThisComputer {
             storage,
             permissions,
-            packages,
+            packages: Arc::clone(&starts.packages),
             runs,
-            starts: OnceLock::new(),
+            starts,
+            runtime,
         }
-    }
-
-    /// Starts the programs an inspector starts held with `starts`, on `runtime`.
-    pub(crate) fn serve_starts(&self, starts: HeldStarts, runtime: tokio::runtime::Handle) {
-        // Served once; a second serving would be the same app's.
-        let _ = self.starts.set((Arc::new(starts), runtime));
     }
 }
 
-impl InspectedPrograms for ProgramsOnThisComputer {
+impl InspectedApps for ProgramsOnThisComputer {
     fn device_name(&self) -> String {
         THIS_COMPUTER.to_owned()
     }
 
-    fn programs(&self) -> BoxFuture<'static, Vec<Program>> {
+    fn apps(&self) -> BoxFuture<'static, Vec<Program>> {
         let packages = Arc::clone(&self.packages);
         let running = self.runs.running_ids().borrow().clone();
         async move {
-            // The installed programs are read from their files.
+            // The installed apps are read from their files.
             let installed = tokio::task::spawn_blocking(move || packages.installed())
                 .await
                 .unwrap_or_default();
@@ -81,17 +80,13 @@ impl InspectedPrograms for ProgramsOnThisComputer {
         .boxed()
     }
 
-    fn program_changes(&self) -> BoxStream<'static, ProgramChange> {
+    fn app_changes(&self) -> BoxStream<'static, ProgramChange> {
         stream::select(installs_changes(&self.packages), runs_changes(&self.runs)).boxed()
     }
 
-    fn start_held(&self, id: &str) -> BoxFuture<'static, Result<HeldProgram, StartError>> {
-        let Some((starts, runtime)) = self.starts.get() else {
-            let refused = StartError::Failed("WaOS starts no program yet".to_owned());
-            return futures::future::ready(Err(refused)).boxed();
-        };
-        let (starts, id) = (Arc::clone(starts), id.to_owned());
-        let starting = runtime.spawn(async move { starts.start(&id).await });
+    fn start_held(&self, id: &str) -> BoxFuture<'static, Result<AppHold, StartError>> {
+        let (starts, id) = (self.starts.clone(), id.to_owned());
+        let starting = self.runtime.spawn(async move { starts.start(&id).await });
         async move {
             starting
                 .await
@@ -101,11 +96,11 @@ impl InspectedPrograms for ProgramsOnThisComputer {
     }
 
     fn end(&self, id: &str) -> BoxFuture<'static, ()> {
-        let (Some((_, runtime)), Ok(id)) = (self.starts.get(), id.parse::<ProgramId>()) else {
+        let Ok(id) = id.parse::<ProgramId>() else {
             return futures::future::ready(()).boxed();
         };
         let runs = Arc::clone(&self.runs);
-        let ending = runtime.spawn(async move {
+        let ending = self.runtime.spawn(async move {
             tracing::info!(%id, "ended from an inspector");
             runs.stop(&id).await;
         });
@@ -130,22 +125,17 @@ impl InspectedPrograms for ProgramsOnThisComputer {
         .boxed()
     }
 
-    fn storage(&self, id: &str) -> Option<ProgramStorage> {
+    fn files(&self, id: &str) -> Option<AppFiles> {
         let id: ProgramId = id.parse().ok()?;
-        if let Some(program) = self.runs.running(&id) {
-            return Some(program.storage());
-        }
-        // A program that does not run is known by the folder app storage keeps of it, installed
-        // or run in development before.
+        // An app that does not run is known by the folder app storage keeps of it, installed or
+        // run in development before.
         if !self.storage.keeps_folders_of(&id) {
             return None;
         }
-        let folders = self.storage.folders(&id).ok();
-        Some(ProgramStorage::of(
-            folders,
-            None,
-            Some(self.permissions.of(&id)),
-        ))
+        Some(AppFiles {
+            folders: self.storage.folders(&id).ok(),
+            grants: Some(self.permissions.of(&id)),
+        })
     }
 }
 
@@ -249,38 +239,51 @@ mod tests {
 
     use super::*;
     use crate::logic::opened_package::tests::write_package;
+    use crate::logic::startup::tests::start_asking_nobody;
+    use crate::logic::startup::{Setup, Started};
+    use crate::logic::test_engine::{self, NoWindows};
     use crate::logic::test_installs;
+
+    /// What an inspector sees of a test's WaOS in `folder`, with nothing running.
+    fn programs_of(folder: &std::path::Path) -> (Started, ProgramsOnThisComputer) {
+        let setup = Setup::for_tests(folder);
+        let started = start_asking_nobody(setup, |_before| {
+            let shell = test_engine::shell(Arc::new(NoWindows));
+            (shell, test_engine::no_screens())
+        });
+        let starts = HeldStarts {
+            starter: Arc::clone(&started.starter),
+            packages: Arc::clone(&started.packages),
+        };
+        let programs = ProgramsOnThisComputer::new(
+            started.storage.clone(),
+            started.permissions.clone(),
+            Arc::clone(&started.running),
+            starts,
+            tokio::runtime::Handle::current(),
+        );
+        (started, programs)
+    }
 
     #[tokio::test]
     async fn an_inspector_sees_each_program_installed_with_its_icon_and_hears_an_install_whoever_makes_it()
      {
         let folder = tempfile::tempdir().unwrap();
-        let crate::logic::startup::Domains {
-            packages,
-            permissions,
-            storage,
-            ..
-        } = test_installs::domains_never_run(&folder.path().join("store"));
-        let programs = ProgramsOnThisComputer::new(
-            storage,
-            permissions,
-            Arc::clone(&packages),
-            Arc::new(RunningApps::default()),
-        );
-        assert!(programs.programs().await.is_empty());
-        let mut changes = programs.program_changes();
+        let (started, programs) = programs_of(folder.path());
+        assert!(programs.apps().await.is_empty());
+        let mut changes = programs.app_changes();
         let key = SigningKey::generate();
         let package = write_package(
             folder.path(),
             "dev.example.notes",
             "Notes",
             "1.2.0",
-            b"\0asm",
+            test_installs::EMPTY_COMPONENT,
             &key,
         );
         // Through the package manager alone, as a headless WaOS's dev server installs, with no
         // library to pass the change on.
-        test_installs::install_package(&packages, &package);
+        test_installs::install_package(&started.packages, &package);
         let notes = Program {
             id: "dev.example.notes".to_owned(),
             name: "Notes".to_owned(),
@@ -291,60 +294,33 @@ mod tests {
             changes.next().await,
             Some(ProgramChange::Added(notes.clone()))
         );
-        assert_eq!(programs.programs().await, [notes]);
+        assert_eq!(programs.apps().await, [notes]);
         let icon = programs.icon("dev.example.notes").await.expect("its icon");
         assert!(icon.starts_with(b"\x89PNG"), "the package's PNG");
         assert_eq!(programs.icon("dev.example.gone").await, None);
     }
 
     #[tokio::test]
-    async fn a_program_that_does_not_run_has_the_mounts_of_its_store_folder() {
+    async fn an_app_that_does_not_run_has_its_own_folders_and_its_permissions() {
         let folder = tempfile::tempdir().unwrap();
-        let crate::logic::startup::Domains {
-            packages,
-            permissions,
-            storage,
-            ..
-        } = test_installs::domains_never_run(&folder.path().join("store"));
+        let (started, programs) = programs_of(folder.path());
         let key = SigningKey::generate();
         let package = write_package(
             folder.path(),
             "dev.example.notes",
             "Notes",
             "1.2.0",
-            b"\0asm",
+            test_installs::EMPTY_COMPONENT,
             &key,
         );
-        test_installs::install_package(&packages, &package);
-        let id: waos_package::ProgramId = "dev.example.notes".parse().unwrap();
-        let folders = storage.folders(&id).unwrap();
-        std::fs::write(folders.data.join("a note.txt"), b"hi").unwrap();
+        test_installs::install_package(&started.packages, &package);
+        let id: ProgramId = "dev.example.notes".parse().unwrap();
+        let folders = started.storage.folders(&id).unwrap();
 
-        let programs = ProgramsOnThisComputer::new(
-            storage,
-            permissions,
-            packages,
-            Arc::new(RunningApps::default()),
-        );
-        let storage = programs.storage("dev.example.notes").expect("its storage");
-        let mounts = storage.mounts();
-        let data = mounts
-            .iter()
-            .find(|mount| mount.path == "/data")
-            .expect("its own data folder");
-        assert_eq!(
-            data.kind,
-            waos::inspection::bindings::wasdk::inspect::storage::MountKind::OwnData
-        );
-        assert!(data.writable);
-        assert_eq!(data.place, folders.data.display().to_string());
-        let entries = storage.read_folder("/data").unwrap();
-        assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].name, "a note.txt");
-        assert!(!entries[0].is_folder);
-        assert_eq!(entries[0].size, Some(2));
-        assert!(storage.read_folder("/data/../..").is_err());
-        assert!(programs.storage("dev.example.gone").is_none());
+        let files = programs.files("dev.example.notes").expect("its files");
+        assert_eq!(files.folders, Some(folders), "app storage's folders of it");
+        assert!(files.grants.is_some(), "and what its user lets it use");
+        assert!(programs.files("dev.example.gone").is_none());
     }
 
     #[test]

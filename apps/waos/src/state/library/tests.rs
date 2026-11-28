@@ -77,7 +77,7 @@ impl TestLibrary {
         let setup = Setup {
             install_compiler: Arc::clone(&compiler)
                 as Arc<dyn waos_services::packages::CodeCompiler>,
-            ..Setup::for_tests(folder.path(), work.handle().clone())
+            ..Setup::for_tests(folder.path())
         };
         let started = start_asking_nobody(setup, |_before| {
             let shell = test_engine::shell(Arc::new(NoWindows));

@@ -10,13 +10,12 @@ use std::sync::Arc;
 use futures::future::{self, BoxFuture};
 use futures::stream::{self, BoxStream};
 use futures::{FutureExt, StreamExt};
-use waos::inspection::bindings::wasdk::inspect::devices::{Program, ProgramChange, StartError};
-use waos::inspection::{InspectedPrograms, ProgramStorage};
-use waos::{
-    Answer, HeldProgram, ProgramEnd, ProgramEnvironment, ProgramGrants, Question, Role, WaOS,
-    WaOSConfig,
+use waos::{Answer, ProgramEnd, ProgramEnvironment, ProgramGrants, Question, Role, WaOS};
+use waos_capabilities::wit::wasdk::inspect::devices::{Program, ProgramChange, StartError};
+use waos_capabilities::{
+    AppFiles, AppHold, ChangedFuture, DomainRule, FileSystemGrant, InspectedApps, NetworkGrant,
+    ProgramFolders,
 };
-use waos_capabilities::{ChangedFuture, DomainRule, FileSystemGrant, NetworkGrant, ProgramFolders};
 
 use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, within};
 
@@ -70,12 +69,12 @@ struct StoragePrograms {
     folders: ProgramFolders,
 }
 
-impl InspectedPrograms for StoragePrograms {
+impl InspectedApps for StoragePrograms {
     fn device_name(&self) -> String {
         "Test device".to_owned()
     }
 
-    fn programs(&self) -> BoxFuture<'static, Vec<Program>> {
+    fn apps(&self) -> BoxFuture<'static, Vec<Program>> {
         future::ready(vec![Program {
             id: "dev.example.storage".to_owned(),
             name: "Storage".to_owned(),
@@ -85,7 +84,7 @@ impl InspectedPrograms for StoragePrograms {
         .boxed()
     }
 
-    fn program_changes(&self) -> BoxStream<'static, ProgramChange> {
+    fn app_changes(&self) -> BoxStream<'static, ProgramChange> {
         stream::pending().boxed()
     }
 
@@ -93,7 +92,7 @@ impl InspectedPrograms for StoragePrograms {
         future::ready(None).boxed()
     }
 
-    fn start_held(&self, _id: &str) -> BoxFuture<'static, Result<HeldProgram, StartError>> {
+    fn start_held(&self, _id: &str) -> BoxFuture<'static, Result<AppHold, StartError>> {
         future::ready(Err(StartError::Unknown)).boxed()
     }
 
@@ -101,9 +100,11 @@ impl InspectedPrograms for StoragePrograms {
         future::ready(()).boxed()
     }
 
-    fn storage(&self, id: &str) -> Option<ProgramStorage> {
-        (id == "dev.example.storage")
-            .then(|| ProgramStorage::of(Some(self.folders.clone()), None, None))
+    fn files(&self, id: &str) -> Option<AppFiles> {
+        (id == "dev.example.storage").then(|| AppFiles {
+            folders: Some(self.folders.clone()),
+            grants: None,
+        })
     }
 }
 
@@ -122,11 +123,7 @@ fn an_inspector_reads_a_programs_mounts_and_a_folders_entries_and_no_path_out_of
     };
 
     let shell = TestShell::new();
-    let config = WaOSConfig {
-        inspected_programs: Some(Arc::new(StoragePrograms { folders })),
-        ..config()
-    };
-    let engine = WaOS::new(config, shell.shell(), shell.platform()).unwrap();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let inspect = engine
         .load(
             Path::new(waos_test_programs::INSPECT),
@@ -136,6 +133,7 @@ fn an_inspector_reads_a_programs_mounts_and_a_folders_entries_and_no_path_out_of
     let output = Arc::new(RecordedOutput::default());
     let environment = ProgramEnvironment {
         grants: Some(Arc::new(Granted)),
+        inspected: Some(Arc::new(StoragePrograms { folders })),
         ..printing_to(&output)
     };
     let running = engine.run(&inspect, environment).unwrap();

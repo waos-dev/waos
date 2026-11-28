@@ -37,7 +37,6 @@ use super::dev_refusal;
 use super::dev_settings::{self, SettingsContext};
 use super::developer_access::DeveloperAccess;
 use super::environments::ProgramEnvironments;
-use super::launch_outputs::LaunchOutputs;
 use super::opening;
 use super::running_apps::RunningApps;
 use super::{dev_input, dev_resize, dev_screenshot};
@@ -68,8 +67,6 @@ pub(crate) struct ServedDomains {
     pub(crate) starter: Arc<AppStarter>,
     pub(crate) permissions: Permissions,
     pub(crate) environments: Arc<ProgramEnvironments>,
-    /// What each app writes, which an attach reads.
-    pub(crate) outputs: Arc<LaunchOutputs>,
     /// The engine, which counts today's activity of each app, for an inspection.
     pub(crate) engine: Arc<WaOS>,
 }
@@ -402,7 +399,7 @@ async fn serve_request(
         Request::Attach { id } => {
             let attach = AttachContext {
                 runs,
-                outputs: &context.served.outputs,
+                outputs: context.served.starter.outputs(),
                 asking: &context.asking,
             };
             dev_attach::serve(connection, &id, attach).await;
@@ -639,7 +636,7 @@ pub(crate) mod tests {
                 std::env::temp_dir().join(format!("waos-app-{}-{test}", std::process::id()));
             let _ = fs::remove_dir_all(&folder);
             let socket = Self::test_listener(&folder, test);
-            let setup = Setup::for_tests(&folder, tokio::runtime::Handle::current());
+            let setup = Setup::for_tests(&folder);
             let (started, (asking, prompted)) = startup::start(setup, prompts, |before, kept| {
                 let (shell, platform) = outside();
                 let asking = AskingNow::new(before.permissions.asking());
@@ -655,7 +652,6 @@ pub(crate) mod tests {
                 engine,
                 environments,
                 places,
-                outputs,
                 starter,
                 ..
             } = started;
@@ -665,7 +661,6 @@ pub(crate) mod tests {
                 starter: Arc::clone(&starter),
                 permissions: permissions.clone(),
                 environments,
-                outputs,
                 engine,
             };
             let access = DeveloperAccess::on_loopback(folder.join("developer"));
