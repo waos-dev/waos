@@ -17,7 +17,7 @@ use waos_package::{Package, ProgramId};
 
 use crate::packages::error::{FolderError, InstallError, RemoveError};
 use crate::packages::installed::{DevelopmentBuild, InstalledProgram, InstalledVersion, Origin};
-use crate::packages::store::{InstalledAppsStore, StagedContent, StagedVersion};
+use crate::packages::store::{InstalledAppsStore, StagedVersion};
 
 /// One app as the in-memory store keeps it.
 #[derive(Clone, Debug)]
@@ -44,8 +44,12 @@ impl AppInMemory {
 /// The installed apps, kept in memory alone, gone with the value.
 #[derive(Default)]
 pub struct InstalledAppsInMemory {
-    apps: Mutex<BTreeMap<ProgramId, AppInMemory>>,
+    /// Shared with the versions staged, which their commits change.
+    apps: Arc<Apps>,
 }
+
+/// The apps the in-memory store keeps, by id.
+type Apps = Mutex<BTreeMap<ProgramId, AppInMemory>>;
 
 impl InstalledAppsInMemory {
     /// The store with `apps` installed.
@@ -55,14 +59,53 @@ impl InstalledAppsInMemory {
             .map(|app| (app.program.manifest.id().clone(), app))
             .collect();
         InstalledAppsInMemory {
-            apps: Mutex::new(apps),
+            apps: Arc::new(Mutex::new(apps)),
         }
     }
 
-    /// The apps, for a moment: never held across an await.
     fn locked(&self) -> MutexGuard<'_, BTreeMap<ProgramId, AppInMemory>> {
-        // Every change leaves the map whole, so one that panicked leaves nothing half-changed.
-        self.apps.lock().unwrap_or_else(PoisonError::into_inner)
+        locked(&self.apps)
+    }
+
+    /// `program` with `icon`, staged to go in place of the installed version once committed.
+    fn staged(&self, program: InstalledProgram, icon: Option<Arc<[u8]>>) -> Box<dyn StagedVersion> {
+        Box::new(StagedAppInMemory {
+            app: AppInMemory {
+                program,
+                icon,
+                version: None,
+            },
+            apps: Arc::clone(&self.apps),
+        })
+    }
+}
+
+/// `apps`, for a moment: never held across an await.
+fn locked(apps: &Apps) -> MutexGuard<'_, BTreeMap<ProgramId, AppInMemory>> {
+    // Every change leaves the map whole, so one that panicked leaves nothing half-changed.
+    apps.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// An app staged in memory, its record and icon alone, put in the store's apps whole once it is
+/// committed.
+struct StagedAppInMemory {
+    app: AppInMemory,
+    apps: Arc<Apps>,
+}
+
+impl StagedVersion for StagedAppInMemory {
+    fn program(&self) -> &InstalledProgram {
+        &self.app.program
+    }
+
+    fn files(&self) -> Option<InstalledVersion> {
+        None
+    }
+
+    fn commit(self: Box<Self>) -> Result<InstalledProgram, InstallError> {
+        let program = self.app.program.clone();
+        locked(&self.apps).insert(program.manifest.id().clone(), self.app);
+        Ok(program)
     }
 }
 
@@ -91,7 +134,7 @@ impl InstalledAppsStore for InstalledAppsInMemory {
         NamedTempFile::new().map_err(FolderError::io_at(&std::env::temp_dir()))
     }
 
-    fn stage(&self, package: &mut Package) -> Result<StagedVersion, InstallError> {
+    fn stage(&self, package: &mut Package) -> Result<Box<dyn StagedVersion>, InstallError> {
         let program = InstalledProgram {
             manifest: package.manifest().clone(),
             origin: Origin::Package {
@@ -99,10 +142,13 @@ impl InstalledAppsStore for InstalledAppsInMemory {
             },
         };
         let icon = Some(Arc::from(package.icon()));
-        Ok(StagedVersion::new(program, StagedContent::Icon(icon)))
+        Ok(self.staged(program, icon))
     }
 
-    fn stage_development(&self, build: &DevelopmentBuild) -> Result<StagedVersion, InstallError> {
+    fn stage_development(
+        &self,
+        build: &DevelopmentBuild,
+    ) -> Result<Box<dyn StagedVersion>, InstallError> {
         let program = InstalledProgram {
             manifest: DevelopmentBuild::installed_manifest(&build.manifest),
             origin: Origin::Development {
@@ -110,20 +156,7 @@ impl InstalledAppsStore for InstalledAppsInMemory {
             },
         };
         let icon = build.icon.as_deref().map(Arc::from);
-        Ok(StagedVersion::new(program, StagedContent::Icon(icon)))
-    }
-
-    fn commit(&self, staged: StagedVersion) -> Result<InstalledProgram, InstallError> {
-        let (program, StagedContent::Icon(icon)) = staged.into_parts() else {
-            panic!("a version is committed to the store that staged it");
-        };
-        let app = AppInMemory {
-            program: program.clone(),
-            icon,
-            version: None,
-        };
-        self.locked().insert(program.manifest.id().clone(), app);
-        Ok(program)
+        Ok(self.staged(program, icon))
     }
 
     fn remove(&self, id: &ProgramId) -> Result<(), RemoveError> {
@@ -189,7 +222,7 @@ mod tests {
         let development = notes().development();
         let staged = store.stage_development(&build("1.0.0")).unwrap();
         assert_eq!(installed_version(&store, &development), None);
-        store.commit(staged).unwrap();
+        staged.commit().unwrap();
         assert_eq!(
             installed_version(&store, &development).as_deref(),
             Some("1.0.0")
@@ -202,7 +235,7 @@ mod tests {
         let development = notes().development();
         for version in ["1.0.0", "1.1.0"] {
             let staged = store.stage_development(&build(version)).unwrap();
-            store.commit(staged).unwrap();
+            staged.commit().unwrap();
         }
         assert_eq!(
             installed_version(&store, &development).as_deref(),
@@ -220,7 +253,7 @@ mod tests {
         let store = InstalledAppsInMemory::default();
         let development = notes().development();
         let staged = store.stage_development(&build("1.0.0")).unwrap();
-        store.commit(staged).unwrap();
+        staged.commit().unwrap();
         store.remove(&development).unwrap();
         assert_eq!(installed_version(&store, &development), None);
         assert_eq!(store.icon(&development), None);

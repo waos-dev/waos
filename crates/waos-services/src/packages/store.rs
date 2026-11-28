@@ -3,14 +3,15 @@
 //! ([`InstalledAppsInMemory`](super::InstalledAppsInMemory)).
 //!
 //! The invariant a later editor will break: a store changes an app only whole. Staging changes
-//! nothing installed; [`InstalledAppsStore::commit`] is the one step that puts a version in place,
-//! and [`InstalledAppsStore::remove`] the one step that takes an app. What may be installed (its
+//! nothing installed; the staged version's [`StagedVersion::commit`] is the one step that puts a
+//! version in place, as Android's `PackageInstaller.Session.commit()` does, and
+//! [`InstalledAppsStore::remove`] the one step that takes an app. What may be installed (its
 //! app, its publisher, a newer version), and when, is the package manager's to decide, never a
 //! store's.
 
 use std::sync::Arc;
 
-use tempfile::{NamedTempFile, TempDir};
+use tempfile::NamedTempFile;
 use waos_package::{Package, ProgramId};
 
 use crate::packages::error::{FolderError, InstallError, RemoveError};
@@ -42,55 +43,29 @@ pub trait InstalledAppsStore: Send + Sync {
 
     /// Keeps `package` as a new version of its app, beside the installed one, which does not
     /// change.
-    fn stage(&self, package: &mut Package) -> Result<StagedVersion, InstallError>;
+    fn stage(&self, package: &mut Package) -> Result<Box<dyn StagedVersion>, InstallError>;
 
     /// Keeps `build` as a new version of its app's development install, under its development id,
     /// beside the installed one, which does not change.
-    fn stage_development(&self, build: &DevelopmentBuild) -> Result<StagedVersion, InstallError>;
-
-    /// Puts `staged`, a version this store staged, in the installed one's place, whole.
-    fn commit(&self, staged: StagedVersion) -> Result<InstalledProgram, InstallError>;
+    fn stage_development(
+        &self,
+        build: &DevelopmentBuild,
+    ) -> Result<Box<dyn StagedVersion>, InstallError>;
 
     /// Removes the app `id` whole, with everything kept with it.
     fn remove(&self, id: &ProgramId) -> Result<(), RemoveError>;
 }
 
-/// A version of an app a store keeps beside the installed one, not installed until it is
-/// committed; dropped uncommitted, it goes.
-pub struct StagedVersion {
-    program: InstalledProgram,
-    content: StagedContent,
-}
-
-/// What a staged version is kept as, by the store that staged it.
-pub(crate) enum StagedContent {
-    /// Unpacked into a folder of its own, which goes when it is dropped uncommitted.
-    Folder(TempDir),
-    /// Its icon alone, as the in-memory store keeps an app.
-    Icon(Option<Arc<[u8]>>),
-}
-
-impl StagedVersion {
-    pub(crate) fn new(program: InstalledProgram, content: StagedContent) -> StagedVersion {
-        StagedVersion { program, content }
-    }
-
+/// A new version of an app, kept by the store that staged it beside the installed one until it is
+/// committed; dropped uncommitted, it goes. Only that store knows what it is kept as.
+pub trait StagedVersion: Send {
     /// The app as it is installed once committed.
-    pub fn program(&self) -> &InstalledProgram {
-        &self.program
-    }
+    fn program(&self) -> &InstalledProgram;
 
-    /// The version's files, whose component is compiled before it is committed; none where the
-    /// store keeps no files.
-    pub fn version(&self) -> Option<InstalledVersion> {
-        match &self.content {
-            StagedContent::Folder(folder) => Some(InstalledVersion::new(folder.path().to_owned())),
-            StagedContent::Icon(_) => None,
-        }
-    }
+    /// Its files, whose component is compiled before it is committed; none where the store keeps
+    /// no files.
+    fn files(&self) -> Option<InstalledVersion>;
 
-    /// The app and what it is kept as.
-    pub(crate) fn into_parts(self) -> (InstalledProgram, StagedContent) {
-        (self.program, self.content)
-    }
+    /// Puts it in place of the installed version, whole.
+    fn commit(self: Box<Self>) -> Result<InstalledProgram, InstallError>;
 }

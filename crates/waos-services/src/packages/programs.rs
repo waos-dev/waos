@@ -35,7 +35,7 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
 use sha2::{Digest, Sha256};
-use tempfile::NamedTempFile;
+use tempfile::{NamedTempFile, TempDir};
 use waos_package::{
     COMPONENT, ICON, MANIFEST, Manifest, PUBLISHER_KEY, Package, ProgramId, PublisherKey,
 };
@@ -43,7 +43,7 @@ use waos_package::{
 use crate::files::write_whole;
 use crate::packages::error::{FolderError, InstallError, RemoveError};
 use crate::packages::installed::{DevelopmentBuild, InstalledProgram, InstalledVersion, Origin};
-use crate::packages::store::{InstalledAppsStore, StagedContent, StagedVersion};
+use crate::packages::store::{InstalledAppsStore, StagedVersion};
 
 /// The folder of installed apps, in the store's folder.
 const PROGRAMS: &str = "programs";
@@ -228,7 +228,7 @@ impl InstalledAppsStore for InstalledAppsFiles {
             .map_err(FolderError::io_at(&folder))
     }
 
-    fn stage(&self, package: &mut Package) -> Result<StagedVersion, InstallError> {
+    fn stage(&self, package: &mut Package) -> Result<Box<dyn StagedVersion>, InstallError> {
         let program = InstalledProgram {
             manifest: package.manifest().clone(),
             origin: Origin::Package {
@@ -236,22 +236,69 @@ impl InstalledAppsStore for InstalledAppsFiles {
             },
         };
         let folder = self.program_folder(program.manifest.id());
-        stage(&folder, program, |unpacked| Ok(package.unpack(unpacked)?))
+        let staged = stage(&folder, program, |unpacked| Ok(package.unpack(unpacked)?))?;
+        Ok(Box::new(staged))
     }
 
-    fn stage_development(&self, build: &DevelopmentBuild) -> Result<StagedVersion, InstallError> {
-        stage_development(
-            &self.program_folder(&build.manifest.id().development()),
-            build,
-        )
-    }
-
-    fn commit(&self, staged: StagedVersion) -> Result<InstalledProgram, InstallError> {
-        commit(&self.program_folder(staged.program().manifest.id()), staged)
+    fn stage_development(
+        &self,
+        build: &DevelopmentBuild,
+    ) -> Result<Box<dyn StagedVersion>, InstallError> {
+        let folder = self.program_folder(&build.manifest.id().development());
+        Ok(Box::new(stage_development(&folder, build)?))
     }
 
     fn remove(&self, id: &ProgramId) -> Result<(), RemoveError> {
         take_out(&self.program_folder(id), id, &self.removing)
+    }
+}
+
+/// A version unpacked into a folder of its own in its app's folder, beside the installed one,
+/// until it is committed; dropped uncommitted, its folder goes.
+struct StagedFolder {
+    /// The app's folder, whose `current` names the installed version.
+    program_folder: PathBuf,
+    program: InstalledProgram,
+    unpacked: TempDir,
+}
+
+impl StagedVersion for StagedFolder {
+    fn program(&self) -> &InstalledProgram {
+        &self.program
+    }
+
+    fn files(&self) -> Option<InstalledVersion> {
+        Some(InstalledVersion::new(self.unpacked.path().to_owned()))
+    }
+
+    /// `current` names it, then the version it replaced is removed. One that cannot be, as a file
+    /// another process maps on Windows, stays for [`clear_unfinished`] at the package manager's
+    /// next opening.
+    fn commit(self: Box<Self>) -> Result<InstalledProgram, InstallError> {
+        let StagedFolder {
+            program_folder,
+            program,
+            unpacked,
+        } = *self;
+        if !unpacked.path().is_dir() {
+            let reason = "the app was removed while it was being installed";
+            return Err(FolderError::unreadable_at(unpacked.path())(reason).into());
+        }
+        let replaced = installed_folder(&program_folder)?;
+        let installed = unpacked.keep();
+        let name = installed
+            .file_name()
+            .expect("a folder made in another has a name");
+        let current = program_folder.join(CURRENT);
+        write_whole(&current, name.as_encoded_bytes()).map_err(FolderError::io_at(&current))?;
+        if let Some(replaced) = replaced
+            && let Err(error) = remove(&replaced)
+        {
+            tracing::warn!(
+                "the version replaced stays until the package manager opens again: {error}"
+            );
+        }
+        Ok(program)
     }
 }
 
@@ -262,14 +309,18 @@ fn stage(
     folder: &Path,
     program: InstalledProgram,
     unpack: impl FnOnce(&Path) -> Result<(), InstallError>,
-) -> Result<StagedVersion, InstallError> {
+) -> Result<StagedFolder, InstallError> {
     fs::create_dir_all(folder).map_err(FolderError::io_at(folder))?;
     let unpacked = tempfile::Builder::new()
         .prefix(&format!("{}-", program.manifest.version()))
         .tempdir_in(folder)
         .map_err(FolderError::io_at(folder))?;
     unpack(unpacked.path())?;
-    Ok(StagedVersion::new(program, StagedContent::Folder(unpacked)))
+    Ok(StagedFolder {
+        program_folder: folder.to_owned(),
+        program,
+        unpacked,
+    })
 }
 
 /// Unpacks `build` as its app's development install in `folder`, the folder of its development
@@ -279,7 +330,7 @@ fn stage(
 fn stage_development(
     folder: &Path,
     build: &DevelopmentBuild,
-) -> Result<StagedVersion, InstallError> {
+) -> Result<StagedFolder, InstallError> {
     let manifest = DevelopmentBuild::installed_manifest(&build.manifest);
     let program = InstalledProgram {
         manifest: manifest.clone(),
@@ -295,32 +346,6 @@ fn stage_development(
             build.icon.as_deref(),
         )?)
     })
-}
-
-/// Installs `staged`, a version [`stage`] unpacked in `program`: `current` names it, then the
-/// version it replaced is removed. One that cannot be, as a file another process maps on
-/// Windows, stays for [`clear_unfinished`] at the package manager's next opening.
-fn commit(program: &Path, staged: StagedVersion) -> Result<InstalledProgram, InstallError> {
-    let (installed_program, StagedContent::Folder(folder)) = staged.into_parts() else {
-        panic!("a version is committed to the store that staged it");
-    };
-    if !folder.path().is_dir() {
-        let reason = "the app was removed while it was being installed";
-        return Err(FolderError::unreadable_at(folder.path())(reason).into());
-    }
-    let replaced = installed_folder(program)?;
-    let installed = folder.keep();
-    let name = installed
-        .file_name()
-        .expect("a folder made in another has a name");
-    let current = program.join(CURRENT);
-    write_whole(&current, name.as_encoded_bytes()).map_err(FolderError::io_at(&current))?;
-    if let Some(replaced) = replaced
-        && let Err(error) = remove(&replaced)
-    {
-        tracing::warn!("the version replaced stays until the package manager opens again: {error}");
-    }
-    Ok(installed_program)
 }
 
 /// Writes a development build into `folder`, as a package unpacks: `manifest`, `component`, the
@@ -473,7 +498,7 @@ mod tests {
             },
         };
         let staged = stage(program, installed, |folder| Ok(package.unpack(folder)?)).unwrap();
-        commit(program, staged).unwrap();
+        Box::new(staged).commit().unwrap();
     }
 
     fn installed_version(program: &Path) -> Option<Version> {

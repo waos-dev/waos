@@ -401,7 +401,7 @@ impl SessionWork {
             }
         };
         self.check_cancelled()?;
-        let staged = self.compile(staged).await?;
+        self.compile(staged.files()).await?;
         let _lock = self.shared.lock(&self.app).await;
         self.check_cancelled()?;
         self.shared
@@ -409,21 +409,24 @@ impl SessionWork {
             .stop(&self.app, PackageChange::Install)
             .await;
         let shared = Arc::clone(&self.shared);
-        let installed = blocking(move || shared.commit(staged)).await?;
+        let installed = blocking(move || {
+            shared.check_update_again(staged.program())?;
+            staged.commit()
+        })
+        .await?;
         self.shared.installed_changed();
         Ok(installed)
     }
 
-    /// `staged` with its component compiled, where it has files to compile.
-    async fn compile(&self, staged: StagedVersion) -> Result<StagedVersion, InstallError> {
-        let Some(version) = staged.version() else {
-            return Ok(staged);
+    /// Compiles the component of a staged version's `files`, where it has files to compile.
+    async fn compile(&self, files: Option<InstalledVersion>) -> Result<(), InstallError> {
+        let Some(files) = files else {
+            return Ok(());
         };
         let compiler = Arc::clone(&self.shared.compiler);
-        blocking(move || compiler.compile(&version.component(), &version.code()))
+        blocking(move || compiler.compile(&files.component(), &files.code()))
             .await
-            .map_err(InstallError::Compile)?;
-        Ok(staged)
+            .map_err(InstallError::Compile)
     }
 
     /// The package's bytes, taken into the store's file for them, unless the session is cancelled
@@ -512,7 +515,7 @@ impl Shared {
         &self,
         app: &ProgramId,
         received: &Path,
-    ) -> Result<StagedVersion, InstallError> {
+    ) -> Result<Box<dyn StagedVersion>, InstallError> {
         let mut package = Package::open(received)?;
         let manifest = package.manifest().clone();
         if manifest.id() != app {
@@ -527,16 +530,15 @@ impl Shared {
         self.store.stage(&mut package)
     }
 
-    /// The one step that installs `staged`: its update's checks again, against what was
-    /// installed meanwhile, then it is the app's installed version, and the version it replaces
-    /// goes. The caller holds the app's lock.
-    fn commit(&self, staged: StagedVersion) -> Result<InstalledProgram, InstallError> {
-        if let Origin::Package { publisher } = staged.program().origin
-            && let Some(installed) = self.store.app(staged.program().manifest.id())?
+    /// Checks `staged`, a package's version about to be committed, as an update again, against
+    /// what was installed meanwhile. The caller holds the app's lock until it is committed.
+    fn check_update_again(&self, staged: &InstalledProgram) -> Result<(), InstallError> {
+        if let Origin::Package { publisher } = staged.origin
+            && let Some(installed) = self.store.app(staged.manifest.id())?
         {
-            check_update(&installed, &staged.program().manifest, publisher)?;
+            check_update(&installed, &staged.manifest, publisher)?;
         }
-        self.store.commit(staged)
+        Ok(())
     }
 
     /// Waits for the app `id`'s lock, and holds it until the answer is dropped.
