@@ -79,6 +79,7 @@ use crate::running::RunningProgram;
 use crate::windows::WindowConfig;
 
 /// The embedding app's parts, one per job.
+#[derive(Clone)]
 pub struct Shell {
     /// Where a program's views go.
     pub views: Arc<dyn ViewPlacement>,

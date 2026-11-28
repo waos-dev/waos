@@ -11,8 +11,8 @@ use waos_package::ProgramId;
 use waos_window_messages::ToWindow;
 
 use super::*;
-use crate::logic::program_apps::{
-    Compositing, LaunchAttempt, Launches, Served, launch_failed, said_hello, window_process,
+use crate::logic::macos_shell::{
+    Compositing, LaunchAttempt, Launches, Served, said_hello, window_process,
 };
 use crate::logic::test_engine::{self, NoWindows};
 
@@ -38,7 +38,7 @@ fn forever_id() -> ProgramId {
     FOREVER.parse().unwrap()
 }
 
-/// WaOS's prompts on macOS, over the apps `reach` reaches, on a platform with a compositor and
+/// WaOS's prompts on macOS, over the apps `window_processes` reach, on a platform with a compositor and
 /// windows of the test's own.
 struct Prompting {
     shell: Shell,
@@ -50,7 +50,7 @@ struct Prompting {
 }
 
 impl Prompting {
-    fn new(reach: &Arc<AppReach>) -> Prompting {
+    fn new(window_processes: &Arc<WindowProcesses>) -> Prompting {
         let windows = Rc::new(TestWindows::new());
         let platform = Rc::new(
             TestPlatform::new()
@@ -58,11 +58,16 @@ impl Prompting {
                 .with_windows(Rc::clone(&windows)),
         );
         let made = Rc::new(RefCell::new(None));
-        let (kept, reach) = (Rc::clone(&made), Arc::clone(reach));
+        let (kept, window_processes) = (Rc::clone(&made), Arc::clone(window_processes));
         let (reports, reported) = mpsc::unbounded();
         let shell = Shell::new(Rc::clone(&platform) as PlatformRef, move |app| {
             let compositor = app.platform().compositor().expect("a compositor");
-            *kept.borrow_mut() = Some(PromptDialogs::new(app, reach, compositor, reported));
+            *kept.borrow_mut() = Some(PromptDialogs::new(
+                app,
+                window_processes,
+                compositor,
+                reported,
+            ));
         });
         let dialogs = made.borrow_mut().take().expect("the dialogs are made");
         Prompting {
@@ -100,10 +105,10 @@ fn a_prompt_of_a_program_with_no_app_launches_the_app_and_shows_there_not_in_wao
     let runtime = tokio::runtime::Runtime::new().unwrap();
     let _within = runtime.enter();
     let launches = Launches::default();
-    let reach = launches.reach();
+    let window_processes = launches.window_processes();
     let engine = test_engine::engine(Arc::new(NoWindows));
     let program = forever(&engine);
-    let prompting = Prompting::new(&reach);
+    let prompting = Prompting::new(&window_processes);
 
     let dismissed = Rc::new(Cell::new(false));
     let _shown = prompting.show(&program, &dismissed);
@@ -115,7 +120,7 @@ fn a_prompt_of_a_program_with_no_app_launches_the_app_and_shows_there_not_in_wao
     let Served {
         process, mut sent, ..
     } = window_process(program.clone());
-    said_hello(&reach, &forever_id(), &process);
+    said_hello(&window_processes, &forever_id(), &process);
     let mut asked = None;
     prompting.run_tasks_until("the prompt's dialog asked of the app", || {
         while let Ok(message) = sent.try_recv() {
@@ -143,14 +148,14 @@ fn a_prompts_view_arrives_as_every_view_and_is_built_from_the_data_naming_the_pr
     let runtime = tokio::runtime::Runtime::new().unwrap();
     let _within = runtime.enter();
     let launches = Launches::default();
-    let reach = launches.reach();
+    let window_processes = launches.window_processes();
     let engine = test_engine::engine(Arc::new(NoWindows));
     let program = forever(&engine);
-    let mut prompting = Prompting::new(&reach);
+    let mut prompting = Prompting::new(&window_processes);
     let dismissed = Rc::new(Cell::new(false));
     let _shown = prompting.show(&program, &dismissed);
     let Served { process, .. } = window_process(program.clone());
-    said_hello(&reach, &forever_id(), &process);
+    said_hello(&window_processes, &forever_id(), &process);
     let metrics = ViewMetrics {
         physical_size: [760.0, 400.0],
         device_pixel_ratio: 2.0,
@@ -199,15 +204,15 @@ fn a_prompt_whose_app_never_comes_is_put_away_unanswered() {
     let runtime = tokio::runtime::Runtime::new().unwrap();
     let _within = runtime.enter();
     let launches = Launches::default();
-    let reach = launches.reach();
+    let window_processes = launches.window_processes();
     let engine = test_engine::engine(Arc::new(NoWindows));
     let program = forever(&engine);
-    let prompting = Prompting::new(&reach);
+    let prompting = Prompting::new(&window_processes);
 
     let dismissed = Rc::new(Cell::new(false));
     let _shown = prompting.show(&program, &dismissed);
-    launch_failed(&reach, &forever_id(), "Launch Services: no app");
-    launch_failed(&reach, &forever_id(), "Launch Services: no app");
+    runtime.block_on(launches.fail(0, "Launch Services: no app"));
+    runtime.block_on(launches.fail(1, "Launch Services: no app"));
     prompting.run_tasks_until("the prompt put away", || dismissed.get());
     assert!(
         prompting.windows.made().is_empty(),

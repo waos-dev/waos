@@ -1,6 +1,6 @@
 //! WaOS's prompts on macOS, each in a dialog window of its own in the program's app and drawn by
 //! WaOS: for each prompt WaOS makes a composition layer, places it in a layer context of its own,
-//! and asks the program's window process for a dialog showing that context (`logic::program_apps`);
+//! and asks the program's window process for a dialog showing that context (`logic::macos_shell`);
 //! once the dialog reports its size and scale, WaOS asks Waft's view embedder for a view drawing
 //! into the layer (`ViewEmbedder::add_view`), its initial data naming the prompt ([`dialog_data`]);
 //! the view arrives as every view does, and WaOS's one builder builds the prompt's widget in it
@@ -38,9 +38,11 @@ use waos_program_window::{PROMPT_SIZE, PromptPlacement, ShownPrompt};
 use waos_window_messages::{HostedLayers, PromptCall, PromptId, PromptReport};
 
 use crate::logic::forwarded_pointers::ForwardedDevices;
-use crate::logic::program_apps::{AppReach, CanvasPlace, DialogReport, ReachedApp, WindowProcess};
+use crate::logic::macos_shell::{
+    CanvasPlace, DialogReport, ReachedApp, WindowProcess, WindowProcesses,
+};
 use crate::os::LayerContext;
-use crate::state::program_apps::place_in_context;
+use crate::state::macos_shell::place_in_context;
 
 /// What the initial data of a prompt's view starts with, the prompt's id following.
 const DIALOG_DATA: &str = "waos-prompt-dialog:";
@@ -48,7 +50,7 @@ const DIALOG_DATA: &str = "waos-prompt-dialog:";
 /// The placement of the programs' prompts on macOS.
 pub(crate) struct PromptDialogs {
     /// How a prompt reaches its program's app.
-    reach: Arc<AppReach>,
+    window_processes: Arc<WindowProcesses>,
     /// What each prompt's layer is made on.
     compositor: Arc<dyn Compositor>,
     shown: Entity<ShownDialogs>,
@@ -101,11 +103,11 @@ enum Afterwards {
 }
 
 impl PromptDialogs {
-    /// The placement, over the programs' apps `reach` reaches, each prompt's layer made on
-    /// `compositor`, whose dialogs' reports arrive on `reports`.
+    /// The placement, over the apps' window processes `window_processes` reach, each prompt's
+    /// layer made on `compositor`, whose dialogs' reports arrive on `reports`.
     pub(crate) fn new(
         app: &mut App,
-        reach: Arc<AppReach>,
+        window_processes: Arc<WindowProcesses>,
         compositor: Arc<dyn Compositor>,
         reports: UnboundedReceiver<DialogReport>,
     ) -> PromptDialogs {
@@ -122,7 +124,7 @@ impl PromptDialogs {
         let (hidden, taken_away) = mpsc::unbounded();
         take_away_when_dropped(app, &shown, taken_away);
         PromptDialogs {
-            reach,
+            window_processes,
             compositor,
             shown,
             hidden,
@@ -170,7 +172,7 @@ impl PromptDialogs {
     /// Shows `prompt` in a dialog of `program`'s app once the getter hands the app over, on the
     /// main thread.
     fn show_once_reached(&self, app: &mut App, program: &RunningProgram, prompt: PromptId) {
-        let reached = self.reach.app(program);
+        let reached = self.window_processes.of(program);
         let (shown, compositor) = (self.shown.downgrade(), Arc::clone(&self.compositor));
         app.spawn(async move |cx| {
             let reached = reached.await;

@@ -39,32 +39,35 @@ use waos::{
     SystemPermissionState,
 };
 
-use super::app_reach::{AppReach, app_id};
+use super::window_processes::{WindowProcesses, app_id};
 use crate::logic::notification_permissions::NotificationPermissions;
 
 /// The engine's notifications on macOS: a program's posted, scheduled and removed in its app, and
 /// macOS's question for them put there, the app launched for them in the background when it does
 /// not run.
 pub(crate) struct AppNotifications {
-    reach: Arc<AppReach>,
+    window_processes: Arc<WindowProcesses>,
     /// What each program's app said macOS said of its notifications.
     permissions: NotificationPermissions,
 }
 
 impl AppNotifications {
-    /// The programs' notifications in their apps, as `reach` reaches them, macOS's permission for
-    /// each read from `permissions`.
+    /// The programs' notifications in their apps, as `window_processes` reach them, macOS's
+    /// permission for each read from `permissions`.
     pub(crate) fn new(
-        reach: Arc<AppReach>,
+        window_processes: Arc<WindowProcesses>,
         permissions: NotificationPermissions,
     ) -> AppNotifications {
-        AppNotifications { reach, permissions }
+        AppNotifications {
+            window_processes,
+            permissions,
+        }
     }
 
     /// Puts macOS's question for `program`'s notifications in its app, launched for it if it does
     /// not run, and answers what macOS says then; what it said before where the app never came.
     fn request_from_macos(&self, program: &RunningProgram) -> SystemPermissionFuture {
-        let app = self.reach.app(program);
+        let app = self.window_processes.of(program);
         let before = self.permission_state(program);
         Box::pin(async move {
             let answered = match app.await {
@@ -93,7 +96,7 @@ impl AppNotifications {
     pub(crate) fn read_system_permissions(&self, programs: &[RunningProgram]) {
         let running = programs
             .iter()
-            .filter_map(|program| self.reach.running_app(program));
+            .filter_map(|program| self.window_processes.running(program));
         for app in running {
             app.read_notification_permission();
         }
@@ -107,7 +110,7 @@ impl AppNotifications {
         notification: &Notification,
         at: Option<SystemTime>,
     ) -> NotificationFuture {
-        let app = self.reach.app(program);
+        let app = self.window_processes.of(program);
         let notification = notification.clone();
         Box::pin(async move {
             match app.await {
@@ -125,10 +128,11 @@ impl ShellNotifications for AppNotifications {
 
     fn remove(&self, program: &RunningProgram, id: &str) {
         let id = id.to_owned();
-        self.reach.with_app(program, move |app| match app {
-            Ok(app) => app.remove_notification(id),
-            Err(why) => tracing::warn!(why, "a notification is left as it is"),
-        });
+        self.window_processes
+            .with_app(program, move |app| match app {
+                Ok(app) => app.remove_notification(id),
+                Err(why) => tracing::warn!(why, "a notification is left as it is"),
+            });
     }
 
     fn offers_replies(&self) -> bool {

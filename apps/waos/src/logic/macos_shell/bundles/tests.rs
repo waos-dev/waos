@@ -3,12 +3,12 @@ use super::*;
 /// WaOS's key, as the Keychain would give it.
 const KEY: &[u8] = b"a key of the tests' own, 32 bytes";
 
-fn bundles(folder: &Path, system: &str) -> Bundles {
+fn bundles(folder: &Path, system: &str) -> BundleFiles {
     bundles_made_from(folder, system, "loader 1")
 }
 
 /// The bundles in `folder`, on the system at `system`, made from WaOS's files as `made_from` says.
-fn bundles_made_from(folder: &Path, system: &str, made_from: &str) -> Bundles {
+fn bundles_made_from(folder: &Path, system: &str, made_from: &str) -> BundleFiles {
     let folders = BundleFolders {
         installed: folder.join("Applications/WaOS Programs"),
     };
@@ -18,7 +18,7 @@ fn bundles_made_from(folder: &Path, system: &str, made_from: &str) -> Bundles {
         waos: folder.join("WaOS.app"),
         data_folder: folder.join("data"),
     };
-    Bundles::open(
+    BundleFiles::open(
         folders,
         (waos, made_from.to_owned()),
         &folder.join("data"),
@@ -40,7 +40,7 @@ fn installed(id: &str, name: &str) -> ProgramDescription {
 
 /// Records a bundle for `program` at `path` as if it had been written and signed with the code
 /// hash `00ff`.
-fn record(bundles: &Bundles, program: &ProgramDescription, path: PathBuf) {
+fn record(bundles: &BundleFiles, program: &ProgramDescription, path: PathBuf) {
     let code_hash_hmac = hex::encode(bundles.hmac(&[0x00, 0xff]).finalize().into_bytes());
     bundles
         .change_record(|record| {

@@ -19,7 +19,7 @@
 //! (`logic::recording_indicator`), the clipboard's calls (`logic::clipboard_calls`), the menus'
 //! calls (`logic::menu_calls`), the notifications' calls
 //! (`logic::notification_calls`), each view's calls (`waos-program-window`'s), on macOS what
-//! the programs' apps send (`logic::program_apps`), the presence of each of their windows among
+//! the programs' apps send (`logic::macos_shell`), the presence of each of their windows among
 //! it, what the package manager is doing (`waos_services::packages`), and the calls posted to a value
 //! on the main thread that serves them (`app_thread_bound`): the players' (`media_players`), the media
 //! assets' (`media_assets`), the image codecs' (`image_codecs`), the cameras' (`cameras`) and the openings (`opener`).
@@ -41,6 +41,8 @@ pub(crate) mod image_codecs;
 pub(crate) mod launcher;
 pub(crate) mod library;
 pub(crate) mod machine_facts;
+#[cfg(target_os = "macos")]
+pub(crate) mod macos_shell;
 pub(crate) mod media_assets;
 pub(crate) mod media_players;
 pub(crate) mod menus;
@@ -98,6 +100,8 @@ use crate::logic::folders::AppFolders;
 use crate::logic::frame_readers::ReadersOnRequest;
 use crate::logic::machine_facts::platform_state;
 use crate::logic::noted_file_dialogs::NotedFileDialogs;
+#[cfg(target_os = "macos")]
+use crate::logic::opening;
 use crate::logic::package_copies::PackageCopies;
 use crate::logic::phone_files::{PhoneFilesAccess, ThisComputerHome};
 use crate::logic::placement::{ProgramWindowRequest, WindowsOnRequest};
@@ -112,6 +116,8 @@ use crate::logic::running_apps::RunningApps;
 use crate::logic::startup::{self, BeforeTheEngine, EngineCompiler, Outside, Setup};
 use crate::logic::stores::Stores;
 use crate::logic::vsync_waiter::WaftVsync;
+#[cfg(target_os = "macos")]
+use crate::system_shell::SystemShell;
 use crate::ui::deck::Deck;
 use crate::ui::every_window::{LibraryWindow, every_window, program_windows};
 #[cfg(desktop)]
@@ -132,6 +138,8 @@ use library::{
     open_settings_when_asked, request_to_open_with_waos, show_phone_files,
     take_files_opened_with_waos, take_notification_clicks,
 };
+#[cfg(target_os = "macos")]
+use macos_shell::MacosShell;
 use media_assets::MediaAssets;
 use media_players::MediaPlayers;
 use menus::Menus;
@@ -217,10 +225,6 @@ pub(crate) fn start(
             )
         })?;
     let work = library::work()?;
-    // The activity macOS must not throttle WaOS under, from now until WaOS ends: the programs
-    // that compile and the windows in sight tell it (`state::app_nap_exemption`).
-    #[cfg(target_os = "macos")]
-    let app_nap_exemption = app_nap_exemption::start(app);
     let waft = WaftParts::of(app);
     let (recording_indicator, recording_changes) = RecordingIndicatorOnRequest::new();
     let setup = desktop_setup(&folders, place)?;
@@ -261,6 +265,9 @@ pub(crate) fn start(
     let MadeWithTheShell {
         requests,
         faces,
+        #[cfg(target_os = "macos")]
+        mut system_shell,
+        #[cfg(not(target_os = "macos"))]
         program_apps,
         tab_requests,
         #[cfg(desktop)]
@@ -296,6 +303,10 @@ pub(crate) fn start(
         notifications.map(|notifications| notifications.serve(app, Arc::clone(&packages)));
     // What a tab closed on a phone stops its program among.
     let tabs_runs = Arc::clone(&running);
+    // The activity macOS must not throttle WaOS under, from now until WaOS ends: the programs
+    // that compile tell it too (`state::app_nap_exemption`).
+    #[cfg(target_os = "macos")]
+    let app_nap_exemption = system_shell.app_nap_exemption();
     #[cfg(target_os = "macos")]
     app_nap_exemption::follow_sessions(app, app_nap_exemption.clone(), packages.sessions());
     #[cfg(target_os = "macos")]
@@ -325,6 +336,8 @@ pub(crate) fn start(
         places,
         engine,
     };
+    #[cfg(target_os = "macos")]
+    let opens_runtime = work.handle().clone();
     let library = open_library(
         app,
         domains,
@@ -336,16 +349,14 @@ pub(crate) fn start(
     #[cfg(desktop)]
     offer_developer_access(app, &library, developer_access);
     bring_opened_programs_forward(app, &library, &view_windows);
+    // The apps the user opens through macOS open as the library opens them, on its runtime.
     #[cfg(target_os = "macos")]
-    let prompts = program_apps::follow(
-        app,
-        program_apps,
-        &running,
+    opens_runtime.spawn(opening::open_each(
         starter,
-        &library,
-        Rc::clone(&prompt_windows),
-        &app_nap_exemption,
-    );
+        system_shell.opened_by_the_user(),
+    ));
+    #[cfg(target_os = "macos")]
+    let prompts = system_shell.follow(app, &running, &library, Rc::clone(&prompt_windows));
     #[cfg(not(target_os = "macos"))]
     let prompts = program_apps::follow(program_apps, Rc::clone(&prompt_windows));
     Questions::listen(app, prompted.questions, prompts.placement, packages);
@@ -501,6 +512,11 @@ impl WaftParts {
 struct MadeWithTheShell {
     requests: UnboundedReceiver<ProgramWindowRequest>,
     faces: ProgramFaces,
+    /// WaOS on macOS, whose parts made after the engine take what it carries.
+    #[cfg(target_os = "macos")]
+    system_shell: MacosShell,
+    /// The installed programs' entries, which follow the package manager once the engine is made.
+    #[cfg(not(target_os = "macos"))]
     program_apps: program_apps::Started,
     tab_requests: UnboundedReceiver<TabRequest>,
     /// What the programs' users are asked now, which the dev server tells; a phone has none.
@@ -511,11 +527,10 @@ struct MadeWithTheShell {
     phone_storage: Option<PathBuf>,
 }
 
-/// The engine's shell in the WaOS app, made from the domains `before` the engine: the programs'
-/// apps as its placement on macOS, where each program has its own, and as its menu bar, context
-/// menus, file dialogs and notifications there, and the desktop's windows and `waft`'s parts
-/// elsewhere, placed where `before`'s places say; the questions `asked` puts as its pickers of
-/// outputs and machines; `indicator` as its indicator of who records, WaOS.app declaring why it
+/// The engine's shell in the WaOS app, made from the domains `before` the engine: macOS's own on
+/// macOS, the apps' window processes its placement, menu bar, context menus, file dialogs and
+/// notifications there; the desktop's windows and `waft`'s parts elsewhere; placed where
+/// `before`'s places say; the questions `asked` puts as its pickers of outputs and machines; `indicator` as its indicator of who records, WaOS.app declaring why it
 /// records; Waft's vsync waiter as its screens' refreshes and Waft's compositor, where it has one,
 /// as the one programs' layers are made on; and this computer's capabilities, its home the one
 /// the phone's files keep, where `phone_files` says WaOS reaches them only as the user allows.
@@ -532,12 +547,13 @@ fn desktop_outside(
     let facts = platform_state(app.platform().as_ref());
     let faces = program_faces(before.packages, folders);
     let (own_windows, requests) = WindowsOnRequest::new(faces.clone());
+    #[cfg(not(target_os = "macos"))]
     let program_apps = program_apps::start(folders, before.packages);
     let (tabs_on_request, tab_requests) = TabsOnRequest::new();
     let placement = Arc::new(PlacedWhereOpened {
         places: before.places.clone(),
-        tabs: tabs_on_request,
-        windows: program_apps::placement(&program_apps, own_windows),
+        tabs: tabs_on_request.clone(),
+        windows: Arc::new(own_windows),
     });
     let asking = AskingNow::new(before.permissions.asking());
     let output_picker = prompts.output_picker(Arc::clone(&asking));
@@ -561,29 +577,22 @@ fn desktop_outside(
         vsync: Arc::clone(&vsync) as Arc<dyn VsyncWaiter>,
         compositor,
         system_permissions: phone_files_on_request
-            .map(|phone_files| Arc::new(phone_files) as Arc<dyn ShellSystemPermissions>)
-            .or_else(|| program_apps::system_permissions(&program_apps)),
+            .map(|phone_files| Arc::new(phone_files) as Arc<dyn ShellSystemPermissions>),
         clipboard: waft.clipboard.as_ref().map(Clipboard::shell),
-        menu_bar: program_apps::menu_bar(&program_apps),
-        context_menus: program_apps::context_menus(&program_apps, waft.menus.context_menus()),
+        // An app has a menu bar of its own on macOS alone (`state::macos_shell`).
+        menu_bar: None,
+        context_menus: waft.menus.context_menus(),
         tray_icons: waft.menus.tray_icons(),
         audio_output_picker: Some(Arc::new(output_picker)),
         // Wherever a program may record, with either device, which each declaration decides.
         recording_indicator: (MICROPHONE_USAGE_DECLARED || CAMERA_USAGE_DECLARED)
             .then(|| Arc::new(indicator) as Arc<dyn ShellRecordingIndicator>),
-        file_dialogs: program_apps::file_dialogs(
-            &program_apps,
-            waft.file_dialogs.as_ref().map(FileDialogs::shell),
-        )
-        .map(|dialogs| {
-            let asking = Arc::clone(&asking);
+        file_dialogs: waft.file_dialogs.as_ref().map(|dialogs| {
+            let (dialogs, asking) = (dialogs.shell(), Arc::clone(&asking));
             Arc::new(NotedFileDialogs { dialogs, asking }) as Arc<dyn ShellFileDialogs>
         }),
         opener: waft.opener.as_ref().map(Opener::shell),
-        notifications: program_apps::notifications(
-            &program_apps,
-            waft.notifications.as_ref().map(Notifications::shell),
-        ),
+        notifications: waft.notifications.as_ref().map(Notifications::shell),
         media_players: waft.media_players.as_ref().map(MediaPlayers::shell),
         media_assets: waft.media_assets.as_ref().map(MediaAssets::shell),
         image_codecs: waft.image_codecs.as_ref().map(ImageCodecs::shell),
@@ -597,6 +606,18 @@ fn desktop_outside(
         // A machine is picked on a sheet put as a program's questions are.
         machine_picker: Some(Arc::new(machine_picker)),
     };
+    #[cfg(target_os = "macos")]
+    let (shell, system_shell) = {
+        let system_shell = MacosShell::new(
+            app,
+            folders,
+            &before,
+            tabs_on_request,
+            Arc::clone(&asking),
+            shell,
+        );
+        (system_shell.shell(), system_shell)
+    };
     let phone_storage = phone_files_followed
         .as_ref()
         .map(|followed| followed.storage.root().to_owned());
@@ -609,6 +630,9 @@ fn desktop_outside(
     let made = MadeWithTheShell {
         requests,
         faces,
+        #[cfg(target_os = "macos")]
+        system_shell,
+        #[cfg(not(target_os = "macos"))]
         program_apps,
         tab_requests,
         asking,

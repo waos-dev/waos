@@ -15,14 +15,14 @@ use waos_window_messages::{FromWindow, LaunchReason, PermissionRequestId, PostId
 use super::*;
 use waos_services::permissions::Setting;
 
-use crate::logic::notification_permissions::NotificationPermissionReading;
-use crate::logic::program_apps::app_reach::LaunchAttempt;
-use crate::logic::program_apps::app_reach::tests::Launches;
-use crate::logic::program_apps::server::deliver_hello;
-use crate::logic::program_apps::window_process::WindowProcess;
-use crate::logic::program_apps::window_process::tests::{
+use crate::logic::macos_shell::server::deliver_hello;
+use crate::logic::macos_shell::window_process::WindowProcess;
+use crate::logic::macos_shell::window_process::tests::{
     Printed, Served, next, next_wanted, window_process_keeping,
 };
+use crate::logic::macos_shell::window_processes::LaunchAttempt;
+use crate::logic::macos_shell::window_processes::tests::{Launches, said_hello};
+use crate::logic::notification_permissions::NotificationPermissionReading;
 use crate::logic::startup::Domains;
 use crate::logic::test_engine::{self, NoWindows, WITHIN};
 use crate::logic::test_installs;
@@ -34,19 +34,19 @@ fn notifications_id() -> ProgramId {
     NOTIFICATIONS.parse().unwrap()
 }
 
-/// Notifications, under its id, with no window, its notifications posted in its app as `reach`
-/// reaches it, and macOS's permission for them read from `permissions`, as the engine has a
-/// program's on macOS, its user having allowed it notifications in `store`, what it prints going
-/// into `printed`.
+/// Notifications, under its id, with no window, its notifications posted in its app as
+/// `window_processes` reach it, and macOS's permission for them read from `permissions`, as the
+/// engine has a program's on macOS, its user having allowed it notifications in `store`, what it
+/// prints going into `printed`.
 fn notifications_through(
-    reach: &Arc<AppReach>,
+    window_processes: &Arc<WindowProcesses>,
     permissions: &NotificationPermissions,
     store: &Domains,
     printed: &Arc<Printed>,
 ) -> RunningProgram {
     let mut shell = test_engine::shell(Arc::new(NoWindows));
     let in_apps = Arc::new(AppNotifications::new(
-        Arc::clone(reach),
+        Arc::clone(window_processes),
         permissions.clone(),
     ));
     shell.notifications = Some(Arc::clone(&in_apps) as Arc<dyn ShellNotifications>);
@@ -176,10 +176,10 @@ fn click(action: &str, reply: Option<&str>) -> Activation {
 async fn a_notification_of_a_program_with_no_app_launches_the_app_and_is_posted_there() {
     let (_folder, store) = store();
     let launches = Launches::default();
-    let reach = launches.reach();
+    let window_processes = launches.window_processes();
     let printed = Arc::new(Printed::default());
     let (permissions, mut said) = NotificationPermissions::new();
-    let program = notifications_through(&reach, &permissions, &store, &printed);
+    let program = notifications_through(&window_processes, &permissions, &store, &printed);
     launches.until(1).await;
     assert_eq!(
         launches.asked(),
@@ -190,7 +190,7 @@ async fn a_notification_of_a_program_with_no_app_launches_the_app_and_is_posted_
     let Served {
         process, mut sent, ..
     } = window_process_keeping(program.clone(), permissions.clone());
-    reach.connected(&notifications_id(), &process);
+    said_hello(&window_processes, &notifications_id(), &process);
     let (post, greeting, at) = post_asked(&mut sent).await;
     assert_eq!(
         (greeting.id.as_str(), greeting.title.as_str(), at),
@@ -255,16 +255,16 @@ async fn a_notification_of_a_program_with_no_app_launches_the_app_and_is_posted_
 async fn the_click_that_launched_the_app_reaches_the_program_once_it_listens() {
     let (_folder, store) = store();
     let launches = Launches::default();
-    let reach = launches.reach();
+    let window_processes = launches.window_processes();
     let printed = Arc::new(Printed::default());
     let (permissions, _readings) = NotificationPermissions::new();
-    let program = notifications_through(&reach, &permissions, &store, &printed);
+    let program = notifications_through(&window_processes, &permissions, &store, &printed);
     let Served {
         process, mut sent, ..
     } = window_process_keeping(program.clone(), permissions.clone());
     let reason = LaunchReason::NotificationActivated(click("later", None));
     deliver_hello(&program, reason, OpenRequest::default());
-    reach.connected(&notifications_id(), &process);
+    said_hello(&window_processes, &notifications_id(), &process);
 
     answer_posts(&process, &mut sent, 4, Ok(())).await;
     printed.line("listening for activations").await;
@@ -278,14 +278,14 @@ async fn the_click_that_launched_the_app_reaches_the_program_once_it_listens() {
 async fn what_macos_says_reads_as_the_programs_permission_and_its_page_hears_it() {
     let (_folder, store) = store();
     let launches = Launches::default();
-    let reach = launches.reach();
+    let window_processes = launches.window_processes();
     let printed = Arc::new(Printed::default());
     let (permissions, mut said) = NotificationPermissions::new();
-    let program = notifications_through(&reach, &permissions, &store, &printed);
+    let program = notifications_through(&window_processes, &permissions, &store, &printed);
     let Served {
         process, mut sent, ..
     } = window_process_keeping(program.clone(), permissions.clone());
-    reach.connected(&notifications_id(), &process);
+    said_hello(&window_processes, &notifications_id(), &process);
     let welcomed = FromWindow::NotificationPermission {
         state: SystemPermissionState::Denied,
     };
@@ -334,14 +334,14 @@ async fn what_macos_says_reads_as_the_programs_permission_and_its_page_hears_it(
 async fn a_question_of_macos_whose_app_goes_first_leaves_the_permission_as_it_was() {
     let (_folder, store) = store();
     let launches = Launches::default();
-    let reach = launches.reach();
+    let window_processes = launches.window_processes();
     let printed = Arc::new(Printed::default());
     let (permissions, mut said) = NotificationPermissions::new();
-    let program = notifications_through(&reach, &permissions, &store, &printed);
+    let program = notifications_through(&window_processes, &permissions, &store, &printed);
     let Served {
         process, mut sent, ..
     } = window_process_keeping(program.clone(), permissions.clone());
-    reach.connected(&notifications_id(), &process);
+    said_hello(&window_processes, &notifications_id(), &process);
 
     answer_posts(&process, &mut sent, 1, Err(NotificationError::Denied)).await;
     assert_eq!(next_said(&mut said).await, said_of_notifications(true));
@@ -358,12 +358,12 @@ async fn a_question_of_macos_whose_app_goes_first_leaves_the_permission_as_it_wa
 async fn macos_permission_is_read_again_only_in_an_app_that_runs() {
     let (_folder, store) = store();
     let launches = Launches::default();
-    let reach = launches.reach();
+    let window_processes = launches.window_processes();
     let printed = Arc::new(Printed::default());
     let (permissions, _readings) = NotificationPermissions::new();
-    let program = notifications_through(&reach, &permissions, &store, &printed);
+    let program = notifications_through(&window_processes, &permissions, &store, &printed);
     launches.until(1).await;
-    let in_apps = AppNotifications::new(Arc::clone(&reach), permissions.clone());
+    let in_apps = AppNotifications::new(Arc::clone(&window_processes), permissions.clone());
     in_apps.read_system_permissions(std::slice::from_ref(&program));
     assert_eq!(
         launches.asked().len(),
@@ -374,7 +374,7 @@ async fn macos_permission_is_read_again_only_in_an_app_that_runs() {
     let Served {
         process, mut sent, ..
     } = window_process_keeping(program.clone(), permissions.clone());
-    reach.connected(&notifications_id(), &process);
+    said_hello(&window_processes, &notifications_id(), &process);
     let first = next(&mut sent).await;
     assert!(
         matches!(first, ToWindow::PostNotification { .. }),
@@ -393,13 +393,13 @@ async fn macos_permission_is_read_again_only_in_an_app_that_runs() {
 async fn a_notification_whose_app_never_comes_fails_with_why() {
     let (_folder, store) = store();
     let launches = Launches::default();
-    let reach = launches.reach();
+    let window_processes = launches.window_processes();
     let printed = Arc::new(Printed::default());
     let (permissions, _readings) = NotificationPermissions::new();
-    let program = notifications_through(&reach, &permissions, &store, &printed);
+    let program = notifications_through(&window_processes, &permissions, &store, &printed);
     launches.until(1).await;
-    reach.launch_failed(&notifications_id(), "Launch Services: no app");
-    reach.launch_failed(&notifications_id(), "Launch Services: no app");
+    launches.fail(0, "Launch Services: no app").await;
+    launches.fail(1, "Launch Services: no app").await;
     printed
         .line("post greeting: failed (the program's app did not start: Launch Services: no app)")
         .await;

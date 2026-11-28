@@ -54,7 +54,7 @@ pub(crate) fn window_process_keeping(
     notification_permissions: NotificationPermissions,
 ) -> Served {
     let (sent, arriving) = mpsc::unbounded();
-    let send: SendToWindow = Arc::new(move |message| {
+    let send = SendToWindow::new(move |message| {
         let _ = sent.unbounded_send(message);
     });
     let (canvases, canvas_calls) = CanvasesOnRequest::new();
@@ -776,7 +776,7 @@ async fn a_prompts_dialog_reports_to_the_main_thread_until_its_app_goes() {
     assert!(matches!(closed.report, PromptReport::Closed));
 }
 
-/// The menu bar and context menus of the program's app, as `AppReach` serves them, served by
+/// The menu bar and context menus of the program's app, as `WindowProcesses` serve them, served by
 /// the one window process the test serves once it is there.
 #[derive(Clone, Default)]
 struct AppMenus(Arc<OnceLock<Arc<WindowProcess>>>);

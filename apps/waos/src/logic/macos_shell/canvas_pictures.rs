@@ -222,7 +222,7 @@ impl CanvasPictures {
 
     /// Tells the window its view shows the program's picture at `size`.
     fn tell_shown(&self, size: PhysicalSize) {
-        (self.send)(ToWindow::PictureShown {
+        self.send.send(ToWindow::PictureShown {
             window: self.window,
             size,
         });

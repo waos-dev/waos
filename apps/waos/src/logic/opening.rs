@@ -3,7 +3,9 @@
 //! notifications. Each goes to the program the id names (`program_named`), the one running under
 //! it, whether `waos launch` started it or the library opened it, or else the installed program,
 //! opened as the library opens it; the program hears it once it listens
-//! (`RunningProgram::open_requested`, `RunningProgram::notification_activated`).
+//! (`RunningProgram::open_requested`, `RunningProgram::notification_activated`). And opening each
+//! app the user opened through the system (`open_each`), as the library opens one the user opens
+//! there.
 //!
 //! The invariant: a request or a click reaches a program, or the caller hears why not; nothing is
 //! started for an id that names no installed program.
@@ -18,8 +20,14 @@ use waos_dev_protocol::{OpenAnswer, Refusal, RefusalKind, ServerConnection};
 use waos_package::ProgramId;
 use waos_services::packages::PackageManager;
 
+#[cfg(target_os = "macos")]
+use super::app_starter::StartPlace;
 use super::app_starter::{AppStarter, Opening, StartRequest};
+#[cfg(target_os = "macos")]
+use super::program_places::ProgramPlace;
 use super::running_apps::RunningApps;
+#[cfg(target_os = "macos")]
+use crate::system_shell::UserOpen;
 
 /// Hands `request` to the program `id`: the one running under it, or else the installed one,
 /// opened first; fails for an id neither installed nor running.
@@ -73,6 +81,27 @@ pub(crate) async fn program_named(
         .start(StartRequest::open(id.clone(), Opening::ToHandOver))
         .await?;
     Ok(Some(opened.program().clone()))
+}
+
+/// Opens each app the user opened through the system with `starter`, as the library opens one the
+/// user opens there, in a window, the one running left as it is; answers each open with the run,
+/// or why there is none. Ends with `opens`.
+#[cfg(target_os = "macos")]
+pub(crate) async fn open_each(
+    starter: Arc<AppStarter>,
+    mut opens: futures::stream::BoxStream<'static, UserOpen>,
+) {
+    use futures::StreamExt;
+    while let Some(UserOpen { app, opened }) = opens.next().await {
+        let request = StartRequest {
+            place: StartPlace::Named(ProgramPlace::Windows),
+            ..StartRequest::open(app, Opening::ByTheUser)
+        };
+        let answer = (starter.start(request).await)
+            .map(|answer| answer.program().clone())
+            .map_err(|error| format!("{error:#}"));
+        let _ = opened.send(answer);
+    }
 }
 
 /// Answers a connection's `Open`: the files handed to the program `id`, then `Opened`, or why

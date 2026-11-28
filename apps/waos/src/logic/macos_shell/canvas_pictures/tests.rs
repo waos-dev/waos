@@ -44,7 +44,7 @@ struct Shown {
 
 fn canvas() -> Shown {
     let (told_window, told) = mpsc::unbounded();
-    let send: SendToWindow = Arc::new(move |message| {
+    let send = SendToWindow::new(move |message| {
         let _ = told_window.unbounded_send(message);
     });
     let (canvases, calls) = CanvasesOnRequest::new();
