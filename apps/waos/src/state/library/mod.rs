@@ -265,10 +265,6 @@ pub(crate) struct PreferencesChosen;
 
 impl EventEmitter<PreferencesChosen> for Library {}
 
-/// What is installed changed: a program was installed, updated or removed.
-pub(crate) struct InstalledChanged;
-
-impl EventEmitter<InstalledChanged> for Library {}
 impl EventEmitter<ProgramOpened> for Library {}
 
 /// How many threads the library's runtime reads, downloads and loads on.
@@ -392,13 +388,17 @@ impl Library {
     fn follow_installed(&mut self, cx: &mut Context<Library>) {
         follow(
             self.services.packages.installed_changes(),
-            |library, changes, cx| {
-                if changes != library.installed_at {
-                    library.installed_changed(cx);
-                }
-            },
+            |library, changes, cx| library.read_installed_at(changes, cx),
             cx,
         );
+    }
+
+    /// Reads again what is installed where the package manager's count of changes, `changes`, is
+    /// past the one the library read at: a change the library made itself it has read already.
+    pub(super) fn read_installed_at(&mut self, changes: u64, cx: &mut Context<Library>) {
+        if changes != self.installed_at {
+            self.installed_changed(cx);
+        }
     }
 
     /// Keeps which programs run as the runs' list changes, from now on.
@@ -1336,8 +1336,6 @@ impl Library {
         {
             self.category = None;
         }
-        cx.emit(InstalledChanged);
-        self.match_shortcuts(cx);
         for read in &mut self.listings {
             if let Listing::Read(offers) = &mut read.listing {
                 let listed = offers.drain(..).map(|(program, _)| program).collect();
@@ -1614,7 +1612,7 @@ fn hand_click_to_program(
 
 /// Hands each change `changes` tells from now on to `changed`, on the main thread, for as long as
 /// the library lives and `changes` has a sender.
-fn follow<T: Clone + Send + Sync + 'static>(
+pub(super) fn follow<T: Clone + Send + Sync + 'static>(
     mut changes: watch::Receiver<T>,
     changed: impl Fn(&mut Library, T, &mut Context<Library>) + 'static,
     cx: &mut Context<Library>,

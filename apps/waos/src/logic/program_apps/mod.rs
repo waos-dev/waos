@@ -59,7 +59,7 @@ use anyhow::{Context, Result};
 use waos::bindings::wasdk::platform::views::ViewError;
 use waos::{RunningProgram, ViewPlacement, ViewRequest};
 use waos_package::ProgramId;
-use waos_services::packages::{InstalledProgram, PackageManager};
+use waos_services::packages::PackageManager;
 use waos_window_messages::bundle::LAUNCHED_BY_WAOS;
 use waos_window_messages::os::macos::AuditToken;
 use waos_window_messages::{Hello, LaunchReason, bootstrap_name};
@@ -180,6 +180,7 @@ impl ProgramApps {
         server::listen(&apps, &bootstrap_name(&folders.data))
             .context("listening for the programs' apps")?;
         apps.rebuild_stale();
+        apps.follow_installed();
         Ok(apps)
     }
 
@@ -188,28 +189,43 @@ impl ProgramApps {
         let _ = self.starter.set(starter);
     }
 
-    /// The installed programs are `installed` now: each has its app, at its version, and a
-    /// program removed has none.
-    pub(crate) fn installed_changed(&self, installed: &[InstalledProgram]) {
-        let Some(apps) = self.me.upgrade() else {
-            return;
-        };
-        let installed: Vec<ProgramId> = installed
-            .iter()
-            .map(|program| program.manifest.id().clone())
-            .collect();
-        self.runtime.spawn_blocking(move || {
-            for removed in apps.bundles.programs() {
-                if !installed.contains(&removed) {
-                    log_failure(&removed, apps.bundles.delete(&removed));
-                }
-            }
-            for id in installed {
-                if let Some(description) = apps.describe(&id) {
-                    log_failure(&id, apps.bundles.ensure(&description).map(drop));
+    /// From now on, each program the package manager has installed has its app, at its version,
+    /// and a program removed has none: now, and again at each change it announces.
+    fn follow_installed(&self) {
+        let (me, mut changes) = (self.me.clone(), self.packages.installed_changes());
+        self.runtime.spawn(async move {
+            loop {
+                changes.borrow_and_update();
+                let Some(apps) = me.upgrade() else {
+                    return;
+                };
+                // The bundles are files, written off the runtime's workers.
+                let matched = tokio::task::spawn_blocking(move || apps.match_installed());
+                if matched.await.is_err() || changes.changed().await.is_err() {
+                    return;
                 }
             }
         });
+    }
+
+    /// Makes the bundles match what is installed now.
+    fn match_installed(&self) {
+        let installed: Vec<ProgramId> = self
+            .packages
+            .installed()
+            .iter()
+            .map(|program| program.manifest.id().clone())
+            .collect();
+        for removed in self.bundles.programs() {
+            if !installed.contains(&removed) {
+                log_failure(&removed, self.bundles.delete(&removed));
+            }
+        }
+        for id in installed {
+            if let Some(description) = self.describe(&id) {
+                log_failure(&id, self.bundles.ensure(&description).map(drop));
+            }
+        }
     }
 
     /// How what WaOS shows for its programs reaches their apps: the engine's placement, menu bar,

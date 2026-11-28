@@ -1,7 +1,8 @@
 //! Where the programs' windows go, and their menu bars, context menus, file dialogs and
 //! notifications with them, tied to the application. On macOS each program's windows are an app of
 //! its own (`logic::program_apps`), started as WaOS starts, opening the programs the user opens the
-//! app of with the library's runs, and keeping an app for each program the library has installed,
+//! app of with the library's runs, and keeping an app for each program the package manager has
+//! installed, following its changes,
 //! which shows the program's menu bar, opens its context menus and file dialogs and posts its
 //! notifications, each reaching the app through its getter (`AppReach`), what macOS says of a
 //! program's notifications going to the library, whose settings page for the program says when
@@ -72,7 +73,7 @@ mod macos {
     use crate::os::LayerContext;
     use crate::state::app_nap_exemption::{self, AppNapExemption};
     use crate::state::desktop_host::with_macos;
-    use crate::state::library::{InstalledChanged, Library};
+    use crate::state::library::Library;
     use crate::state::prompt_dialogs::PromptDialogs;
     use crate::ui::every_window::ViewContent;
 
@@ -187,8 +188,7 @@ mod macos {
     }
 
     /// From now on, the canvases of the views in the programs' apps are kept on the main thread,
-    /// the programs whose app the user opens alone are opened by `services`' starter, each program `library`
-    /// has installed has its app, what macOS says of a program's notifications goes to `library`,
+    /// the programs whose app the user opens alone are opened by `services`' starter, what macOS says of a program's notifications goes to `library`,
     /// every running program's app reads it again each time WaOS comes to the front, and whether
     /// each of their windows is in sight tells `activity`; answers where the programs' prompts are
     /// shown: in dialogs of their apps, launched for a prompt when they do not run, or by
@@ -224,12 +224,6 @@ mod macos {
         }
         let prompts = prompts_in_apps(app, &apps, dialog_reports, own_windows);
         apps.open_with(services.starter);
-        apps.installed_changed(library.read(app).installed());
-        let followed = library.clone();
-        app.subscribe(library, move |app, _changed: &InstalledChanged| {
-            apps.installed_changed(followed.read(app).installed());
-        })
-        .detach();
         prompts
     }
 
@@ -463,7 +457,6 @@ mod other {
     use std::rc::Rc;
     use std::sync::Arc;
 
-    use waft::{App, Entity};
     use waos::{
         ShellContextMenus, ShellFileDialogs, ShellMenuBar, ShellNotifications,
         ShellSystemPermissions, ViewPlacement,
@@ -472,16 +465,12 @@ mod other {
     use waos_services::packages::PackageManager;
 
     use super::ProgramPrompts;
-    use crate::logic::app_services::AppServices;
     use crate::logic::folders::AppFolders;
     use crate::logic::placement::WindowsOnRequest;
     #[cfg(any(windows, target_os = "linux"))]
     use crate::logic::program_entries::ProgramEntries;
     #[cfg(any(windows, target_os = "linux"))]
     use crate::logic::program_identities::Identities;
-    #[cfg(any(windows, target_os = "linux"))]
-    use crate::state::library::InstalledChanged;
-    use crate::state::library::Library;
 
     /// No program has an app of its own here, beyond its windows' identity; each installed one's
     /// entry where the system lists its apps, on Windows and Linux, over the store.
@@ -520,24 +509,17 @@ mod other {
         None
     }
 
-    /// From now on, the installed programs' entries in `kept` match the store, now and at each
-    /// change of what `library` has installed.
+    /// From now on, the installed programs' entries in `kept` match the package manager's record,
+    /// now and at each change it announces.
     #[cfg(any(windows, target_os = "linux"))]
-    fn follow_installed(app: &mut App, kept: KeptEntries, library: &Entity<Library>) {
-        match kept.entries.follow(kept.packages) {
-            Ok(changes) => app
-                .subscribe(library, move |_app, _changed: &InstalledChanged| {
-                    changes.changed();
-                })
-                .detach(),
-            Err(error) => {
-                tracing::warn!(%error, "the programs' entries do not follow the store");
-            }
+    fn follow_installed(kept: KeptEntries) {
+        if let Err(error) = kept.entries.follow(kept.packages) {
+            tracing::warn!(%error, "the programs' entries do not follow the store");
         }
     }
 
     #[cfg(not(any(windows, target_os = "linux")))]
-    fn follow_installed(_app: &mut App, _kept: KeptEntries, _library: &Entity<Library>) {}
+    fn follow_installed(_kept: KeptEntries) {}
 
     /// Where the engine places the programs' windows: in WaOS's own windows.
     pub(crate) fn placement(
@@ -586,17 +568,11 @@ mod other {
         None
     }
 
-    /// From now on, the installed programs' entries match what `library` has installed; answers
+    /// From now on, the installed programs' entries match what the package manager has installed; answers
     /// where the programs' prompts are shown: in WaOS's own windows, by `own_windows`.
-    pub(crate) fn follow(
-        app: &mut App,
-        started: Started,
-        _services: AppServices,
-        library: &Entity<Library>,
-        own_windows: Rc<PromptWindows>,
-    ) -> ProgramPrompts {
+    pub(crate) fn follow(started: Started, own_windows: Rc<PromptWindows>) -> ProgramPrompts {
         if let Some(kept) = started.entries {
-            follow_installed(app, kept, library);
+            follow_installed(kept);
         }
         ProgramPrompts {
             placement: own_windows,

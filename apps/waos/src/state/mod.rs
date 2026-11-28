@@ -131,7 +131,7 @@ use launcher::Launcher;
 #[cfg(desktop)]
 use library::offer_developer_access;
 use library::{
-    FirstWindowWanted, InstalledChanged, Library, ProgramOpened, ProgramsOpen, open_library,
+    FirstWindowWanted, Library, ProgramOpened, ProgramsOpen, open_library,
     open_settings_when_asked, request_to_open_with_waos, show_phone_files,
     take_files_opened_with_waos, take_notification_clicks,
 };
@@ -401,7 +401,6 @@ pub(crate) fn start(
     offer_developer_access(app, &library, developer_access);
     bring_opened_programs_forward(app, &library, &view_windows);
     inspected.serve_starts(starts, library.read(app).runtime());
-    tell_installs_to_inspectors(app, &library, inspected);
     #[cfg(target_os = "macos")]
     let prompts = program_apps::follow(
         app,
@@ -412,13 +411,7 @@ pub(crate) fn start(
         &app_nap_exemption,
     );
     #[cfg(not(target_os = "macos"))]
-    let prompts = program_apps::follow(
-        app,
-        program_apps,
-        services,
-        &library,
-        Rc::clone(&prompt_windows),
-    );
+    let prompts = program_apps::follow(program_apps, Rc::clone(&prompt_windows));
     Questions::listen(app, prompted.questions, prompts.placement, packages);
     match opened {
         Some(OpenedAtStart::WithProgram { id, request }) => {
@@ -613,19 +606,6 @@ pub(crate) fn bring_opened_programs_forward(
                 library.first_window_refused(&wanted.id, &why, cx);
             }
         });
-    })
-    .detach();
-}
-
-/// Each install and removal `library` makes told to the inspectors, through what they see of the
-/// programs, `inspected`.
-fn tell_installs_to_inspectors(
-    app: &mut App,
-    library: &Entity<Library>,
-    inspected: Arc<ProgramsOnThisComputer>,
-) {
-    app.subscribe(library, move |_app, _changed: &InstalledChanged| {
-        inspected.installed_changed();
     })
     .detach();
 }

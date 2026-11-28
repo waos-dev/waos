@@ -1,6 +1,7 @@
 //! The programs an inspector sees on this computer: every program installed, by the package
 //! manager's manifests; and every one running, by the runs, one not installed by its id alone. Each change to them as it
-//! happens, an install or a removal as the library makes it, a start or an end as the runs list it;
+//! happens, an install or a removal as the package manager announces it, whoever made it, a start
+//! or an end as the runs list it;
 //! each one's icon, read as it is asked for; and a program started held (`held_starts`), or ended,
 //! on WaOS's own runtime, so it outlives the inspector that asked.
 //!
@@ -8,9 +9,8 @@
 //! inspector reads of a running one the engine finds under that name.
 
 use std::collections::BTreeSet;
-use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
+use std::sync::{Arc, OnceLock};
 
-use futures::channel::mpsc::{self, UnboundedSender};
 use futures::future::BoxFuture;
 use futures::stream::{self, BoxStream};
 use futures::{FutureExt, StreamExt};
@@ -35,10 +35,6 @@ pub(crate) struct ProgramsOnThisComputer {
     permissions: Permissions,
     packages: Arc<PackageManager>,
     runs: Arc<RunningApps>,
-    /// The programs installed as the library last said, which a change is told against.
-    installed: Mutex<BTreeSet<ProgramId>>,
-    /// Who hears each install and removal.
-    listeners: Mutex<Vec<UnboundedSender<ProgramChange>>>,
     /// What starts a program held, and the runtime it starts on, which outlives the inspector
     /// that asked; served once WaOS can start programs, after the engine is made.
     starts: OnceLock<(Arc<HeldStarts>, tokio::runtime::Handle)>,
@@ -51,14 +47,11 @@ impl ProgramsOnThisComputer {
         packages: Arc<PackageManager>,
         runs: Arc<RunningApps>,
     ) -> ProgramsOnThisComputer {
-        let installed = ids_of(&packages.installed());
         ProgramsOnThisComputer {
             storage,
             permissions,
             packages,
             runs,
-            installed: Mutex::new(installed),
-            listeners: Mutex::default(),
             starts: OnceLock::new(),
         }
     }
@@ -67,27 +60,6 @@ impl ProgramsOnThisComputer {
     pub(crate) fn serve_starts(&self, starts: HeldStarts, runtime: tokio::runtime::Handle) {
         // Served once; a second serving would be the same app's.
         let _ = self.starts.set((Arc::new(starts), runtime));
-    }
-
-    /// The library installed or removed a program: each listener hears what is new and what is
-    /// gone since it last said.
-    pub(crate) fn installed_changed(&self) {
-        let installed = self.packages.installed();
-        let now = ids_of(&installed);
-        let before = std::mem::replace(&mut *locked(&self.installed), now.clone());
-        let added = installed
-            .iter()
-            .filter(|program| !before.contains(program.manifest.id()))
-            .map(|program| ProgramChange::Added(program_of(program, false)));
-        let removed = before
-            .difference(&now)
-            .map(|id| ProgramChange::Removed(id.to_string()));
-        let changes: Vec<ProgramChange> = added.chain(removed).collect();
-        locked(&self.listeners).retain(|listener| {
-            changes
-                .iter()
-                .all(|change| listener.unbounded_send(change.clone()).is_ok())
-        });
     }
 }
 
@@ -110,9 +82,7 @@ impl InspectedPrograms for ProgramsOnThisComputer {
     }
 
     fn program_changes(&self) -> BoxStream<'static, ProgramChange> {
-        let (sender, installs) = mpsc::unbounded();
-        locked(&self.listeners).push(sender);
-        stream::select(installs, runs_changes(&self.runs)).boxed()
+        stream::select(installs_changes(&self.packages), runs_changes(&self.runs)).boxed()
     }
 
     fn start_held(&self, id: &str) -> BoxFuture<'static, Result<HeldProgram, StartError>> {
@@ -204,6 +174,39 @@ fn run_in_development(id: String, running: bool) -> Program {
     }
 }
 
+/// Each install and removal from now on, as the package manager announces them: what is new and
+/// what is gone since the change before, read from the package manager's files.
+fn installs_changes(packages: &Arc<PackageManager>) -> BoxStream<'static, ProgramChange> {
+    let mut changes = packages.installed_changes();
+    // Seen before what is installed is read, so a change between the two is heard.
+    changes.borrow_and_update();
+    let before = ids_of(&packages.installed());
+    let packages = Arc::clone(packages);
+    stream::unfold(
+        (changes, before, packages),
+        |(mut changes, before, packages)| async move {
+            changes.changed().await.ok()?;
+            changes.borrow_and_update();
+            let reading = Arc::clone(&packages);
+            let installed = tokio::task::spawn_blocking(move || reading.installed())
+                .await
+                .unwrap_or_default();
+            let now = ids_of(&installed);
+            let added = installed
+                .iter()
+                .filter(|program| !before.contains(program.manifest.id()))
+                .map(|program| ProgramChange::Added(program_of(program, false)));
+            let removed = before
+                .difference(&now)
+                .map(|id| ProgramChange::Removed(id.to_string()));
+            let told: Vec<ProgramChange> = added.chain(removed).collect();
+            Some((stream::iter(told), (changes, now, packages)))
+        },
+    )
+    .flatten()
+    .boxed()
+}
+
 /// Each start and end of a run from now on, as the runs list them.
 fn runs_changes(runs: &RunningApps) -> BoxStream<'static, ProgramChange> {
     let ids = runs.running_ids();
@@ -233,10 +236,6 @@ fn program_of(program: &InstalledProgram, running: bool) -> Program {
     }
 }
 
-fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
-}
-
 fn ids_of(installed: &[InstalledProgram]) -> BTreeSet<ProgramId> {
     installed
         .iter()
@@ -253,7 +252,8 @@ mod tests {
     use crate::logic::test_installs;
 
     #[tokio::test]
-    async fn an_inspector_sees_each_program_installed_with_its_icon_and_hears_an_install() {
+    async fn an_inspector_sees_each_program_installed_with_its_icon_and_hears_an_install_whoever_makes_it()
+     {
         let folder = tempfile::tempdir().unwrap();
         let crate::logic::app_services::Domains {
             packages,
@@ -278,8 +278,9 @@ mod tests {
             b"\0asm",
             &key,
         );
+        // Through the package manager alone, as a headless WaOS's dev server installs, with no
+        // library to pass the change on.
         test_installs::install_package(&packages, &package);
-        programs.installed_changed();
         let notes = Program {
             id: "dev.example.notes".to_owned(),
             name: "Notes".to_owned(),
