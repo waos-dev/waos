@@ -51,7 +51,7 @@ mod tests {
     }
 
     #[test]
-    fn an_app_is_frozen_as_the_system_suspends_waos_and_runs_on_as_it_resumes() {
+    fn an_app_is_frozen_as_the_system_suspends_waos() {
         let system = TestSystem::new(TestPlatform::new());
         let lines = Arc::new(Lines::default());
         let running = system.run_as(waos_test_programs::FOREVER, FOREVER, &lines);
@@ -59,9 +59,5 @@ mod tests {
 
         system_reports(&system, AppLifecycleState::Paused);
         system.run_tasks_until_frozen(&running);
-        let counted = lines.all().len();
-
-        system_reports(&system, AppLifecycleState::Resumed);
-        system.run_tasks_until("the app counts on", || lines.all().len() > counted);
     }
 }

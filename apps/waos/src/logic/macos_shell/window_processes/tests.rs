@@ -332,10 +332,12 @@ async fn a_hello_the_user_opened_waits_until_the_users_opens_are_read_and_is_ser
         mut user_opens,
         ..
     } = launches.listening();
-    let program = survey_through(&window_processes);
+    // An app that asks for no window: a window these window processes cannot make fails, and the
+    // app ending on it would end the window process it is served by.
+    let program = forever_through(&window_processes);
     let window_process = ReceiveRight::new().unwrap();
     let hello = FromWindow::Hello(Hello {
-        program: survey_id(),
+        program: forever_id(),
         launched_for: LaunchReason::UserOpened,
         opened: OpenRequest::default(),
     });
@@ -352,7 +354,7 @@ async fn a_hello_the_user_opened_waits_until_the_users_opens_are_read_and_is_ser
         .await
         .expect("the user's open is heard")
         .expect("one open");
-    assert_eq!(open.app, survey_id(), "the app the user opened");
+    assert_eq!(open.app, forever_id(), "the app the user opened");
     let _ = open.opened.send(Ok(program.clone()));
     let welcomed = tokio::task::spawn_blocking(move || window_process.receive(PROTOCOL));
     let welcomed = tokio::time::timeout(WITHIN, welcomed)
@@ -366,7 +368,7 @@ async fn a_hello_the_user_opened_waits_until_the_users_opens_are_read_and_is_ser
     let Ok(ToWindow::Welcome(welcome)) = decode::<ToWindow>(&welcome.bytes) else {
         panic!("welcomed");
     };
-    assert_eq!(welcome.name, SURVEY, "welcomed as the run opened");
+    assert_eq!(welcome.name, FOREVER, "welcomed as the run opened");
     let served = tokio::time::timeout(WITHIN, asked(&window_processes, &program))
         .await
         .expect("the run's window process is there");
