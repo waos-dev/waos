@@ -61,21 +61,30 @@ impl Server {
         version: &str,
         say: impl FnOnce(&mut Index),
     ) {
-        let bytes = std::fs::read(package).unwrap();
-        let file_name = package.file_name().unwrap().to_string_lossy().into_owned();
+        let (file_name, bytes) = file_of(package);
         let mut index = Index {
-            programs: vec![ListedProgram::new(
-                id.parse().unwrap(),
-                "Triangle",
-                version.parse().unwrap(),
-                file_name.clone(),
-                Sha256::digest(&bytes).into(),
-            )],
+            programs: vec![listed(id, version, &file_name, &bytes)],
             ..Index::default()
         };
         say(&mut index);
         let mut files = self.files.lock().unwrap();
         files.insert(format!("{SOURCE_FOLDER}{file_name}"), bytes);
+        files.insert(
+            format!("{SOURCE_FOLDER}index.json"),
+            index.to_json().into_bytes(),
+        );
+    }
+
+    /// Lists each of `packages`, an id, its package and its version, in the index of the source
+    /// the server is, and serves each beside the index.
+    pub(crate) fn publish_each(&self, packages: &[(&str, &Path, &str)]) {
+        let mut files = self.files.lock().unwrap();
+        let mut index = Index::default();
+        for (id, package, version) in packages {
+            let (file_name, bytes) = file_of(package);
+            index.programs.push(listed(id, version, &file_name, &bytes));
+            files.insert(format!("{SOURCE_FOLDER}{file_name}"), bytes);
+        }
         files.insert(
             format!("{SOURCE_FOLDER}index.json"),
             index.to_json().into_bytes(),
@@ -88,23 +97,29 @@ impl Server {
         files.insert(format!("{SOURCE_FOLDER}{name}"), bytes.to_vec());
     }
 
-    /// Serves `bytes` at `path` on the server, outside the source's folder, as a website's own
-    /// picture is.
-    pub(crate) fn serve_at(&self, path: &str, bytes: &[u8]) {
-        let mut files = self.files.lock().unwrap();
-        files.insert(path.to_owned(), bytes.to_vec());
-    }
-
     /// The server as a source, as its user types it: a website's address, whose apps are listed
     /// where a website's are.
     pub(crate) fn source(&self) -> String {
         format!("http://{}", self.address)
     }
+}
 
-    /// The URL of the file `path` on this server.
-    pub(crate) fn url(&self, path: &str) -> String {
-        format!("http://{}/{path}", self.address)
-    }
+/// The name of the file at `package`, and its bytes.
+fn file_of(package: &Path) -> (String, Vec<u8>) {
+    let bytes = std::fs::read(package).unwrap();
+    let file_name = package.file_name().unwrap().to_string_lossy().into_owned();
+    (file_name, bytes)
+}
+
+/// `id` at `version`, as an index lists it, in the file `file_name` of `bytes`.
+fn listed(id: &str, version: &str, file_name: &str, bytes: &[u8]) -> ListedProgram {
+    ListedProgram::new(
+        id.parse().unwrap(),
+        "Triangle",
+        version.parse().unwrap(),
+        file_name.to_owned(),
+        Sha256::digest(bytes).into(),
+    )
 }
 
 /// Answers the one request `stream` carries, then closes it.

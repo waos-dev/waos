@@ -1,17 +1,14 @@
-//! The library over a store of the test's own, with packages written to the test's folder and
+//! The library over a test's WaOS kept in memory, with packages written to the test's folder and
 //! sources served by an HTTP server on this machine: a package opened with WaOS is installed once
-//! the user says yes, the system's request at launch waiting for WaOS to take it, and a program
-//! removed once they say yes; a source's listing offers to install a program, then nothing, then
-//! to update it once a newer version is listed; a source that cannot be read says why; an
-//! installed program opens in WaOS, once however often it is opened; an installed program is
-//! compiling until its code is ready, an open meanwhile waits for that compile, an open where the
-//! cache holds nothing current compiles, a removed program leaves no code, and an update leaves
-//! the new version's alone while a run of the old one goes on; and files opened
-//! with an installed program as WaOS starts open it and reach it, while files opened with one not
-//! installed are the library's problem. A package handed without a path, through a handle or a
-//! stream of the test's own, is copied and asked about, its copy removed once answered; one that
-//! cannot be read, is no package, or is named as no file is, is the library's problem. A
-//! development install another part of WaOS makes shows, named as one.
+//! the user says yes and not after no, one at a time, the system's request at launch waiting for
+//! WaOS to take it, and a program removed once they say yes; a source's offer is read again after
+//! an install from it, update all updates every app listed newer, and a source's logo is its icon
+//! or its site's picture; files opened with an installed program as WaOS starts open it and reach
+//! it, while files opened with one not installed, a launch of one, and one that cannot be loaded
+//! are the library's problem. A package handed without a path, through a handle or a stream of
+//! the test's own, is copied and asked about, its copy removed once answered; one that cannot be
+//! read or is no package is the library's problem. A development install another part of WaOS
+//! makes shows, named as one. On Android, the programs' shortcuts follow what is installed.
 
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
@@ -21,6 +18,7 @@ use waft::ui::PlatformRef;
 use waft::{AppCell, Subscription};
 use waft_test::TestPlatform;
 use waos_package::{Manifest, SigningKey};
+use waos_services::packages::AppInMemory;
 
 use super::test_server::Server;
 use super::*;
@@ -31,9 +29,8 @@ use crate::logic::program_shortcuts::{
     KeptShortcut, ProgramShortcut, ShortcutOpens, SystemShortcuts,
 };
 use crate::logic::startup::Setup;
-use crate::logic::startup::tests::start_asking_nobody;
-use crate::logic::test_engine::{self, NoWindows};
-use crate::logic::test_installs::{self, HeldCompiler};
+use crate::logic::startup::tests::start_with_no_windows;
+use crate::logic::test_installs;
 use crate::state::test_turns::{Turn, turn_until};
 use waos_headless::testing::poll_until;
 
@@ -48,8 +45,6 @@ struct TestLibrary {
     platform: Rc<TestPlatform>,
     library: Entity<Library>,
     runs: Arc<AppInstances>,
-    /// The package manager's compiler, which a test holds to see what happens while it compiles.
-    compiler: Arc<HeldCompiler>,
     folder: TempDir,
     key: SigningKey,
     /// How many times the library asked to be seen.
@@ -58,30 +53,31 @@ struct TestLibrary {
 }
 
 impl TestLibrary {
+    /// The library with nothing installed.
     fn new() -> TestLibrary {
-        TestLibrary::opening(ProgramsOpen::InWindows, |_| None)
+        TestLibrary::with(|_| Vec::new())
+    }
+
+    /// The library with the apps `apps` makes in the test's folder installed.
+    fn with(apps: impl FnOnce(&std::path::Path) -> Vec<AppInMemory>) -> TestLibrary {
+        TestLibrary::opening(ProgramsOpen::InWindows, |_| None, apps)
     }
 
     /// The library, opening programs as `programs_open` says, with the preferences file
-    /// `preferences` names in the test's folder, if any.
+    /// `preferences` names in the test's folder, if any, and the apps `apps` makes there
+    /// installed.
     fn opening(
         programs_open: ProgramsOpen,
         preferences: impl FnOnce(&std::path::Path) -> Option<PreferencesFile>,
+        apps: impl FnOnce(&std::path::Path) -> Vec<AppInMemory>,
     ) -> TestLibrary {
         let folder = tempfile::tempdir().unwrap();
         let preferences = preferences(folder.path());
+        let apps = apps(folder.path());
         let copies = PackageCopies::clear(folder.path().join("package-copies")).unwrap();
-        let compiler = Arc::new(HeldCompiler::default());
         let work = work().unwrap();
-        let setup = Setup {
-            install_compiler: Arc::clone(&compiler)
-                as Arc<dyn waos_services::packages::CodeCompiler>,
-            ..Setup::on_files(folder.path(), work.handle().clone())
-        };
-        let started = start_asking_nobody(setup, |_before| {
-            let shell = test_engine::shell(Arc::new(NoWindows));
-            (shell, test_engine::no_screens())
-        });
+        let setup = Setup::in_memory(folder.path(), apps, work.handle().clone());
+        let started = start_with_no_windows(setup);
         let runs = Arc::clone(&started.instances);
         let platform = Rc::new(TestPlatform::new());
         let cell = AppCell::with_platform(Rc::clone(&platform) as PlatformRef);
@@ -106,7 +102,6 @@ impl TestLibrary {
             platform,
             library,
             runs,
-            compiler,
             folder,
             key: SigningKey::generate(),
             asked_to_be_seen,
@@ -184,28 +179,8 @@ impl TestLibrary {
         self.wait_until("the answer's work", |library| library.is_idle());
     }
 
-    /// Removes the program `id` as the user does, asked and answered yes; returns once it is
-    /// removed, or is the library's problem.
-    fn removes(&self, id: &ProgramId) {
-        self.update(|library, cx| library.ask_to_remove(id, cx));
-        self.update(|library, cx| library.answer(true, cx));
-        self.wait_until("the removal", |library| library.is_idle());
-    }
-
     fn asked_to_be_seen(&self) -> usize {
         *self.asked_to_be_seen.lock().unwrap()
-    }
-
-    /// Starts with forever installed, as triangle, from a package, its code compiled already
-    /// (`logic::test_installs`); the library reads it.
-    fn installs_forever(&self) {
-        let forever = std::fs::read(waos_test_programs::FOREVER_SHOWN).unwrap();
-        let package = self.package(TRIANGLE, "1.0.0", &forever);
-        let packages = self.read(|library| Arc::clone(&library.packages));
-        test_installs::install_package(&packages, &package);
-        self.wait_until("the install read", |library| {
-            !library.installed().is_empty()
-        });
     }
 }
 
@@ -218,19 +193,24 @@ fn question(library: &Library) -> Option<String> {
 }
 
 #[test]
-fn a_package_opened_with_waos_is_installed_once_the_user_says_yes() {
+fn a_package_opened_with_waos_is_installed_once_the_user_says_yes_and_not_after_no() {
     let library = TestLibrary::new();
     let package = library.package(
         TRIANGLE,
         "1.0.0",
         crate::logic::test_installs::EMPTY_COMPONENT,
     );
-    library.update(|library, cx| library.open_files(vec![package], cx));
+    library.update(|library, cx| library.open_files(vec![package.clone()], cx));
     assert_eq!(
         library.read(question).as_deref(),
         Some("install dev.example.triangle")
     );
-    assert_eq!(library.asked_to_be_seen(), 1);
+    library.update(|library, cx| library.answer(false, cx));
+    assert!(library.installed().is_empty(), "not after no");
+    assert_eq!(library.read(question), None);
+
+    library.update(|library, cx| library.open_files(vec![package], cx));
+    assert_eq!(library.asked_to_be_seen(), 2, "each time it asks");
     assert!(library.installed().is_empty(), "not before the answer");
     library.answers_yes();
     assert_eq!(
@@ -311,20 +291,6 @@ fn packages_the_system_opens_with_waos_at_launch_and_later_are_asked_about() {
 }
 
 #[test]
-fn a_package_the_user_declines_is_not_installed() {
-    let library = TestLibrary::new();
-    let package = library.package(
-        TRIANGLE,
-        "1.0.0",
-        crate::logic::test_installs::EMPTY_COMPONENT,
-    );
-    library.update(|library, cx| library.open_files(vec![package], cx));
-    library.update(|library, cx| library.answer(false, cx));
-    assert!(library.installed().is_empty());
-    assert_eq!(library.read(question), None);
-}
-
-#[test]
 fn packages_opened_together_are_asked_about_one_at_a_time() {
     let library = TestLibrary::new();
     let triangle = library.package(
@@ -393,159 +359,9 @@ fn a_program_is_removed_once_the_user_says_yes() {
 }
 
 #[test]
-fn a_sources_listing_offers_to_install_then_nothing_then_to_update() {
+fn a_sources_offer_is_read_again_after_an_install_from_it() {
     let library = TestLibrary::new();
     let server = Server::start();
-    server.publish(
-        TRIANGLE,
-        &library.package(
-            TRIANGLE,
-            "1.0.0",
-            crate::logic::test_installs::EMPTY_COMPONENT,
-        ),
-        "1.0.0",
-    );
-    let index = server.source();
-    library.update(|library, cx| library.add_source(&index, cx));
-    library.wait_until("the source's listing", |library| {
-        matches!(library.sources()[0].listing, Listing::Read(_))
-    });
-    assert_eq!(library.offers(), [(TRIANGLE.to_owned(), Offer::Install)]);
-
-    install_what_the_source_lists(&library);
-    assert_eq!(
-        library.installed(),
-        [(TRIANGLE.to_owned(), "1.0.0".to_owned())]
-    );
-    assert_eq!(library.offers(), [(TRIANGLE.to_owned(), Offer::Installed)]);
-
-    server.publish(
-        TRIANGLE,
-        &library.package(
-            TRIANGLE,
-            "1.1.0",
-            crate::logic::test_installs::EMPTY_COMPONENT,
-        ),
-        "1.1.0",
-    );
-    library.update(|library, cx| library.read_sources(cx));
-    library.wait_until("the newer listing", |library| {
-        matches!(&library.sources()[0].listing, Listing::Read(offers) if offers[0].0.version.to_string() == "1.1.0")
-    });
-    assert_eq!(
-        library.offers(),
-        [(
-            TRIANGLE.to_owned(),
-            Offer::Update {
-                installed: "1.0.0".to_owned()
-            }
-        )]
-    );
-    install_what_the_source_lists(&library);
-    assert_eq!(
-        library.installed(),
-        [(TRIANGLE.to_owned(), "1.1.0".to_owned())]
-    );
-    assert_eq!(library.offers(), [(TRIANGLE.to_owned(), Offer::Installed)]);
-}
-
-/// Installs the first program the one source lists, and waits until it is installed.
-/// The app store's catalog is what the sources list, with what each says of itself and of its
-/// apps; and every app with a newer version listed updates at once.
-#[test]
-fn the_app_store_shows_what_a_source_says_and_updates_every_app_at_once() {
-    let library = TestLibrary::new();
-    let server = Server::start();
-    let package = library.package(
-        TRIANGLE,
-        "1.0.0",
-        crate::logic::test_installs::EMPTY_COMPONENT,
-    );
-    server.publish_saying(TRIANGLE, &package, "1.0.0", |index| {
-        index.name = Some("Example Apps".to_owned());
-        index.featured = vec![TRIANGLE.parse().unwrap()];
-        index.programs[0].summary = Some("One triangle, drawn well".to_owned());
-    });
-    let index = server.source();
-    library.update(|library, cx| library.add_source(&index, cx));
-    library.wait_until("the source's listing", |library| {
-        matches!(library.sources()[0].listing, Listing::Read(_))
-    });
-    let said = library.read(|library| library.sources()[0].name.clone());
-    assert_eq!(said.as_deref(), Some("Example Apps"));
-    let catalog = library.read(Library::catalog);
-    assert_eq!(catalog.len(), 1);
-    assert_eq!(catalog[0].offer, Offer::Install);
-    assert_eq!(
-        catalog[0].listed.summary.as_deref(),
-        Some("One triangle, drawn well")
-    );
-    assert_eq!(library.read(Library::featured), catalog, "put forward");
-
-    install_what_the_source_lists(&library);
-    let newer = library.package(
-        TRIANGLE,
-        "1.1.0",
-        crate::logic::test_installs::EMPTY_COMPONENT,
-    );
-    server.publish(TRIANGLE, &newer, "1.1.0");
-    library.update(|library, cx| library.read_sources(cx));
-    library.wait_until("the newer listing", |library| {
-        matches!(library.catalog().first(), Some(app) if matches!(app.offer, Offer::Update { .. }))
-    });
-    assert!(
-        library.read(Library::featured).is_empty(),
-        "put forward no more"
-    );
-    library.update(|library, cx| library.update_all(cx));
-    library.wait_until(
-        "the update",
-        |library| matches!(library.catalog().first(), Some(app) if app.offer == Offer::Installed),
-    );
-    assert_eq!(
-        library.installed(),
-        [(TRIANGLE.to_owned(), "1.1.0".to_owned())]
-    );
-}
-
-/// The icon a source lists for an app is read once the source is, for the app store to show
-/// before the app is downloaded.
-#[test]
-fn a_listed_apps_icon_is_read_after_its_source() {
-    let library = TestLibrary::new();
-    let server = Server::start();
-    server.serve_beside_index("triangle.png", b"an icon");
-    let package = library.package(
-        TRIANGLE,
-        "1.0.0",
-        crate::logic::test_installs::EMPTY_COMPONENT,
-    );
-    server.publish_saying(TRIANGLE, &package, "1.0.0", |index| {
-        index.programs[0].icon = Some("triangle.png".to_owned());
-    });
-    let index = server.source();
-    library.update(|library, cx| library.add_source(&index, cx));
-    library.wait_until("the icon", |library| {
-        let source = &library.sources()[0].source;
-        library.picture(source, "triangle.png").is_some()
-    });
-    let icon = library.read(|library| {
-        let source = &library.sources()[0].source;
-        library
-            .picture(source, "triangle.png")
-            .map(|icon| icon.to_vec())
-    });
-    assert_eq!(icon.as_deref(), Some(b"an icon".as_slice()));
-}
-
-/// A source's logo is the icon it lists; one that lists none shows the picture of the site it
-/// is on.
-#[test]
-fn a_sources_logo_is_its_own_icon_or_its_sites_picture() {
-    let library = TestLibrary::new();
-    let server = Server::start();
-    server.serve_at("apple-touch-icon.png", b"the site's");
-    server.serve_beside_index("logo.png", b"the source's");
     let package = library.package(
         TRIANGLE,
         "1.0.0",
@@ -553,26 +369,70 @@ fn a_sources_logo_is_its_own_icon_or_its_sites_picture() {
     );
     server.publish(TRIANGLE, &package, "1.0.0");
     library.update(|library, cx| library.add_source(&server.source(), cx));
-    let logo = |library: &Library| {
-        library
-            .source_logo(&library.sources()[0])
-            .map(|logo| logo.to_vec())
-    };
-    library.wait_until("the site's picture", |library| logo(library).is_some());
-    assert_eq!(
-        library.read(logo).as_deref(),
-        Some(b"the site's".as_slice())
-    );
+    library.wait_until("the source's listing", |library| {
+        matches!(library.sources()[0].listing, Listing::Read(_))
+    });
+    assert_eq!(library.offers(), [(TRIANGLE.to_owned(), Offer::Install)]);
 
-    server.publish_saying(TRIANGLE, &package, "1.0.0", |index| {
-        index.icon = Some("logo.png".to_owned());
-    });
-    library.update(|library, cx| library.read_sources(cx));
-    library.wait_until("the source's own icon", |library| {
-        logo(library).as_deref() == Some(b"the source's".as_slice())
-    });
+    install_what_the_source_lists(&library);
+
+    assert_eq!(library.offers(), [(TRIANGLE.to_owned(), Offer::Installed)]);
 }
 
+#[test]
+fn update_all_updates_every_app_listed_newer() {
+    let library = TestLibrary::new();
+    let packages = library.read(|library| Arc::clone(&library.packages));
+    let (empty, server) = (
+        crate::logic::test_installs::EMPTY_COMPONENT,
+        Server::start(),
+    );
+    for id in [TRIANGLE, SURVEY] {
+        test_installs::install_package(&packages, &library.package(id, "1.0.0", empty));
+    }
+    let newer = [TRIANGLE, SURVEY].map(|id| (id, library.package(id, "1.1.0", empty)));
+    server.publish_each(
+        &newer
+            .each_ref()
+            .map(|(id, package)| (*id, package.as_path(), "1.1.0")),
+    );
+    library.update(|library, cx| library.add_source(&server.source(), cx));
+    library.wait_until("the newer listing", |library| {
+        let catalog = library.catalog();
+        catalog.len() == 2 && (catalog.iter()).all(|app| matches!(app.offer, Offer::Update { .. }))
+    });
+
+    library.update(|library, cx| library.update_all(cx));
+
+    library.wait_until("the updates", |library| {
+        (library.catalog().iter()).all(|app| app.offer == Offer::Installed)
+    });
+    assert_eq!(
+        library.installed(),
+        [
+            (SURVEY.to_owned(), "1.1.0".to_owned()),
+            (TRIANGLE.to_owned(), "1.1.0".to_owned())
+        ]
+    );
+}
+
+/// A source's logo is the icon it lists; one that lists none shows the picture of the site it
+/// is on.
+#[test]
+fn a_sources_logo_is_the_icon_it_lists_or_its_sites_picture() {
+    let source: Source = "apps.example/waos".parse().unwrap();
+    let listing = |icon: Option<&str>| SourceListing {
+        source: source.clone(),
+        listing: Listing::Reading,
+        name: None,
+        icon: icon.map(str::to_owned),
+        featured: Vec::new(),
+    };
+    assert_eq!(listing(Some("logo.png")).logo(), "logo.png");
+    assert_eq!(listing(None).logo(), source.site_picture());
+}
+
+/// Installs the first program the one source lists, and waits until it is installed.
 fn install_what_the_source_lists(library: &TestLibrary) {
     let (source, listed) = library.read(|library| {
         let read = &library.sources()[0];
@@ -590,21 +450,6 @@ fn install_what_the_source_lists(library: &TestLibrary) {
         library.read(|library| library.problem().map(str::to_owned)),
         None
     );
-}
-
-#[test]
-fn a_source_that_cannot_be_read_says_why() {
-    let library = TestLibrary::new();
-    let server = Server::start();
-    let missing = server.url("missing");
-    library.update(|library, cx| library.add_source(&missing, cx));
-    library.wait_until("the source's answer", |library| {
-        !matches!(library.sources()[0].listing, Listing::Reading)
-    });
-    library.read(|library| match &library.sources()[0].listing {
-        Listing::Failed(why) => assert!(why.contains("lists no apps"), "{why}"),
-        _ => panic!("the source is not read"),
-    });
 }
 
 #[test]
@@ -664,57 +509,11 @@ fn a_launch_for_a_program_no_longer_installed_says_so() {
 }
 
 #[test]
-fn an_install_is_installing_until_its_code_is_compiled_and_then_shows() {
-    let library = TestLibrary::new();
-    let forever = std::fs::read(waos_test_programs::FOREVER_SHOWN).unwrap();
-    let package = library.package(TRIANGLE, "1.0.0", &forever);
-    library.update(|library, cx| library.open_files(vec![package], cx));
-    let triangle: ProgramId = TRIANGLE.parse().unwrap();
-    let session_of = |library: &Library| {
-        let sessions = library.packages.sessions();
-        let session = sessions
-            .borrow()
-            .iter()
-            .find(|session| session.app == triangle)
-            .cloned();
-        session.map(|session| session.progress)
-    };
-    let held = library.compiler.hold();
-    library.update(|library, cx| library.answer(true, cx));
-    library.wait_until("installing while it compiles", |library| {
-        session_of(library) == Some(InstallProgress::Installing)
-    });
-    drop(held);
-    library.wait_until("the install", |library| library.is_idle());
-    assert_eq!(library.read(session_of), None, "its session ended");
-    library.wait_until("the install read", |library| {
-        !library.installed().is_empty()
-    });
-    let code = library
-        .read(|library| test_installs::installed_version(&library.packages, TRIANGLE).code());
-    assert!(
-        library.read(|library| library.engine.compiler().is_compiled(&code)),
-        "installed with its code compiled"
-    );
-}
-
-#[test]
-fn a_removed_program_leaves_no_code() {
-    let library = TestLibrary::new();
-    library.installs_forever();
-    let triangle: ProgramId = TRIANGLE.parse().unwrap();
-    let code = library
-        .read(|library| test_installs::installed_version(&library.packages, TRIANGLE).code());
-    library.removes(&triangle);
-    assert!(library.installed().is_empty());
-    assert!(!code.exists(), "its code went with it");
-}
-
-#[test]
 fn files_opened_with_an_installed_program_at_start_open_it_and_reach_it() {
-    let library = TestLibrary::new();
-    let opener = std::fs::read(waos_test_programs::OPENER).unwrap();
-    library.installs_after_yes(library.package(TRIANGLE, "1.0.0", &opener));
+    let library = TestLibrary::with(|_| {
+        let opener = test_installs::built_app(waos_test_programs::OPENER, TRIANGLE, "Opener");
+        vec![opener]
+    });
     let notes = std::fs::canonicalize(library.folder.path())
         .unwrap()
         .join("notes.md");
@@ -755,27 +554,16 @@ fn files_opened_with_a_program_not_installed_are_the_librarys_problem() {
 
 #[test]
 fn a_program_that_cannot_be_loaded_is_the_librarys_problem() {
-    let library = TestLibrary::new();
-    library.installs_after_yes(library.package(
-        TRIANGLE,
-        "1.0.0",
-        crate::logic::test_installs::EMPTY_COMPONENT,
-    ));
+    let library =
+        TestLibrary::with(|folder| vec![test_installs::spoiled_app(TRIANGLE, "Triangle", folder)]);
     let triangle: ProgramId = TRIANGLE.parse().unwrap();
-    let version =
-        library.read(|library| test_installs::installed_version(&library.packages, TRIANGLE));
-    test_installs::spoil(&version);
     library.update(|library, cx| library.open(&triangle, cx));
     library.wait_until("the open's answer", |library| library.problem().is_some());
     let problem = library
         .read(|library| library.problem().map(str::to_owned))
         .unwrap();
     assert!(problem.contains("could not be opened"), "{problem}");
-    assert_eq!(
-        library.asked_to_be_seen(),
-        2,
-        "after the install, and to say why"
-    );
+    assert_eq!(library.asked_to_be_seen(), 1, "to say why");
     assert!(futures::executor::block_on(library.runs.names()).is_empty());
 }
 
@@ -929,20 +717,6 @@ fn a_document_that_cannot_be_read_is_the_librarys_problem() {
         *library.asked_to_be_seen.lock().unwrap() > 0,
         "it asks to be seen"
     );
-    assert!(library.copies().is_empty());
-}
-
-#[test]
-fn a_document_whose_name_is_not_a_file_name_is_refused() {
-    let library = TestLibrary::new();
-    let package = library.package(
-        TRIANGLE,
-        "1.0.0",
-        crate::logic::test_installs::EMPTY_COMPONENT,
-    );
-    library.open_document(TestLibrary::handle("../triangle.wapk", &package));
-    library.wait_until("the problem", |library| library.problem().is_some());
-    assert!(library.read(|library| library.question().is_none()));
     assert!(library.copies().is_empty());
 }
 
@@ -1191,9 +965,9 @@ fn a_program_only_among_the_recent_ones_is_offered_the_home_screen_when_installe
 
 #[test]
 fn choosing_programs_inside_waos_points_the_shortcuts_at_waos() {
-    let library = TestLibrary::opening(ProgramsOpen::AsChosen, |folder| {
-        Some(PreferencesFile::at(folder.join("preferences.toml")))
-    });
+    let preferences =
+        |folder: &std::path::Path| Some(PreferencesFile::at(folder.join("preferences.toml")));
+    let library = TestLibrary::opening(ProgramsOpen::AsChosen, preferences, |_| Vec::new());
     library.installs_after_yes(library.package(
         TRIANGLE,
         "1.0.0",

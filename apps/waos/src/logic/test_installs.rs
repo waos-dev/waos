@@ -151,17 +151,34 @@ pub(crate) fn domains_never_run(folder: &Path) -> Domains {
 /// key of the test's own: its version the component and the code folder the build made, so it
 /// runs with nothing installed on disk.
 pub(crate) fn built_app(component: &str, id: &str, name: &str) -> AppInMemory {
+    let code = waos_test_programs::code_of(component);
+    AppInMemory {
+        version: Some(InstalledVersion::new(component.into(), code)),
+        ..AppInMemory::new(published(id, name))
+    }
+}
+
+/// The app `id`, named `name`, at 1.0.0, published with a key of the test's own.
+fn published(id: &str, name: &str) -> InstalledProgram {
     let manifest = Manifest::new(id.parse().unwrap(), name, "1.0.0".parse().unwrap()).unwrap();
-    let program = InstalledProgram {
+    InstalledProgram {
         manifest,
         origin: Origin::Package {
             publisher: SigningKey::generate().publisher(),
         },
-    };
-    let code = waos_test_programs::code_of(component);
+    }
+}
+
+/// The app `id`, named `name`, kept in memory as a disk that lost its files leaves it: its
+/// component, written in `folder`, is no component, and it has no code, so it neither loads nor
+/// compiles.
+pub(crate) fn spoiled_app(id: &str, name: &str, folder: &Path) -> AppInMemory {
+    let component = folder.join(format!("{id}.wasm"));
+    fs::write(&component, b"spoiled").unwrap();
+    let code = folder.join("code").join(id);
     AppInMemory {
-        version: Some(InstalledVersion::new(component.into(), code)),
-        ..AppInMemory::new(program)
+        version: Some(InstalledVersion::new(component, code)),
+        ..AppInMemory::new(published(id, name))
     }
 }
 
