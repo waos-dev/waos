@@ -29,9 +29,9 @@ cargo xtask sync-wit                               # after editing wit/
 - **An API agents use explains itself.** When an agent has to read the source to use one, its docs or its shape is the bug.
 - **Waft comes from crates.io.** To build against an unreleased Waft, a branch adds `[patch.crates-io]` until Waft releases.
 - **Work goes on a branch and a pull request**, here and in Waft and Valo; never on `main`. The lead merges.
-- **Time matters: Rust builds and tests are slow.** Run the checks a change needs, not every suite at every step. Raise a waste you find (a slow check, a redundant test, a long wait) with the lead instead of accepting it.
-- **Tests follow Clean Code's F.I.R.S.T.:** fast, independent, repeatable, self-validating, timely, and one concept each, as clean as the code they test. How WaOS's tests do it is in [docs/tools/tests.md](docs/tools/tests.md).
-- **A test that only passes with a patch is rejected:** a sleep, a retry, a longer timeout, a fake of one of our own domains, a hook in production code. Use what the tests share (a hold, a stand-in for the slow outside, the engine's clock); where that lacks what a test needs, raise it with the lead.
+- **Time matters.** Run only the checks a change needs; raise a slow check or a long wait with the lead.
+- **Tests follow Clean Code's F.I.R.S.T.,** one concept each.
+- **No test passes by a patch** (a sleep, a retry, a longer timeout, a fake of our own code). Use the tests' shared helpers; raise what they lack with the lead.
 
 ## Docs
 
