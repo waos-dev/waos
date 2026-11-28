@@ -3,10 +3,10 @@
 //! while WaOS serves window processes, which every window process's hello arrives on, with its own
 //! port; each hello answered `Welcome` with a port of the connection's once the window process is
 //! found to be its app's and, where it was opened by the user, the instance it serves is known, or
-//! `Refused` with why, and what it carried handed to that instance; and each connection's messages carried out on a thread of its own until the
+//! `Refused` with why; and each connection's messages carried out on a thread of its own until the
 //! window process is gone. A hello the user's open sent, from the Dock or a notification's click,
-//! waits for the instance that open answers, and the hellos after it wait behind it: one is taken
-//! at a time.
+//! goes up as that open, with the files or the click it carried, and waits for the instance the
+//! open answers; the hellos after it wait behind it: one is taken at a time.
 //!
 //! The invariants: a hello's sender is known by the audit token the kernel wrote on its message,
 //! never by what the hello says, and nothing is welcomed, nor opened for the user, before its code
@@ -20,6 +20,7 @@ use std::thread::{self, JoinHandle};
 
 use futures::channel::mpsc::UnboundedSender;
 use futures::channel::oneshot;
+use waos::bindings::wasdk::platform::notifications::Activation;
 use waos::{AppInstance, OpenRequest};
 use waos_package::ProgramId;
 use waos_window_messages::os::macos::{Arrival, ReceiveRight, Received, SendRight};
@@ -137,12 +138,17 @@ impl Hellos {
             pid = sender.pid(),
             "an app's window process said hello"
         );
+        let Hello {
+            program: id,
+            launched_for,
+            opened,
+        } = hello;
         let found = Arc::clone(&self.bundles)
-            .check(&hello.program, &sender)
-            .and_then(|()| self.instance_for(&hello));
+            .check(&id, &sender)
+            .and_then(|()| self.instance_for(&id, launched_for, opened));
         match found {
             Ok(instance) => {
-                if let Err(error) = self.serve(hello, instance, app) {
+                if let Err(error) = self.serve(id, instance, app) {
                     tracing::warn!(%error, "the app's window process could not be served");
                 }
             }
@@ -150,28 +156,41 @@ impl Hellos {
         }
     }
 
-    /// The instance a checked hello's window process serves from its hello on: none for one WaOS
-    /// launched, which the instance that asked for it attaches to, if one did; for a window process
-    /// the user opened or a click on one of its app's notifications launched, the instance opening
-    /// it answers.
-    fn instance_for(&self, hello: &Hello) -> Result<Option<AppInstance>, String> {
-        match &hello.launched_for {
-            LaunchReason::ProgramRunning if self.table.launching(&hello.program) => Ok(None),
+    /// The instance the checked hello of `app`'s window process serves from its hello on: none
+    /// for one WaOS launched, `launched_for` an instance running, which attaches to it if it asked
+    /// for it; for a window process the user opened, with `files`, or a click on one of its app's
+    /// notifications launched, the instance opening it answers.
+    fn instance_for(
+        &self,
+        app: &ProgramId,
+        launched_for: LaunchReason,
+        files: OpenRequest,
+    ) -> Result<Option<AppInstance>, String> {
+        let notification_click = match launched_for {
+            LaunchReason::ProgramRunning if self.table.launching(app) => return Ok(None),
             LaunchReason::ProgramRunning => {
-                Err("WaOS launched no window process for it".to_owned())
+                return Err("WaOS launched no window process for it".to_owned());
             }
-            LaunchReason::UserOpened | LaunchReason::NotificationActivated(_) => {
-                self.opened_by_the_user(&hello.program).map(Some)
-            }
-        }
+            LaunchReason::UserOpened => None,
+            LaunchReason::NotificationActivated(click) => Some(click),
+        };
+        self.opened_by_the_user(app, files, notification_click)
+            .map(Some)
     }
 
-    /// The instance the user's open of `app` answers, once it does; the hellos after this one
-    /// wait.
-    fn opened_by_the_user(&self, app: &ProgramId) -> Result<AppInstance, String> {
+    /// The instance the user's open of `app` answers, once it does, the open handing it `files`
+    /// or `notification_click`; the hellos after this one wait.
+    fn opened_by_the_user(
+        &self,
+        app: &ProgramId,
+        files: OpenRequest,
+        notification_click: Option<Activation>,
+    ) -> Result<AppInstance, String> {
         let (opened, answered) = oneshot::channel();
         let open = UserOpen {
             app: app.clone(),
+            files,
+            notification_click,
             opened,
         };
         if self.user_opens.unbounded_send(open).is_err() {
@@ -181,15 +200,15 @@ impl Hellos {
             .unwrap_or_else(|_| Err("WaOS did not open it".to_owned()))
     }
 
-    /// Welcomes the window process `app` with a port of the connection's, serves it as its app's,
-    /// `instance` attached where the hello came of opening it, hands the instance what the hello
-    /// carried, and carries out what the window process sends on a thread of its own.
-    fn serve(&self, hello: Hello, instance: Option<AppInstance>, app: SendRight) -> io::Result<()> {
-        let Hello {
-            program: id,
-            launched_for,
-            opened,
-        } = hello;
+    /// Welcomes the window process of the app `id`, `app`, with a port of the connection's, serves
+    /// it as its app's, `instance` attached where the hello came of opening it, and carries out
+    /// what the window process sends on a thread of its own.
+    fn serve(
+        &self,
+        id: ProgramId,
+        instance: Option<AppInstance>,
+        app: SendRight,
+    ) -> io::Result<()> {
         let connection = ReceiveRight::new()?;
         let welcome = Welcome {
             name: self.bundles.name(&id),
@@ -202,10 +221,7 @@ impl Hellos {
                 tracing::warn!(%error, ?message, "the app's window process did not take a message");
             }
         });
-        let process = self.table.connect(&id, instance.clone(), send);
-        if let Some(instance) = &instance {
-            deliver_hello(instance, launched_for, opened);
-        }
+        let process = self.table.connect(&id, instance, send);
         let table = Arc::clone(&self.table);
         thread::Builder::new()
             .name(format!("waos-app {id}"))
@@ -242,22 +258,6 @@ fn refuse(app: &SendRight, reason: &str) {
         &encode(&ToWindow::Refused(reason.to_owned())),
         Vec::new(),
     );
-}
-
-/// Hands `program` what its app's hello carried: the files and links the system opened the app
-/// with, and the click on one of its notifications the app was launched for, each heard once the
-/// program listens.
-pub(super) fn deliver_hello(
-    program: &AppInstance,
-    launched_for: LaunchReason,
-    opened: OpenRequest,
-) {
-    if !(opened.files.is_empty() && opened.links.is_empty()) {
-        program.open_requested(opened);
-    }
-    if let LaunchReason::NotificationActivated(click) = launched_for {
-        program.notification_activated(click);
-    }
 }
 
 /// Carries out every message the app sends on `connection`, until it is gone.

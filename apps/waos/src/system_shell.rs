@@ -14,7 +14,8 @@ use std::sync::Arc;
 use futures::channel::oneshot;
 use futures::stream::BoxStream;
 use waft::{App, Entity};
-use waos::{AppInstance, Shell, ShellCameras, ShellImageCodecs};
+use waos::bindings::wasdk::platform::notifications::Activation;
+use waos::{AppInstance, OpenRequest, Shell, ShellCameras, ShellImageCodecs};
 use waos_package::ProgramId;
 use waos_program_window::{PromptPlacement, PromptWindows};
 use waos_services::packages::PackageManager;
@@ -128,10 +129,22 @@ impl AppPrompts {
     }
 }
 
-/// An app the user opened through the system, and where what opening it answers goes: the run
-/// opened, which the system then shows as the app the user opened, or why it could not be opened.
-/// An open nobody answers is refused as one WaOS could not open.
+/// An app the user opened through the system, what it was opened for, and where what opening it
+/// answers goes: the instance opened, which the system then shows as the app the user opened, or
+/// why it could not be opened. An open nobody answers is refused as one WaOS could not open.
 pub(crate) struct UserOpen {
     pub(crate) app: ProgramId,
+    /// The files and links the system opened the app with; none where it opened the app alone.
+    pub(crate) files: OpenRequest,
+    /// The click on one of the app's notifications it was opened for.
+    pub(crate) notification_click: Option<Activation>,
     pub(crate) opened: oneshot::Sender<Result<AppInstance, String>>,
+}
+
+impl UserOpen {
+    /// Whether the app was opened to be handed something, files or a click, rather than alone.
+    pub(crate) fn hands_over(&self) -> bool {
+        !(self.files.files.is_empty() && self.files.links.is_empty())
+            || self.notification_click.is_some()
+    }
 }
