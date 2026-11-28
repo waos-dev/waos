@@ -50,11 +50,8 @@ impl CodeCompiler for TestCompiler {
         fs::create_dir_all(code)?;
         for file in fs::read_dir(&compiled)? {
             let file = file?.path();
-            let linked = code.join(file.file_name().expect("a file in a folder has a name"));
-            let _ = fs::remove_file(&linked);
-            if fs::hard_link(&file, &linked).is_err() {
-                fs::copy(&file, &linked)?;
-            }
+            let name = file.file_name().expect("a file in a folder has a name");
+            link_whole(&file, &code.join(name))?;
         }
         Ok(())
     }
@@ -62,6 +59,24 @@ impl CodeCompiler for TestCompiler {
     fn is_usable(&self, code: &Path) -> bool {
         self.0.is_compiled(code)
     }
+}
+
+/// Puts `file` at `linked`, linked or else copied beside it under a name of this writer's own, then
+/// renamed into place: whoever maps the file `linked` named before keeps it whole, and another
+/// test linking the same file at once replaces it whole too.
+fn link_whole(file: &Path, linked: &Path) -> Result<()> {
+    static WRITERS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let writer = WRITERS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let name = linked
+        .file_name()
+        .expect("a file has a name")
+        .to_string_lossy();
+    let partial = linked.with_file_name(format!(".{name}.{}.{writer}", std::process::id()));
+    if fs::hard_link(file, &partial).is_err() {
+        fs::copy(file, &partial)?;
+    }
+    fs::rename(&partial, linked)?;
+    Ok(())
 }
 
 impl TestCompiler {

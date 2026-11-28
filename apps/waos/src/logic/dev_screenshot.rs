@@ -166,7 +166,6 @@ mod tests {
     use super::*;
     use crate::logic::dev_server::tests::TestServer;
     use crate::logic::open_command::{self, Sent};
-    use crate::logic::opened_package::tests::write_package;
 
     /// The id `examples/opener` runs as.
     const OPENER: &str = "dev.waos.examples.opener";
@@ -187,12 +186,7 @@ mod tests {
             panic!("nothing runs");
         };
         assert_eq!(refusal.kind, RefusalKind::NotRunning);
-        let packages = server.folder.join("packages");
-        fs::create_dir_all(&packages).unwrap();
-        let component = fs::read(waos_test_programs::OPENER).unwrap();
-        let key = waos_package::SigningKey::generate();
-        let package = write_package(&packages, OPENER, "Opener", "1.0.0", &component, &key);
-        crate::logic::test_installs::install_package(&server.packages, &package);
+        server.install_built(waos_test_programs::OPENER, OPENER, "Opener");
         let file = fs::canonicalize(&server.folder).unwrap().join("notes.md");
         fs::write(&file, "my notes").unwrap();
         let id = OPENER.parse().unwrap();
