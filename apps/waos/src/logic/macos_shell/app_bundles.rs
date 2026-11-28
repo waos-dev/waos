@@ -1,6 +1,8 @@
 //! One app bundle per installed app, at its version, following the package manager, as Chrome's
 //! `ShortcutSubManager` keeps its app shims: written at install, update, or a change of the kinds
-//! of file the app opens, deleted at removal (`bundles`), and, as WaOS starts, rebuilt where the
+//! of file the app opens, deleted at removal (`bundles`); a tool, run from a terminal, gets none
+//! until it shows something, and then one out of the lists of apps the user opens; and, as WaOS
+//! starts, rebuilt where the
 //! system or WaOS's own files changed since it was signed. A window process is launched from its
 //! app's bundle through Launch Services, in the background and not brought forward, the bundle
 //! written first where it has none, or written again when asked; and a window process's hello is
@@ -19,7 +21,7 @@ use anyhow::{Context, Result};
 use futures::FutureExt;
 use futures::channel::oneshot;
 use futures::future::BoxFuture;
-use waos_package::ProgramId;
+use waos_package::{ProgramId, ProgramKind};
 use waos_services::packages::PackageManager;
 use waos_window_messages::bundle::LAUNCHED_BY_WAOS;
 use waos_window_messages::os::macos::AuditToken;
@@ -62,6 +64,7 @@ impl AppBundles {
         let files = BundleFiles::open(
             BundleFolders {
                 installed: folders.installed,
+                tools: folders.data.join("Tools"),
             },
             (waos, made_from),
             &folders.data,
@@ -95,7 +98,9 @@ impl AppBundles {
         });
     }
 
-    /// Makes the bundles match what is installed now.
+    /// Makes the bundles match what is installed now: each app has its bundle, a removed
+    /// program has none, and a tool has none among the user's applications, its bundle written
+    /// only when it shows something (`launch_now`).
     fn match_installed(&self) {
         let installed: Vec<ProgramId> = (self.packages.installed().iter())
             .map(|app| app.manifest.id().clone())
@@ -106,8 +111,15 @@ impl AppBundles {
             }
         }
         for id in installed {
-            if let Some(description) = self.describe(&id) {
-                log_failure(&id, self.files.ensure(&description).map(drop));
+            let Some(description) = self.describe(&id) else {
+                continue;
+            };
+            match description.kind {
+                ProgramKind::App => log_failure(&id, self.files.ensure(&description).map(drop)),
+                ProgramKind::Tool if self.files.listed(&id) => {
+                    log_failure(&id, self.files.delete(&id));
+                }
+                ProgramKind::Tool => {}
             }
         }
     }
@@ -150,7 +162,8 @@ impl AppBundles {
     }
 
     /// Starts `id`'s window process from its bundle, written first where `rewrite` asks or it has
-    /// none; answers its process once Launch Services started it.
+    /// none, as a tool's is the first time it shows something; answers its process once Launch
+    /// Services started it.
     ///
     /// TODO(step 5): a window, a file dialog, a prompt and a notification are the only reasons yet
     /// to launch an app's window process. An app with no window still needs it when it shows a
@@ -194,6 +207,7 @@ impl AppBundles {
             icon: self.packages.icon(id),
             category: installed.manifest.category(),
             file_associations: installed.manifest.file_associations().to_vec(),
+            kind: installed.manifest.kind(),
         })
     }
 }

@@ -5,7 +5,7 @@
 //! are matched to. An entry is written when its program is installed or updated, deleted when it is
 //! removed, and the entries are made to match the store as WaOS starts, for a program installed
 //! while an older WaOS ran. A development run writes none: it shares the installed program's entry,
-//! and a program never installed has none. An entry also offers its program for the kinds of file
+//! and a program never installed has none, nor does a tool, run from a terminal. An entry also offers its program for the kinds of file
 //! it opens: a desktop entry names their MIME types, and on Windows they are registered in the
 //! user's classes (`file_associations`).
 //!
@@ -51,7 +51,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use serde::{Deserialize, Serialize};
-use waos_package::{Category, FileAssociation, ProgramId};
+use waos_package::{Category, FileAssociation, ProgramId, ProgramKind};
 use waos_services::packages::PackageManager;
 
 #[cfg(any(windows, target_os = "linux"))]
@@ -79,11 +79,13 @@ pub(crate) struct ProgramEntry {
 }
 
 impl ProgramEntry {
-    /// The entry of each program installed in `packages` that has an identity.
+    /// The entry of each app installed in `packages` that has an identity; a tool has none, being
+    /// run from a terminal.
     pub(crate) fn of_installed(packages: &PackageManager) -> Vec<ProgramEntry> {
         packages
             .installed()
             .into_iter()
+            .filter(|program| program.manifest.kind() == ProgramKind::App)
             .filter_map(|program| {
                 let id = program.manifest.id().clone();
                 Some(ProgramEntry {

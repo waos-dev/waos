@@ -11,6 +11,7 @@ fn bundles(folder: &Path, system: &str) -> BundleFiles {
 fn bundles_made_from(folder: &Path, system: &str, made_from: &str) -> BundleFiles {
     let folders = BundleFolders {
         installed: folder.join("Applications/WaOS Programs"),
+        tools: folder.join("data/Tools"),
     };
     let waos = WaosFiles {
         loader: folder.join("waos-program-loader"),
@@ -35,6 +36,7 @@ fn installed(id: &str, name: &str) -> ProgramDescription {
         icon: None,
         category: None,
         file_associations: Vec::new(),
+        kind: ProgramKind::App,
     }
 }
 
@@ -273,4 +275,36 @@ fn a_bundle_opening_other_kinds_of_file_than_its_program_does_now_is_written_aga
         !bundles.is_current(&kept, &opening),
         "the same version, opening a kind of file it did not"
     );
+}
+
+/// A tool `name`, its id `id`.
+fn tool(id: &str, name: &str) -> ProgramDescription {
+    ProgramDescription {
+        kind: ProgramKind::Tool,
+        ..installed(id, name)
+    }
+}
+
+#[test]
+fn a_tools_app_goes_in_waos_own_folder_out_of_the_users_applications() {
+    let folder = tempfile::tempdir().unwrap();
+    let bundles = bundles(folder.path(), "27.0.1");
+    let grep = tool("dev.example.grep", "Grep");
+    assert_eq!(
+        bundles.place_of(&grep),
+        folder.path().join("data/Tools/Grep.app")
+    );
+}
+
+#[test]
+fn a_tools_app_an_older_waos_wrote_among_the_applications_is_listed_and_not_current() {
+    let folder = tempfile::tempdir().unwrap();
+    let bundles = bundles(folder.path(), "27.0.1");
+    let grep = tool("dev.example.grep", "Grep");
+    let listed = folder.path().join("Applications/WaOS Programs/Grep.app");
+    fs::create_dir_all(&listed).unwrap();
+    record(&bundles, &grep, listed);
+    let kept = bundles.kept(&grep.id).unwrap();
+    assert!(bundles.listed(&grep.id));
+    assert!(!bundles.is_current(&kept, &grep));
 }

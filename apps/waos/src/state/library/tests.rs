@@ -1336,6 +1336,24 @@ fn a_program_opened_goes_first_among_the_recent_programs() {
 }
 
 #[test]
+fn a_tool_is_offered_no_place_on_the_home_screen_and_a_shortcut_it_had_is_disabled() {
+    let library = TestLibrary::new();
+    let shortcuts = library.keeping_shortcuts(true, &[TRIANGLE]);
+    library.installs_after_yes(library.tool_package(
+        TRIANGLE,
+        "1.0.0",
+        crate::logic::test_installs::EMPTY_COMPONENT,
+    ));
+    library.wait_until("the tool's shortcut disabled", |_| {
+        shortcuts.state_of(TRIANGLE) == Some(false)
+    });
+    let triangle: ProgramId = TRIANGLE.parse().unwrap();
+    assert!(!library.read(|library| library.adds_to_home_screen(&triangle)));
+    library.wait_until("the install's work", |library| library.is_idle());
+    assert!(shortcuts.pin_requests.borrow().is_empty());
+}
+
+#[test]
 fn a_removed_programs_shortcut_is_disabled_and_enabled_once_it_is_installed_again() {
     let library = TestLibrary::new();
     library.installs_after_yes(library.package(
