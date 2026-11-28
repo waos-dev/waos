@@ -165,6 +165,22 @@ pub(crate) fn built_app(component: &str, id: &str, name: &str) -> AppInMemory {
     }
 }
 
+/// [`built_app`] as an update of WaOS that changed its engine leaves it: its code folder, in
+/// `folder`, holds no code of this engine's, so its first open compiles it there.
+pub(crate) fn built_app_not_compiled(
+    component: &str,
+    id: &str,
+    name: &str,
+    folder: &Path,
+) -> AppInMemory {
+    let app = built_app(component, id, name);
+    let code = folder.join("code").join(id);
+    AppInMemory {
+        version: Some(InstalledVersion::new(component.into(), code)),
+        ..app
+    }
+}
+
 /// Installs the package at `file` with `packages`, for the user, and waits until it is installed,
 /// on a thread and a runtime of its own, so a test on a runtime or off one calls it alike.
 pub(crate) fn install_package(packages: &PackageManager, file: &Path) -> InstalledProgram {

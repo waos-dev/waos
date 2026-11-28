@@ -244,18 +244,14 @@ mod tests {
 
     use super::*;
     use crate::logic::opened_package::tests::write_package;
-    use crate::logic::startup::tests::start_asking_nobody;
+    use crate::logic::startup::tests::start_with_no_windows;
     use crate::logic::startup::{Setup, Started};
-    use crate::logic::test_engine::{self, NoWindows};
     use crate::logic::test_installs;
 
     /// What an inspector sees of a test's WaOS in `folder`, with nothing running.
     fn programs_of(folder: &std::path::Path) -> (Started, ProgramsOnThisComputer) {
-        let setup = Setup::in_memory(folder, tokio::runtime::Handle::current());
-        let started = start_asking_nobody(setup, |_before| {
-            let shell = test_engine::shell(Arc::new(NoWindows));
-            (shell, test_engine::no_screens())
-        });
+        let setup = Setup::in_memory(folder, Vec::new(), tokio::runtime::Handle::current());
+        let started = start_with_no_windows(setup);
         let starts = HeldStarts {
             instances: Arc::clone(&started.instances),
             packages: Arc::clone(&started.packages),

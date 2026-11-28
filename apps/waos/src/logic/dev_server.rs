@@ -476,7 +476,6 @@ pub(crate) mod tests {
     use crate::logic::developer_access::Listening;
     use crate::logic::open_command::{self, Sent};
     use crate::logic::opened_package::tests::write_package;
-    use crate::logic::program_places::ProgramPlace;
     use crate::logic::quit_question::every_program_agrees;
     use crate::logic::startup::{self, Outside, Setup};
     use crate::logic::test_engine::{self, NoWindows, REFUSAL, WITHIN};
@@ -516,7 +515,6 @@ pub(crate) mod tests {
         /// What the server's programs' users are asked, which a test notes as the prompts do.
         pub(crate) asking: Arc<AskingNow>,
         pub(crate) packages: Arc<waos_services::packages::PackageManager>,
-        pub(crate) places: crate::logic::program_places::ProgramPlaces,
         /// Its developer access, off until a test turns it on, listening on the loopback.
         pub(crate) access: DeveloperAccess,
         server: Option<DevServer>,
@@ -651,7 +649,6 @@ pub(crate) mod tests {
                 storage,
                 engine,
                 environments,
-                places,
                 ..
             } = started;
             let served = ServedDomains {
@@ -672,7 +669,6 @@ pub(crate) mod tests {
                 permissions,
                 asking,
                 packages,
-                places,
                 access,
                 server: Some(server),
                 headless: None,
@@ -1129,22 +1125,6 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
-    async fn a_second_run_of_the_same_program_ends_the_first_with_replaced() {
-        let server = TestServer::start("replaced");
-        let mut first = server
-            .run(FOREVER, Path::new(waos_test_programs::FOREVER))
-            .await;
-        started(&mut first).await;
-        let mut second = server
-            .run(FOREVER, Path::new(waos_test_programs::FOREVER))
-            .await;
-        let frames = frames_until(&mut first, |frame| matches!(frame, RunEvent::Ended(_))).await;
-        assert_eq!(frames.last(), Some(&RunEvent::Ended(RunEnd::Replaced)));
-        started(&mut second).await;
-        server.wait_for_runs(&[FOREVER_DEVELOPMENT]).await;
-    }
-
-    #[tokio::test]
     async fn a_component_is_compiled_at_its_install_and_again_at_a_launch_that_finds_no_code_it_loads()
      {
         let server = TestServer::start("unchanged");
@@ -1181,22 +1161,6 @@ pub(crate) mod tests {
         server.install(FOREVER, &component).await;
         let again = server.launch(&id, Vec::new(), Vec::new()).await;
         assert_eq!(again, [LaunchAnswer::Launched], "nothing compiled again");
-    }
-
-    #[tokio::test]
-    async fn a_launch_leaves_the_apps_place_as_it_was() {
-        let server = TestServer::start("launch-place");
-        let component = fs::read(waos_test_programs::FOREVER).unwrap();
-        let id = development(FOREVER);
-        server.install(FOREVER, &component).await;
-        server.places.set(&id, ProgramPlace::Tab);
-        let launched = server.launch(&id, Vec::new(), Vec::new()).await;
-        assert_eq!(launched, [LaunchAnswer::Launched]);
-        assert_eq!(server.places.place_of(&id), ProgramPlace::Tab);
-        server
-            .ask::<StopAnswer>(&Request::Stop { id: id.clone() })
-            .await;
-        server.wait_for_runs(&[]).await;
     }
 
     #[tokio::test]

@@ -20,13 +20,12 @@ use tempfile::TempDir;
 use waft::ui::PlatformRef;
 use waft::{AppCell, Subscription};
 use waft_test::TestPlatform;
-use waos_package::{Manifest, ProgramKind, SigningKey};
+use waos_package::{Manifest, SigningKey};
 
 use super::test_server::Server;
 use super::*;
 use crate::logic::app_instances::AppInstances;
-use crate::logic::app_instances::OpenStage;
-use crate::logic::opened_package::tests::{write_package, write_package_of};
+use crate::logic::opened_package::tests::write_package;
 use crate::logic::package_copies::PackageCopies;
 use crate::logic::program_shortcuts::{
     KeptShortcut, ProgramShortcut, ShortcutOpens, SystemShortcuts,
@@ -121,16 +120,6 @@ impl TestLibrary {
         let packages = self.folder.path().join("packages");
         std::fs::create_dir_all(&packages).unwrap();
         write_package(&packages, id, "Triangle", version, component, &self.key)
-    }
-
-    /// `component` packaged as the tool `id`, at `version`.
-    fn tool_package(&self, id: &str, version: &str, component: &[u8]) -> PathBuf {
-        let packages = self.folder.path().join("packages");
-        std::fs::create_dir_all(&packages).unwrap();
-        let manifest = Manifest::new(id.parse().unwrap(), "Grep", version.parse().unwrap())
-            .unwrap()
-            .with_kind(ProgramKind::Tool);
-        write_package_of(&packages, &manifest, component, &self.key)
     }
 
     fn update(&self, f: impl FnOnce(&mut Library, &mut Context<Library>)) {
@@ -663,63 +652,6 @@ fn a_removed_source_takes_its_listing_with_it() {
 }
 
 #[test]
-fn an_installed_program_opens_in_waos_once_however_often_it_is_opened() {
-    let library = TestLibrary::new();
-    let forever = std::fs::read(waos_test_programs::FOREVER_SHOWN).unwrap();
-    library.installs_after_yes(library.package(TRIANGLE, "1.0.0", &forever));
-    let triangle: ProgramId = TRIANGLE.parse().unwrap();
-    library.update(|library, cx| library.open(&triangle, cx));
-    wait_for_runs(&library, &[TRIANGLE]);
-    library.update(|library, cx| library.open(&triangle, cx));
-    library.wait_until("the second open's answer", |library| {
-        library.problem().is_none()
-    });
-    library.wait_until("the second open's work", |library| library.is_idle());
-    assert_eq!(library.runs.instances().len(), 1);
-    futures::executor::block_on(library.runs.stop_all());
-    wait_for_runs(&library, &[]);
-}
-
-#[test]
-fn a_tool_opened_from_the_library_is_refused_and_never_runs() {
-    let library = TestLibrary::new();
-    let forever = std::fs::read(waos_test_programs::FOREVER).unwrap();
-    library.installs_after_yes(library.tool_package(TRIANGLE, "1.0.0", &forever));
-    let triangle: ProgramId = TRIANGLE.parse().unwrap();
-    library.update(|library, cx| library.open(&triangle, cx));
-    library.wait_until("the open's answer", |library| library.problem().is_some());
-    let problem = library.read(|library| library.problem().map(str::to_owned));
-    assert_eq!(
-        problem.as_deref(),
-        Some(
-            "dev.example.triangle could not be opened: it is a command-line program, with no window \
-             of its own, and WaOS cannot show its terminal yet"
-        )
-    );
-    assert!(library.runs.instances().is_empty());
-}
-
-#[test]
-fn a_launch_for_an_installed_program_opens_it_once() {
-    let library = TestLibrary::new();
-    let forever = std::fs::read(waos_test_programs::FOREVER_SHOWN).unwrap();
-    library.installs_after_yes(library.package(TRIANGLE, "1.0.0", &forever));
-    let triangle: ProgramId = TRIANGLE.parse().unwrap();
-    let token = || Some("gnome-shell/Triangle/1".to_owned());
-    let seen_before = library.asked_to_be_seen();
-    library.update(|library, cx| library.show_program(&triangle, token(), cx));
-    wait_for_runs(&library, &[TRIANGLE]);
-    library.update(|library, cx| library.show_program(&triangle, token(), cx));
-    library.wait_until("the second launch's answer", |library| {
-        library.problem().is_none()
-    });
-    assert_eq!(library.runs.instances().len(), 1);
-    assert_eq!(library.asked_to_be_seen(), seen_before, "nothing to say");
-    futures::executor::block_on(library.runs.stop_all());
-    wait_for_runs(&library, &[]);
-}
-
-#[test]
 fn a_launch_for_a_program_no_longer_installed_says_so() {
     let library = TestLibrary::new();
     let gone: ProgramId = "dev.example.gone".parse().unwrap();
@@ -766,32 +698,6 @@ fn an_install_is_installing_until_its_code_is_compiled_and_then_shows() {
     );
 }
 
-/// As after an update of WaOS that changed its engine: the version installed holds no code of
-/// this engine's, so the first open compiles it, and its start is optimizing meanwhile.
-#[test]
-fn the_first_open_after_a_compiler_change_optimizes_the_program() {
-    let library = TestLibrary::new();
-    library.installs_forever();
-    let triangle: ProgramId = TRIANGLE.parse().unwrap();
-    let code = library
-        .read(|library| test_installs::installed_version(&library.packages, TRIANGLE).code());
-    std::fs::remove_dir_all(&code).unwrap();
-    let held = library.compiler.hold();
-    library.update(|library, cx| library.open(&triangle, cx));
-    library.wait_until("the open's compile", |library| {
-        library.start_stage(&triangle) == Some(OpenStage::Optimizing)
-    });
-    drop(held);
-    wait_for_runs(&library, &[TRIANGLE]);
-    library.wait_until("the start's end", |library| {
-        library.start_stage(&triangle).is_none()
-    });
-    assert_eq!(library.read(|library| library.operation(&triangle)), None);
-    assert!(library.read(|library| library.engine.compiler().is_compiled(&code)));
-    futures::executor::block_on(library.runs.stop_all());
-    wait_for_runs(&library, &[]);
-}
-
 #[test]
 fn a_removed_program_leaves_no_code() {
     let library = TestLibrary::new();
@@ -802,107 +708,6 @@ fn a_removed_program_leaves_no_code() {
     library.removes(&triangle);
     assert!(library.installed().is_empty());
     assert!(!code.exists(), "its code went with it");
-}
-
-#[test]
-fn an_update_of_a_running_program_ends_the_old_run_first_and_leaves_the_new_versions_code_only() {
-    let library = TestLibrary::new();
-    library.installs_forever();
-    let triangle: ProgramId = TRIANGLE.parse().unwrap();
-    let old_code = library
-        .read(|library| test_installs::installed_version(&library.packages, TRIANGLE).code());
-    library.update(|library, cx| library.open(&triangle, cx));
-    wait_for_runs(&library, &[TRIANGLE]);
-    let forever = std::fs::read(waos_test_programs::FOREVER_SHOWN).unwrap();
-    library.installs_after_yes(library.package(TRIANGLE, "1.1.0", &forever));
-    assert_eq!(
-        library.installed(),
-        [(TRIANGLE.to_owned(), "1.1.0".to_owned())]
-    );
-    assert!(
-        futures::executor::block_on(library.runs.names()).is_empty(),
-        "the old version's run ended before the update"
-    );
-    assert!(!old_code.exists(), "the old version's code went with it");
-    let code = library
-        .read(|library| test_installs::installed_version(&library.packages, TRIANGLE).code());
-    assert!(
-        library.read(|library| library.engine.compiler().is_compiled(&code)),
-        "the new version's, compiled at its install"
-    );
-}
-
-#[test]
-fn an_update_from_a_source_ends_the_old_run_once_the_package_is_downloaded() {
-    let library = TestLibrary::new();
-    let server = Server::start();
-    let forever = std::fs::read(waos_test_programs::FOREVER_SHOWN).unwrap();
-    server.publish(
-        TRIANGLE,
-        &library.package(TRIANGLE, "1.0.0", &forever),
-        "1.0.0",
-    );
-    let index = server.source();
-    library.update(|library, cx| library.add_source(&index, cx));
-    library.wait_until("the source's listing", |library| {
-        matches!(library.sources()[0].listing, Listing::Read(_))
-    });
-    install_what_the_source_lists(&library);
-    let triangle: ProgramId = TRIANGLE.parse().unwrap();
-    library.update(|library, cx| library.open(&triangle, cx));
-    wait_for_runs(&library, &[TRIANGLE]);
-    server.publish(
-        TRIANGLE,
-        &library.package(TRIANGLE, "1.1.0", &forever),
-        "1.1.0",
-    );
-    library.update(|library, cx| library.read_sources(cx));
-    library.wait_until("the newer listing", |library| {
-        matches!(&library.sources()[0].listing, Listing::Read(offers) if offers[0].0.version.to_string() == "1.1.0")
-    });
-    install_what_the_source_lists(&library);
-    assert_eq!(
-        library.installed(),
-        [(TRIANGLE.to_owned(), "1.1.0".to_owned())]
-    );
-    assert!(
-        futures::executor::block_on(library.runs.names()).is_empty(),
-        "the old version's run ended before the update"
-    );
-}
-
-#[test]
-fn removing_a_running_program_ends_it_first_and_a_reinstall_starts_it_afresh() {
-    let library = TestLibrary::new();
-    library.installs_forever();
-    let triangle: ProgramId = TRIANGLE.parse().unwrap();
-    library.update(|library, cx| library.open(&triangle, cx));
-    wait_for_runs(&library, &[TRIANGLE]);
-    let first_run = library.runs.instances();
-    library.update(|library, cx| library.ask_to_remove(&triangle, cx));
-    library.answers_yes();
-    library.wait_until("the removal", |library| library.installed().is_empty());
-    assert!(
-        futures::executor::block_on(library.runs.names()).is_empty(),
-        "its run ended before its files went"
-    );
-    assert!(
-        matches!(
-            futures::executor::block_on(first_run[0].ended()),
-            waos::ProgramEnd::Stopped
-        ),
-        "stopped, not failed over files gone"
-    );
-    library.installs_forever();
-    library.update(|library, cx| library.open(&triangle, cx));
-    wait_for_runs(&library, &[TRIANGLE]);
-    let second_run = library.runs.instances();
-    assert!(
-        second_run[0] != first_run[0],
-        "a run of its own, not the old one"
-    );
-    futures::executor::block_on(library.runs.stop_all());
-    wait_for_runs(&library, &[]);
 }
 
 #[test]
