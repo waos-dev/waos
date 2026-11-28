@@ -167,7 +167,7 @@ impl LibraryDesktop {
             .then(|| PreferencesFile::at(folder.path().join("preferences.toml")));
         let copies = PackageCopies::clear(folder.path().join("package-copies")).unwrap();
         let work = work().unwrap();
-        let setup = Setup::for_tests(folder.path());
+        let setup = Setup::on_files(folder.path());
         let (started, (prompts, prompted, requests)) = startup::start(
             setup,
             |running| {

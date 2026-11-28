@@ -150,6 +150,7 @@ pub(crate) mod setting_changes;
 #[cfg(any(target_os = "macos", target_os = "android"))]
 pub(crate) mod simulated_cameras;
 pub(crate) mod startup;
+pub(crate) mod stores;
 pub(crate) mod system_notifications;
 pub(crate) mod tab_list;
 pub(crate) mod tab_page;

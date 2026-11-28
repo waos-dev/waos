@@ -34,6 +34,7 @@ use waos_services::sources::SourceProxy;
 
 use super::running_apps::RunningApps;
 use super::startup::{self, Domains};
+use super::stores::Stores;
 
 /// The smallest component, as text, which the engine compiles as it does a binary: what a test
 /// installs where it shows or removes a program but never runs it, since an install compiles, and
@@ -135,13 +136,21 @@ impl CodeCompiler for MarkerCompiler {
     }
 }
 
-/// A test's domains over `folder`, the store's directory, as WaOS opens them, for apps it never
-/// runs, with nobody to ask.
+/// A test's domains over files in `folder`, the store's directory, as WaOS opens them, for apps
+/// it never runs, with nobody to ask.
 pub(crate) fn domains_never_run(folder: &Path) -> Domains {
+    let stores = Stores::files(folder).expect("the stores open");
     let running = Arc::new(RunningApps::default());
     let (compiler, prompts) = (Arc::new(MarkerCompiler), Arc::new(NoPrompts));
-    startup::open_domains(folder, compiler, &running, SourceProxy::None, prompts)
-        .expect("the domains open")
+    startup::open_domains(
+        stores,
+        folder,
+        compiler,
+        &running,
+        SourceProxy::None,
+        prompts,
+    )
+    .expect("the domains open")
 }
 
 /// Installs the package at `file` with `packages`, for the user, and waits until it is installed,
