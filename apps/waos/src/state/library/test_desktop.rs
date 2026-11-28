@@ -41,9 +41,9 @@ use waft_winui::install_icon_font;
 use waos_package::{Category, Manifest, SigningKey};
 use waos_services::activity::ActivityRecord;
 
-use super::{Library, ProgramsOpen, open_library, open_settings_when_asked, show_phone_files};
-use crate::logic::app_services::AppServices;
-use crate::logic::environments::ProgramEnvironments;
+use super::{
+    Library, ProgramsOpen, open_library, open_settings_when_asked, show_phone_files, work,
+};
 use crate::logic::opened_package::tests::{write_package, write_package_of, write_package_showing};
 use crate::logic::package_copies::PackageCopies;
 use crate::logic::phone_files::PhoneFilesAccess;
@@ -51,10 +51,10 @@ use crate::logic::phone_files::PhoneFilesOnRequest;
 use crate::logic::placement::WindowsOnRequest;
 use crate::logic::preferences::PreferencesFile;
 use crate::logic::program_faces::ProgramFaces;
-use crate::logic::program_places::{ProgramPlace, ProgramPlaces};
 use crate::logic::prompts::{MachinePickerOnRequest, OutputPickerOnRequest, PromptsOnRequest};
 use crate::logic::recording_indicator::RecordingIndicatorOnRequest;
 use crate::logic::running_apps::RunningApps;
+use crate::logic::startup::{self, AppServices, Outside, Setup};
 use crate::logic::test_engine::{self, WITHIN};
 use crate::logic::test_outputs::StatedOutputs;
 use crate::state::ViewWindows;
@@ -62,6 +62,7 @@ use crate::state::phone_files::{follow_phone_files, phone_files_on_request};
 use crate::state::questions::{self, Questions};
 use crate::state::recordings::Recordings;
 use crate::ui::every_window::{LibraryWindow, every_window, program_windows};
+use waos_services::permissions::Prompts;
 
 /// How far apart the frames are drawn.
 const FRAME_INTERVAL: Duration = Duration::from_millis(50);
@@ -164,22 +165,40 @@ impl LibraryDesktop {
             .own_preferences
             .then(|| PreferencesFile::at(folder.path().join("preferences.toml")));
         let copies = PackageCopies::clear(folder.path().join("package-copies")).unwrap();
-        let runs = Arc::new(RunningApps::default());
-        let (prompts, prompted) = PromptsOnRequest::new(Arc::clone(&runs));
-        let prompts = Arc::new(prompts);
-        let crate::logic::app_services::Domains {
+        let work = work().unwrap();
+        let setup = Setup::for_tests(folder.path(), work.handle().clone());
+        let (started, (prompts, prompted, requests)) = startup::start(
+            setup,
+            |running| {
+                let (prompts, prompted) = PromptsOnRequest::new(Arc::clone(running));
+                let prompts = Arc::new(prompts);
+                (
+                    Arc::clone(&prompts) as Arc<dyn Prompts>,
+                    (prompts, prompted),
+                )
+            },
+            |before, (prompts, prompted)| {
+                let faces = ProgramFaces::new(Arc::clone(before.packages), None);
+                let (placement, requests) = WindowsOnRequest::new(faces);
+                let shell = test_engine::shell(Arc::new(placement));
+                let capabilities = waos_local::LocalCapabilities::new();
+                let kept = (prompts, prompted, requests);
+                let mut outside =
+                    Outside::new(shell, test_engine::no_screens(), capabilities, kept);
+                outside.audio = Some(Arc::new(StatedOutputs));
+                Ok(outside)
+            },
+        )
+        .expect("WaOS starts");
+        let services = AppServices::of(&started);
+        let startup::Started {
+            running: runs,
             packages,
             permissions,
             sources,
-            storage,
             activity,
-        } = crate::logic::test_installs::domains(
-            &folder.path().join("store"),
-            &runs,
-            Arc::clone(&prompts) as Arc<dyn waos_services::permissions::Prompts>,
-        );
-        let (placement, requests) =
-            WindowsOnRequest::new(ProgramFaces::new(Arc::clone(&packages), None));
+            ..
+        } = started;
         let asking = crate::logic::asking_now::AskingNow::new(permissions.asking());
         let output_picker = Arc::new(prompts.output_picker(Arc::clone(&asking)));
         let (phone_files_on_request, phone_files_followed) = (kind.phone_files.as_ref())
@@ -188,21 +207,6 @@ impl LibraryDesktop {
         let machine_picker =
             Arc::new(prompts.machine_picker(asking, phone_files_on_request.clone()));
         let (recording_indicator, recording_changes) = RecordingIndicatorOnRequest::new();
-        let engine =
-            test_engine::engine_keeping_days(Arc::new(placement), Arc::new(activity.clone()));
-        let services = AppServices::new(
-            Arc::clone(&runs),
-            Arc::clone(&packages),
-            permissions.clone(),
-            Arc::new(engine),
-            ProgramEnvironments::with_audio(
-                waos_local::LocalCapabilities::new(),
-                Some(Arc::new(StatedOutputs)),
-                permissions.clone(),
-                storage.clone(),
-            ),
-            ProgramPlaces::new(ProgramPlace::Windows),
-        );
         let platform = Rc::new(LibraryPlatform::new(kind.system));
         let phone_files = kind.phone_files;
         let started = Rc::new(RefCell::new(None));
@@ -232,8 +236,8 @@ impl LibraryDesktop {
                 copies,
                 ProgramsOpen::InWindows,
                 preferences,
-            )
-            .expect("a library");
+                work,
+            );
             open_settings_when_asked(app, &library, prompted.settings);
             if let Some(phone_files) = phone_files {
                 show_phone_files(app, &library, phone_files);

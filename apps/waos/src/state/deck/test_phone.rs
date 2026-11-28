@@ -48,25 +48,25 @@ use waos_package::{ProgramId, SigningKey};
 use waos_program_window::{ProgramCanvas, WindowRestoration};
 
 use super::tabs::{TabContent, TabStage, Tabs};
-use crate::logic::app_services::AppServices;
-use crate::logic::environments::ProgramEnvironments;
 use crate::logic::opened_package::tests::write_package;
 use crate::logic::package_copies::PackageCopies;
 use crate::logic::placement::WindowsOnRequest;
 use crate::logic::preferences::PreferencesFile;
 use crate::logic::program_faces::ProgramFaces;
-use crate::logic::program_places::{PlacedWhereOpened, ProgramPlace, ProgramPlaces, TabsOnRequest};
+use crate::logic::program_places::{PlacedWhereOpened, ProgramPlace, TabsOnRequest};
 use crate::logic::prompts::PromptsOnRequest;
 use crate::logic::recording_indicator::RecordingIndicatorOnRequest;
 use crate::logic::running_apps::RunningApps;
+use crate::logic::startup::{self, AppServices, Outside, Setup};
 use crate::logic::test_engine::{self, NoWindows, WITHIN};
 use crate::state::ViewWindows;
 use crate::state::library::test_desktop::label_of;
-use crate::state::library::{Library, ProgramsOpen, open_library};
+use crate::state::library::{Library, ProgramsOpen, open_library, work};
 use crate::state::questions::{self, Questions};
 use crate::state::recordings::Recordings;
 use crate::state::{bring_opened_programs_forward, phone_deck};
 use crate::ui::every_window::{every_window, program_windows};
+use waos_services::permissions::Prompts;
 
 /// How far apart the frames are drawn, on the test's clock: a screen's sixty a second.
 pub(crate) const FRAME_INTERVAL: Duration = Duration::from_micros(16_667);
@@ -248,51 +248,57 @@ impl TestPhone {
     pub(crate) fn of(kind: PhoneKind) -> TestPhone {
         let folder = tempfile::tempdir().unwrap();
         let copies = PackageCopies::clear(folder.path().join("package-copies")).unwrap();
-        let runs = Arc::new(RunningApps::default());
-        let (prompts, prompted) = PromptsOnRequest::new(Arc::clone(&runs));
-        let prompts = Arc::new(prompts);
-        let crate::logic::app_services::Domains {
-            packages,
-            permissions,
-            sources,
-            storage,
-            ..
-        } = crate::logic::test_installs::domains(
-            &folder.path().join("store"),
-            &runs,
-            Arc::clone(&prompts) as Arc<dyn waos_services::permissions::Prompts>,
-        );
-        let (own_windows, requests) =
-            WindowsOnRequest::new(ProgramFaces::new(Arc::clone(&packages), None));
-        let (usual, windows, programs_open): (_, Arc<dyn ViewPlacement>, _) = match kind {
-            PhoneKind::Tabs => (ProgramPlace::Tab, Arc::new(NoWindows), ProgramsOpen::InTabs),
-            PhoneKind::Tasks => (
-                ProgramPlace::Windows,
-                Arc::new(own_windows),
-                ProgramsOpen::AsChosen,
-            ),
+        let (usual, programs_open) = match kind {
+            PhoneKind::Tabs => (ProgramPlace::Tab, ProgramsOpen::InTabs),
+            PhoneKind::Tasks => (ProgramPlace::Windows, ProgramsOpen::AsChosen),
         };
         let preferences = PreferencesFile::at(folder.path().join("preferences.toml"));
-        let places = ProgramPlaces::new(usual);
-        let (tabs_on_request, tab_requests) = TabsOnRequest::new();
-        let placement = PlacedWhereOpened {
-            places: places.clone(),
-            tabs: tabs_on_request,
-            windows,
+        let work = work().unwrap();
+        let setup = Setup {
+            usual_place: usual,
+            ..Setup::for_tests(folder.path(), work.handle().clone())
         };
-        let engine = Arc::new(test_engine::engine(Arc::new(placement)));
-        let services = AppServices::new(
-            Arc::clone(&runs),
-            Arc::clone(&packages),
-            permissions.clone(),
-            Arc::clone(&engine),
-            ProgramEnvironments::new(
-                waos_local::LocalCapabilities::new(),
-                permissions.clone(),
-                storage.clone(),
-            ),
-            places,
-        );
+        let ((started, (prompts, prompted, requests)), tab_requests) = {
+            let (tabs_on_request, tab_requests) = TabsOnRequest::new();
+            let started = startup::start(
+                setup,
+                |running| {
+                    let (prompts, prompted) = PromptsOnRequest::new(Arc::clone(running));
+                    let prompts = Arc::new(prompts);
+                    (
+                        Arc::clone(&prompts) as Arc<dyn Prompts>,
+                        (prompts, prompted),
+                    )
+                },
+                |before, (prompts, prompted)| {
+                    let (own_windows, requests) =
+                        WindowsOnRequest::new(ProgramFaces::new(Arc::clone(before.packages), None));
+                    let windows: Arc<dyn ViewPlacement> = match kind {
+                        PhoneKind::Tabs => Arc::new(NoWindows),
+                        PhoneKind::Tasks => Arc::new(own_windows),
+                    };
+                    let placement = PlacedWhereOpened {
+                        places: before.places.clone(),
+                        tabs: tabs_on_request,
+                        windows,
+                    };
+                    let shell = test_engine::shell(Arc::new(placement));
+                    let capabilities = waos_local::LocalCapabilities::new();
+                    let platform = test_engine::no_screens();
+                    let kept = (prompts, prompted, requests);
+                    Ok(Outside::new(shell, platform, capabilities, kept))
+                },
+            )
+            .expect("WaOS starts");
+            (started, tab_requests)
+        };
+        let services = AppServices::of(&started);
+        let startup::Started {
+            running: runs,
+            packages,
+            sources,
+            ..
+        } = started;
         let screen = Rc::new(PhoneScreen::new());
         let compositor = MockCompositor::new();
         let windows = Rc::new(TestWindows::new());
@@ -332,8 +338,8 @@ impl TestPhone {
                 copies,
                 programs_open,
                 Some(preferences),
-            )
-            .expect("a library");
+                work,
+            );
             bring_opened_programs_forward(app, &library, &view_windows);
             let tabs = Tabs::listen(app, deck_runs, tab_requests);
             let deck = phone_deck(

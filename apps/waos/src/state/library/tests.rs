@@ -25,14 +25,14 @@ use waos_package::{Manifest, ProgramKind, SigningKey};
 use super::test_server::Server;
 use super::*;
 use crate::logic::app_starter::StartStage;
-use crate::logic::environments::ProgramEnvironments;
 use crate::logic::opened_package::tests::{write_package, write_package_of};
 use crate::logic::package_copies::PackageCopies;
-use crate::logic::program_places::{ProgramPlace, ProgramPlaces};
 use crate::logic::program_shortcuts::{
     KeptShortcut, ProgramShortcut, ShortcutOpens, SystemShortcuts,
 };
 use crate::logic::running_apps::RunningApps;
+use crate::logic::startup::Setup;
+use crate::logic::startup::tests::start_asking_nobody;
 use crate::logic::test_engine::{self, NoWindows, WITHIN};
 use crate::logic::test_installs::{self, HeldCompiler};
 
@@ -68,42 +68,28 @@ impl TestLibrary {
         let folder = tempfile::tempdir().unwrap();
         let preferences = preferences(folder.path());
         let copies = PackageCopies::clear(folder.path().join("package-copies")).unwrap();
-        let runs = Arc::new(RunningApps::default());
         let compiler = Arc::new(HeldCompiler::default());
-        let crate::logic::app_services::Domains {
-            packages,
-            permissions,
-            sources,
-            storage,
-            ..
-        } = test_installs::domains_compiling(
-            &folder.path().join("store"),
-            &runs,
-            Arc::new(waos_services::permissions::NoPrompts),
-            Arc::clone(&compiler) as Arc<dyn waos_services::packages::CodeCompiler>,
-        );
-        let services = AppServices::new(
-            Arc::clone(&runs),
-            packages,
-            permissions.clone(),
-            Arc::new(test_engine::engine(Arc::new(NoWindows))),
-            ProgramEnvironments::new(
-                waos_local::LocalCapabilities::new(),
-                permissions.clone(),
-                storage.clone(),
-            ),
-            ProgramPlaces::new(ProgramPlace::Windows),
-        );
+        let work = work().unwrap();
+        let setup = Setup {
+            install_compiler: Arc::clone(&compiler)
+                as Arc<dyn waos_services::packages::CodeCompiler>,
+            ..Setup::for_tests(folder.path(), work.handle().clone())
+        };
+        let started = start_asking_nobody(setup, |_before| {
+            let shell = test_engine::shell(Arc::new(NoWindows));
+            (shell, test_engine::no_screens())
+        });
+        let (runs, services) = (Arc::clone(&started.running), AppServices::of(&started));
         let cell = AppCell::new();
         let library = open_library(
             &mut cell.borrow_mut(),
-            sources,
+            started.sources,
             services,
             copies,
             programs_open,
             preferences,
-        )
-        .unwrap();
+            work,
+        );
         let asked_to_be_seen = Rc::new(Mutex::new(0));
         let counted = Rc::clone(&asked_to_be_seen);
         let seen = cell

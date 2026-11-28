@@ -18,24 +18,20 @@ use anyhow::{Context, Result};
 use futures::StreamExt;
 use tokio::sync::{oneshot, watch};
 use waos::bindings::wasdk::platform::system::{Brightness, Locale};
-use waos::inspection::InspectedPrograms;
-use waos::{Compiler, EngineTime, FreezePolicy, HttpProxy, PlatformState, WaOS, WaOSConfig};
+use waos::{Compiler, EngineTime, FreezePolicy, HttpProxy, PlatformState, WaOS};
 use waos_headless::{Display, HeadlessShell, Refreshes};
 use waos_local::LocalCapabilities;
 use waos_services::permissions::Prompts;
 use waos_services::sources::SourceProxy;
 
-use crate::logic::app_services::{AppServices, Domains, EngineCompiler, open_domains};
 use crate::logic::asking_now::AskingNow;
 use crate::logic::dev_server::DevServer;
 use crate::logic::developer_access::DeveloperAccess;
-use crate::logic::environments::ProgramEnvironments;
 use crate::logic::folders::{self, AppFolders};
-use crate::logic::held_starts::HeldStarts;
-use crate::logic::inspected_programs::ProgramsOnThisComputer;
-use crate::logic::program_places::{ProgramPlace, ProgramPlaces};
+use crate::logic::program_places::ProgramPlace;
 use crate::logic::prompts::{PromptRequests, PromptsOnRequest};
 use crate::logic::running_apps::RunningApps;
+use crate::logic::startup::{self, AppServices, BeforeTheEngine, EngineCompiler, Outside, Setup};
 use crate::logic::video_decoder_thread;
 use crate::os;
 use crate::write_traces;
@@ -113,74 +109,34 @@ struct HeadlessDaemon {
 
 impl HeadlessDaemon {
     fn start(config: HeadlessConfig, runtime: tokio::runtime::Handle) -> Result<HeadlessDaemon> {
-        let runs = Arc::new(RunningApps::default());
-        let (prompts, prompted) = PromptsOnRequest::new(Arc::clone(&runs));
-        let prompts = Arc::new(prompts);
         let compiler =
             Compiler::new(native_unwind_info_asked()).context("starting the compiler")?;
-        let Domains {
-            packages,
-            permissions,
-            storage,
-            activity,
-            ..
-        } = open_domains(
-            &config.folders.store,
-            Arc::new(EngineCompiler(compiler.clone())),
-            &runs,
-            SourceProxy::System,
-            Arc::clone(&prompts) as Arc<dyn Prompts>,
-        )?;
-        let asking = AskingNow::new(permissions.asking());
-        let output_picker = prompts.output_picker(Arc::clone(&asking));
-        let machine_picker = prompts.machine_picker(Arc::clone(&asking), None);
-        let headless = HeadlessShell::new(config.display, Refreshes::Every(REFRESH_INTERVAL));
-        let mut shell = headless.shell();
-        shell.audio_output_picker = Some(Arc::new(output_picker));
-        shell.machine_picker = Some(Arc::new(machine_picker));
-        shell.gpus = video_decoder_thread::start();
-        let inspected = Arc::new(ProgramsOnThisComputer::new(
-            storage.clone(),
-            permissions.clone(),
-            Arc::clone(&packages),
-            Arc::clone(&runs),
-        ));
-        let waos_config = WaOSConfig {
-            freeze: FreezePolicy::default(),
+        let setup = Setup {
+            store: config.folders.store.clone(),
+            temporary_folders: config.folders.temporary_folders.clone(),
+            install_compiler: Arc::new(EngineCompiler(compiler.clone())),
             compiler,
+            source_proxy: SourceProxy::System,
             http_proxy: HttpProxy::System,
+            freeze: FreezePolicy::default(),
             time: EngineTime::Real,
-            temporary_folders: config.folders.temporary_folders,
-            audit: Some(Arc::new(activity.clone())),
-            inspected_programs: Some(Arc::clone(&inspected) as Arc<dyn InspectedPrograms>),
+            usual_place: ProgramPlace::Windows,
+            work: runtime.clone(),
         };
-        let platform = PlatformState {
-            screens: vec![headless.screen()],
-            platform_brightness: Brightness::Light,
-            caption_style: None,
-            locales: system_locales(),
-            time_zone: os::time_zone(),
-        };
-        let engine =
-            Arc::new(WaOS::new(waos_config, shell, platform).context("starting the engine")?);
-
-        let capabilities = LocalCapabilities::new();
-        let environments =
-            ProgramEnvironments::new(capabilities, permissions.clone(), storage.clone());
-        let places = ProgramPlaces::new(ProgramPlace::Windows);
-        let services = AppServices::new(
-            Arc::clone(&runs),
-            Arc::clone(&packages),
-            permissions,
-            Arc::clone(&engine),
-            environments,
-            places,
-        );
-        let starts = HeldStarts {
-            starter: Arc::clone(&services.starter),
-            packages,
-        };
-        inspected.serve_starts(starts, runtime.clone());
+        let display = config.display;
+        let (started, (prompted, asking)) = startup::start(
+            setup,
+            |running| {
+                let (prompts, prompted) = PromptsOnRequest::new(Arc::clone(running));
+                let prompts = Arc::new(prompts);
+                (
+                    Arc::clone(&prompts) as Arc<dyn Prompts>,
+                    (prompts, prompted),
+                )
+            },
+            |before, (prompts, prompted)| Ok(headless_outside(display, before, &prompts, prompted)),
+        )?;
+        let services = AppServices::of(&started);
 
         let (stop_prompts, stop_prompts_rx) = oneshot::channel();
         runtime.spawn(hold_prompts(prompted, stop_prompts_rx));
@@ -194,10 +150,10 @@ impl HeadlessDaemon {
         tracing::info!(socket = %config.socket.display(), "headless WaOS listening");
 
         Ok(HeadlessDaemon {
-            runs,
+            runs: started.running,
             server,
             stop_prompts: Some(stop_prompts),
-            _engine: engine,
+            _engine: started.engine,
         })
     }
 
@@ -207,6 +163,36 @@ impl HeadlessDaemon {
         }
         drop(self.server);
     }
+}
+
+/// What a headless WaOS's engine runs over: a screen of `display` with no window system, the
+/// pickers put to its user through `prompts`, the system's video decoders and this computer's
+/// capabilities; with the questions `prompted` and what its users are asked now kept.
+fn headless_outside(
+    display: Display,
+    before: BeforeTheEngine<'_>,
+    prompts: &PromptsOnRequest,
+    prompted: PromptRequests,
+) -> Outside<(PromptRequests, Arc<AskingNow>)> {
+    let asking = AskingNow::new(before.permissions.asking());
+    let headless = HeadlessShell::new(display, Refreshes::Every(REFRESH_INTERVAL));
+    let mut shell = headless.shell();
+    shell.audio_output_picker = Some(Arc::new(prompts.output_picker(Arc::clone(&asking))));
+    shell.machine_picker = Some(Arc::new(prompts.machine_picker(Arc::clone(&asking), None)));
+    shell.gpus = video_decoder_thread::start();
+    let platform = PlatformState {
+        screens: vec![headless.screen()],
+        platform_brightness: Brightness::Light,
+        caption_style: None,
+        locales: system_locales(),
+        time_zone: os::time_zone(),
+    };
+    Outside::new(
+        shell,
+        platform,
+        LocalCapabilities::new(),
+        (prompted, asking),
+    )
 }
 
 /// Holds each pending prompt alive until the engine cancels it (for example when `waos settings
@@ -634,26 +620,12 @@ mod tests {
         let socket = temp.path().join("dev.sock");
         let folders = test_folders(temp.path());
         let id: ProgramId = VIDEO_DECODING.parse().unwrap();
-        {
-            let running = Arc::new(RunningApps::default());
-            let compiler = Arc::new(crate::logic::test_installs::MarkerCompiler);
-            let prompts = Arc::new(waos_services::permissions::NoPrompts);
-            let domains = open_domains(
-                &folders.store,
-                compiler,
-                &running,
-                SourceProxy::System,
-                prompts,
-            )
-            .expect("open the store");
-            let data = domains
-                .storage
-                .folders(&id.development())
-                .expect("folders")
-                .data;
-            std::fs::write(data.join("clip.h264"), CLIP).unwrap();
-            std::fs::write(data.join("shown"), SHOWN).unwrap();
-        }
+        let data = waos_services::app_storage::AppStorage::new(&folders.store)
+            .folders(&id.development())
+            .expect("folders")
+            .data;
+        std::fs::write(data.join("clip.h264"), CLIP).unwrap();
+        std::fs::write(data.join("shown"), SHOWN).unwrap();
         let config = HeadlessConfig {
             folders,
             socket: socket.clone(),

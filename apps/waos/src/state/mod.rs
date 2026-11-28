@@ -73,11 +73,10 @@ use waft::{App, Entity, IntoWidget, run_widget};
 use waft_cupertino::install_cupertino_icon_font;
 use waft_single_instance::LaterLaunches;
 use waft_winui::install_icon_font;
-use waos::inspection::InspectedPrograms;
 use waos::{
     Compiler, EngineTime, HttpProxy, OpenRequest, RunningProgram, Shell, ShellCompositor,
     ShellFileDialogs, ShellRecordingIndicator, ShellSystemPermissions, ShellVideoFrameReaders,
-    VsyncWaiter, WaOS, WaOSConfig,
+    VsyncWaiter,
 };
 use waos_local::LocalCapabilities;
 use waos_package::ProgramId;
@@ -86,7 +85,6 @@ use waos_services::packages::PackageManager;
 use waos_services::permissions::Prompts;
 use waos_services::sources::SourceProxy;
 
-use crate::logic::app_services::{AppServices, Domains, EngineCompiler, open_domains};
 use crate::logic::asking_now::AskingNow;
 use crate::logic::command_line::LibraryPlace;
 #[cfg(desktop)]
@@ -94,26 +92,22 @@ use crate::logic::command_line::LibraryPlace;
 use crate::logic::dev_server::DevServer;
 #[cfg(desktop)]
 use crate::logic::developer_access::DeveloperAccess;
-use crate::logic::environments::ProgramEnvironments;
 use crate::logic::folders::AppFolders;
 use crate::logic::frame_readers::ReadersOnRequest;
-use crate::logic::held_starts::HeldStarts;
-use crate::logic::inspected_programs::ProgramsOnThisComputer;
 use crate::logic::machine_facts::platform_state;
 use crate::logic::noted_file_dialogs::NotedFileDialogs;
 use crate::logic::package_copies::PackageCopies;
 use crate::logic::phone_files::{PhoneFilesAccess, ThisComputerHome};
-use crate::logic::placement::WindowsOnRequest;
+use crate::logic::placement::{ProgramWindowRequest, WindowsOnRequest};
 use crate::logic::preferences::PreferencesFile;
 use crate::logic::program_faces::ProgramFaces;
 use crate::logic::program_identities::Identities;
-use crate::logic::program_places::{
-    PlacedWhereOpened, ProgramPlace, ProgramPlaces, TabRequest, TabsOnRequest,
-};
+use crate::logic::program_places::{PlacedWhereOpened, ProgramPlace, TabRequest, TabsOnRequest};
 use crate::logic::program_shortcuts::SystemShortcuts;
-use crate::logic::prompts::PromptsOnRequest;
+use crate::logic::prompts::{PromptRequests, PromptsOnRequest};
 use crate::logic::recording_indicator::RecordingIndicatorOnRequest;
 use crate::logic::running_apps::RunningApps;
+use crate::logic::startup::{self, AppServices, BeforeTheEngine, EngineCompiler, Outside, Setup};
 use crate::logic::vsync_waiter::WaftVsync;
 use crate::ui::deck::Deck;
 use crate::ui::every_window::{LibraryWindow, every_window, program_windows};
@@ -140,7 +134,7 @@ use media_players::MediaPlayers;
 use menus::Menus;
 use notifications::Notifications;
 use opener::Opener;
-use phone_files::{follow_phone_files, phone_files_on_request};
+use phone_files::{PhoneFiles, follow_phone_files, phone_files_on_request};
 use phone_window::in_phone_window;
 use questions::Questions;
 use recordings::Recordings;
@@ -210,7 +204,6 @@ pub(crate) fn start(
     later_launches: Option<LaterLaunches>,
     phone_files: Option<Rc<dyn PhoneFilesAccess>>,
 ) -> Result<()> {
-    let facts = platform_state(app.platform().as_ref());
     let programs_open = programs_open(place);
     let preferences = own_preferences(place, &folders);
     let package_copies =
@@ -220,131 +213,71 @@ pub(crate) fn start(
                 folders.package_copies.display()
             )
         })?;
-    let native_unwind_info = native_unwind_info_asked();
-    if native_unwind_info {
-        tracing::info!("programs are compiled with native unwind information");
-    }
-    let compiler = Compiler::new(native_unwind_info).context("starting the compiler")?;
-    let runs = Arc::new(RunningApps::default());
-    let (prompts, prompted) = PromptsOnRequest::new(Arc::clone(&runs));
-    let prompts = Arc::new(prompts);
-    let Domains {
-        packages,
-        permissions,
-        sources,
-        storage,
-        activity,
-    } = open_domains(
-        &folders.store,
-        Arc::new(EngineCompiler(compiler.clone())),
-        &runs,
-        SourceProxy::System,
-        Arc::clone(&prompts) as Arc<dyn Prompts>,
-    )?;
-    if let Err(error) = sources.start_with(&library::first_sources()) {
-        tracing::warn!("the sources WaOS comes with are not added: {error}");
-    }
-    let faces = program_faces(&packages, &folders);
-    let (own_windows, requests) = WindowsOnRequest::new(faces.clone());
-    let program_apps = program_apps::start(&folders, &packages);
+    let work = library::work()?;
     // The activity macOS must not throttle WaOS under, from now until WaOS ends: the programs
     // that compile and the windows in sight tell it (`state::app_nap_exemption`).
     #[cfg(target_os = "macos")]
     let app_nap_exemption = app_nap_exemption::start(app);
-    let places = ProgramPlaces::new(usual_place(place));
-    let (tabs_on_request, tab_requests) = TabsOnRequest::new();
-    let placement = Arc::new(PlacedWhereOpened {
-        places: places.clone(),
-        tabs: tabs_on_request,
-        windows: program_apps::placement(&program_apps, own_windows),
-    });
-    let asking = AskingNow::new(permissions.asking());
-    let output_picker = prompts.output_picker(Arc::clone(&asking));
-    let (phone_files_on_request, phone_files_followed) = phone_files
-        .as_ref()
-        .map(|access| phone_files_on_request(access.as_ref(), prompts.phone_files_off()))
-        .unzip();
-    let machine_picker =
-        prompts.machine_picker(Arc::clone(&asking), phone_files_on_request.clone());
+    let waft = WaftParts::of(app);
     let (recording_indicator, recording_changes) = RecordingIndicatorOnRequest::new();
-    let waiter = app
-        .platform()
-        .vsync_waiter()
-        .context("Waft's platform has no screen refreshes to pace programs by")?;
-    let vsync = Arc::new(WaftVsync::new(waiter));
-    let compositor = app
-        .platform()
-        .compositor()
-        .map(|compositor| Arc::new(WaftCompositor::new(compositor)) as Arc<dyn ShellCompositor>);
-    let clipboard = Clipboard::of(app.platform().as_ref());
-    let menus = Menus::of(app.platform().as_ref());
-    let file_dialogs = FileDialogs::of(app.platform().as_ref());
-    let opener = Opener::of(app.platform().as_ref());
-    let notifications = Notifications::of(app.platform().as_ref());
-    let media_players = MediaPlayers::of(app.platform().as_ref());
-    let media_assets = MediaAssets::of(app.platform().as_ref());
-    let image_codecs = ImageCodecs::of(app.platform().as_ref());
-    let video_decoders = VideoDecoders::of(app.platform().as_ref());
-    let cameras = CAMERA_USAGE_DECLARED
-        .then(|| Cameras::of(app.platform().as_ref()))
-        .flatten();
-    let shell = Shell {
-        views: placement,
-        vsync: Arc::clone(&vsync) as Arc<dyn VsyncWaiter>,
-        compositor,
-        system_permissions: phone_files_on_request
-            .map(|phone_files| Arc::new(phone_files) as Arc<dyn ShellSystemPermissions>)
-            .or_else(|| program_apps::system_permissions(&program_apps)),
-        clipboard: clipboard.as_ref().map(Clipboard::shell),
-        menu_bar: program_apps::menu_bar(&program_apps),
-        context_menus: program_apps::context_menus(&program_apps, menus.context_menus()),
-        tray_icons: menus.tray_icons(),
-        audio_output_picker: Some(Arc::new(output_picker)),
-        // Wherever a program may record, with either device, which each declaration decides.
-        recording_indicator: (MICROPHONE_USAGE_DECLARED || CAMERA_USAGE_DECLARED)
-            .then(|| Arc::new(recording_indicator) as Arc<dyn ShellRecordingIndicator>),
-        file_dialogs: program_apps::file_dialogs(
-            &program_apps,
-            file_dialogs.as_ref().map(FileDialogs::shell),
-        )
-        .map(|dialogs| {
-            let asking = Arc::clone(&asking);
-            Arc::new(NotedFileDialogs { dialogs, asking }) as Arc<dyn ShellFileDialogs>
-        }),
-        opener: opener.as_ref().map(Opener::shell),
-        notifications: program_apps::notifications(
-            &program_apps,
-            notifications.as_ref().map(Notifications::shell),
-        ),
-        media_players: media_players.as_ref().map(MediaPlayers::shell),
-        media_assets: media_assets.as_ref().map(MediaAssets::shell),
-        image_codecs: image_codecs.as_ref().map(ImageCodecs::shell),
-        video_frame_readers: app
-            .platform()
-            .video_frame_readers()
-            .map(|_| Arc::new(ReadersOnRequest) as Arc<dyn ShellVideoFrameReaders>),
-        gpus: video_decoders.as_ref().map(VideoDecoders::shell),
-        cameras: cameras.as_ref().map(Cameras::shell),
-        simulated_cameras: simulated_cameras(image_codecs.as_ref().map(ImageCodecs::shell)),
-        // A machine is picked on a sheet put as a program's questions are.
-        machine_picker: Some(Arc::new(machine_picker)),
-    };
-    let inspected = Arc::new(ProgramsOnThisComputer::new(
-        storage.clone(),
-        permissions.clone(),
-        Arc::clone(&packages),
-        Arc::clone(&runs),
-    ));
-    let config = WaOSConfig {
-        freeze: crate::os::freeze_policy(),
-        compiler,
-        http_proxy: HttpProxy::System,
-        time: EngineTime::Real,
-        temporary_folders: folders.temporary_folders,
-        audit: Some(Arc::new(activity.clone())),
-        inspected_programs: Some(Arc::clone(&inspected) as Arc<dyn InspectedPrograms>),
-    };
-    let engine = Arc::new(WaOS::new(config, shell, facts).context("starting the engine")?);
+    let setup = desktop_setup(&folders, place, work.handle().clone())?;
+    let (started, made) = startup::start(
+        setup,
+        |running| {
+            let (prompts, prompted) = PromptsOnRequest::new(Arc::clone(running));
+            let prompts = Arc::new(prompts);
+            (
+                Arc::clone(&prompts) as Arc<dyn Prompts>,
+                (prompts, prompted),
+            )
+        },
+        |before, (prompts, prompted)| {
+            let asked = Asked { prompts, prompted };
+            desktop_outside(
+                app,
+                &folders,
+                &waft,
+                recording_indicator,
+                phone_files,
+                before,
+                asked,
+            )
+        },
+    )?;
+    let services = AppServices::of(&started);
+    let startup::Started {
+        running,
+        packages,
+        sources,
+        engine,
+        starter,
+        ..
+    } = started;
+    let MadeWithTheShell {
+        requests,
+        faces,
+        program_apps,
+        tab_requests,
+        asking,
+        prompted,
+        phone_files,
+        phone_storage,
+    } = made;
+    let WaftParts {
+        clipboard,
+        menus,
+        file_dialogs,
+        opener,
+        notifications,
+        media_players,
+        media_assets,
+        image_codecs,
+        video_decoders,
+        cameras,
+    } = waft;
+    if let Err(error) = sources.start_with(&library::first_sources()) {
+        tracing::warn!("the sources WaOS comes with are not added: {error}");
+    }
     machine_facts::keep_current(app, Arc::clone(&engine));
     days_kept::keep_every_day_when_paused(app, Arc::clone(&engine));
     app_suspension::follow_app_suspension(app, Arc::clone(&engine));
@@ -354,39 +287,16 @@ pub(crate) fn start(
     let view_windows = ViewWindows::listen(app, requests);
     let posted_as_programs =
         notifications.map(|notifications| notifications.serve(app, Arc::clone(&packages)));
-    let phone_storage = phone_files_followed
-        .as_ref()
-        .map(|followed| followed.storage.root().to_owned());
-    let phone_files = phone_files
-        .zip(phone_files_followed)
-        .map(|(access, followed)| follow_phone_files(app, access, followed));
-    let home = phone_files
-        .as_ref()
-        .map(|phone_files| phone_files.read(app).home());
-    let capabilities = local_capabilities(home);
-    let environments = ProgramEnvironments::new(capabilities, permissions.clone(), storage.clone());
     // What a tab closed on a phone stops its program among.
-    let tabs_runs = Arc::clone(&runs);
-    let services = AppServices::new(
-        runs,
-        Arc::clone(&packages),
-        permissions,
-        Arc::clone(&engine),
-        environments,
-        places,
-    );
+    let tabs_runs = Arc::clone(&running);
     #[cfg(target_os = "macos")]
     app_nap_exemption::follow_sessions(app, app_nap_exemption.clone(), packages.sessions());
     #[cfg(target_os = "macos")]
-    app_nap_exemption::follow_starts(app, app_nap_exemption.clone(), services.starter.starting());
+    app_nap_exemption::follow_starts(app, app_nap_exemption.clone(), starter.starting());
     #[cfg(desktop)]
     let developer_access = DeveloperAccess::at(folders.developer_access.clone());
     #[cfg(desktop)]
     listen_for_the_command(app, services.clone(), asking, developer_access.clone())?;
-    let starts = HeldStarts {
-        starter: Arc::clone(&services.starter),
-        packages: Arc::clone(&packages),
-    };
     let prompt_windows = questions::prompt_windows(app, view_windows.clone(), faces);
     let recordings = Recordings::listen(app, recording_changes, Arc::clone(&packages));
     let library = open_library(
@@ -396,11 +306,11 @@ pub(crate) fn start(
         package_copies,
         programs_open,
         preferences,
-    )?;
+        work,
+    );
     #[cfg(desktop)]
     offer_developer_access(app, &library, developer_access);
     bring_opened_programs_forward(app, &library, &view_windows);
-    inspected.serve_starts(starts, library.read(app).runtime());
     #[cfg(target_os = "macos")]
     let prompts = program_apps::follow(
         app,
@@ -492,6 +402,198 @@ pub(crate) fn start(
     }
     menus.serve(app, view_windows);
     Ok(())
+}
+
+/// How the WaOS app starts: its store and its apps' `/tmp` among `folders`, compiling with native
+/// unwind information where it was asked for, through the system's proxy, freezing an app out of
+/// sight as the system does, its apps' views going where WaOS shown in `place` puts them, and an
+/// inspector's starts on `work`, the library's runtime.
+fn desktop_setup(
+    folders: &AppFolders,
+    place: LibraryPlace,
+    work: tokio::runtime::Handle,
+) -> Result<Setup> {
+    let native_unwind_info = native_unwind_info_asked();
+    if native_unwind_info {
+        tracing::info!("programs are compiled with native unwind information");
+    }
+    let compiler = Compiler::new(native_unwind_info).context("starting the compiler")?;
+    Ok(Setup {
+        store: folders.store.clone(),
+        temporary_folders: folders.temporary_folders.clone(),
+        install_compiler: Arc::new(EngineCompiler(compiler.clone())),
+        compiler,
+        source_proxy: SourceProxy::System,
+        http_proxy: HttpProxy::System,
+        freeze: crate::os::freeze_policy(),
+        time: EngineTime::Real,
+        usual_place: usual_place(place),
+        work,
+    })
+}
+
+/// What asks the programs' users, and where its questions arrive on the main thread.
+struct Asked {
+    prompts: Arc<PromptsOnRequest>,
+    prompted: PromptRequests,
+}
+
+/// What Waft's platform gives the engine's shell, made before the engine and served once it is.
+struct WaftParts {
+    clipboard: Option<Clipboard>,
+    menus: Menus,
+    file_dialogs: Option<FileDialogs>,
+    opener: Option<Opener>,
+    notifications: Option<Notifications>,
+    media_players: Option<MediaPlayers>,
+    media_assets: Option<MediaAssets>,
+    image_codecs: Option<ImageCodecs>,
+    video_decoders: Option<VideoDecoders>,
+    cameras: Option<Cameras>,
+}
+
+impl WaftParts {
+    /// What `app`'s platform has, its cameras where WaOS.app declares why it uses them.
+    fn of(app: &App) -> WaftParts {
+        let platform = app.platform();
+        let platform = platform.as_ref();
+        WaftParts {
+            clipboard: Clipboard::of(platform),
+            menus: Menus::of(platform),
+            file_dialogs: FileDialogs::of(platform),
+            opener: Opener::of(platform),
+            notifications: Notifications::of(platform),
+            media_players: MediaPlayers::of(platform),
+            media_assets: MediaAssets::of(platform),
+            image_codecs: ImageCodecs::of(platform),
+            video_decoders: VideoDecoders::of(platform),
+            cameras: CAMERA_USAGE_DECLARED
+                .then(|| Cameras::of(platform))
+                .flatten(),
+        }
+    }
+}
+
+/// What the desktop app made with the engine's shell and keeps: where the programs' windows are
+/// asked for and how they are shown, their apps, the tabs asked for, what their users are asked
+/// now and the questions, and the phone's files, where WaOS reaches them only as the user allows.
+struct MadeWithTheShell {
+    requests: UnboundedReceiver<ProgramWindowRequest>,
+    faces: ProgramFaces,
+    program_apps: program_apps::Started,
+    tab_requests: UnboundedReceiver<TabRequest>,
+    asking: Arc<AskingNow>,
+    prompted: PromptRequests,
+    phone_files: Option<Entity<PhoneFiles>>,
+    phone_storage: Option<PathBuf>,
+}
+
+/// The engine's shell in the WaOS app, made from the domains `before` the engine: the programs'
+/// apps as its placement on macOS, where each program has its own, and as its menu bar, context
+/// menus, file dialogs and notifications there, and the desktop's windows and `waft`'s parts
+/// elsewhere, placed where `before`'s places say; the questions `asked` puts as its pickers of
+/// outputs and machines; `indicator` as its indicator of who records, WaOS.app declaring why it
+/// records; Waft's vsync waiter as its screens' refreshes and Waft's compositor, where it has one,
+/// as the one programs' layers are made on; and this computer's capabilities, its home the one
+/// the phone's files keep, where `phone_files` says WaOS reaches them only as the user allows.
+fn desktop_outside(
+    app: &mut App,
+    folders: &AppFolders,
+    waft: &WaftParts,
+    indicator: RecordingIndicatorOnRequest,
+    phone_files: Option<Rc<dyn PhoneFilesAccess>>,
+    before: BeforeTheEngine<'_>,
+    asked: Asked,
+) -> Result<Outside<MadeWithTheShell>> {
+    let Asked { prompts, prompted } = asked;
+    let facts = platform_state(app.platform().as_ref());
+    let faces = program_faces(before.packages, folders);
+    let (own_windows, requests) = WindowsOnRequest::new(faces.clone());
+    let program_apps = program_apps::start(folders, before.packages);
+    let (tabs_on_request, tab_requests) = TabsOnRequest::new();
+    let placement = Arc::new(PlacedWhereOpened {
+        places: before.places.clone(),
+        tabs: tabs_on_request,
+        windows: program_apps::placement(&program_apps, own_windows),
+    });
+    let asking = AskingNow::new(before.permissions.asking());
+    let output_picker = prompts.output_picker(Arc::clone(&asking));
+    let (phone_files_on_request, phone_files_followed) = phone_files
+        .as_ref()
+        .map(|access| phone_files_on_request(access.as_ref(), prompts.phone_files_off()))
+        .unzip();
+    let machine_picker =
+        prompts.machine_picker(Arc::clone(&asking), phone_files_on_request.clone());
+    let waiter = app
+        .platform()
+        .vsync_waiter()
+        .context("Waft's platform has no screen refreshes to pace programs by")?;
+    let vsync = Arc::new(WaftVsync::new(waiter));
+    let compositor = app
+        .platform()
+        .compositor()
+        .map(|compositor| Arc::new(WaftCompositor::new(compositor)) as Arc<dyn ShellCompositor>);
+    let shell = Shell {
+        views: placement,
+        vsync: Arc::clone(&vsync) as Arc<dyn VsyncWaiter>,
+        compositor,
+        system_permissions: phone_files_on_request
+            .map(|phone_files| Arc::new(phone_files) as Arc<dyn ShellSystemPermissions>)
+            .or_else(|| program_apps::system_permissions(&program_apps)),
+        clipboard: waft.clipboard.as_ref().map(Clipboard::shell),
+        menu_bar: program_apps::menu_bar(&program_apps),
+        context_menus: program_apps::context_menus(&program_apps, waft.menus.context_menus()),
+        tray_icons: waft.menus.tray_icons(),
+        audio_output_picker: Some(Arc::new(output_picker)),
+        // Wherever a program may record, with either device, which each declaration decides.
+        recording_indicator: (MICROPHONE_USAGE_DECLARED || CAMERA_USAGE_DECLARED)
+            .then(|| Arc::new(indicator) as Arc<dyn ShellRecordingIndicator>),
+        file_dialogs: program_apps::file_dialogs(
+            &program_apps,
+            waft.file_dialogs.as_ref().map(FileDialogs::shell),
+        )
+        .map(|dialogs| {
+            let asking = Arc::clone(&asking);
+            Arc::new(NotedFileDialogs { dialogs, asking }) as Arc<dyn ShellFileDialogs>
+        }),
+        opener: waft.opener.as_ref().map(Opener::shell),
+        notifications: program_apps::notifications(
+            &program_apps,
+            waft.notifications.as_ref().map(Notifications::shell),
+        ),
+        media_players: waft.media_players.as_ref().map(MediaPlayers::shell),
+        media_assets: waft.media_assets.as_ref().map(MediaAssets::shell),
+        image_codecs: waft.image_codecs.as_ref().map(ImageCodecs::shell),
+        video_frame_readers: app
+            .platform()
+            .video_frame_readers()
+            .map(|_| Arc::new(ReadersOnRequest) as Arc<dyn ShellVideoFrameReaders>),
+        gpus: waft.video_decoders.as_ref().map(VideoDecoders::shell),
+        cameras: waft.cameras.as_ref().map(Cameras::shell),
+        simulated_cameras: simulated_cameras(waft.image_codecs.as_ref().map(ImageCodecs::shell)),
+        // A machine is picked on a sheet put as a program's questions are.
+        machine_picker: Some(Arc::new(machine_picker)),
+    };
+    let phone_storage = phone_files_followed
+        .as_ref()
+        .map(|followed| followed.storage.root().to_owned());
+    let phone_files = phone_files
+        .zip(phone_files_followed)
+        .map(|(access, followed)| follow_phone_files(app, access, followed));
+    let home = phone_files
+        .as_ref()
+        .map(|phone_files| phone_files.read(app).home());
+    let made = MadeWithTheShell {
+        requests,
+        faces,
+        program_apps,
+        tab_requests,
+        asking,
+        prompted,
+        phone_files,
+        phone_storage,
+    };
+    Ok(Outside::new(shell, facts, local_capabilities(home), made))
 }
 
 /// Listens for `waos` on the socket `waos-dev-protocol` names, installing what it sends and

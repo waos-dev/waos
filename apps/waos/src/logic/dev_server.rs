@@ -24,7 +24,6 @@ use std::sync::mpsc;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use super::app_services::AppServices;
 use super::asking_now::AskingNow;
 use super::dev_attach::{self, AttachContext};
 use super::dev_extensions;
@@ -37,6 +36,7 @@ use super::dev_refusal;
 use super::dev_settings::{self, SettingsContext};
 use super::developer_access::DeveloperAccess;
 use super::opening;
+use super::startup::AppServices;
 use super::{dev_input, dev_resize, dev_screenshot};
 use tokio::sync::{oneshot, watch};
 use tokio::task::JoinSet;
@@ -448,7 +448,7 @@ pub(crate) mod tests {
     use std::time::{Duration, Instant};
 
     use serde::de::DeserializeOwned;
-    use waos::{RunningProgram, WaOS};
+    use waos::{PlatformState, RunningProgram, Shell};
 
     use waos_dev_protocol::{
         Answer, Asked, ClientConnection, Component, DeviceAddress, FileDialog, Fingerprint, Hello,
@@ -461,14 +461,15 @@ pub(crate) mod tests {
 
     use super::*;
     use crate::logic::developer_access::Listening;
-    use crate::logic::environments::ProgramEnvironments;
     use crate::logic::open_command::{self, Sent};
     use crate::logic::opened_package::tests::write_package;
-    use crate::logic::program_places::{ProgramPlace, ProgramPlaces};
+    use crate::logic::program_places::ProgramPlace;
     use crate::logic::quit_question::every_program_agrees;
     use crate::logic::running_apps::RunningApps;
+    use crate::logic::startup::{self, Outside, Setup};
     use crate::logic::test_engine::{self, NoWindows, REFUSAL, WITHIN};
     use crate::logic::test_installs;
+    use waos_services::permissions::{NoPrompts, Prompts};
 
     /// The development id of the program `id`: what `waos install` installs it as, and what a run
     /// of it runs as.
@@ -511,76 +512,67 @@ pub(crate) mod tests {
     impl TestServer {
         /// A server whose programs run with no windows.
         pub(crate) fn start(test: &str) -> TestServer {
-            TestServer::over(test, || Arc::new(test_engine::engine(Arc::new(NoWindows))))
+            TestServer::over(test, || {
+                let shell = test_engine::shell(Arc::new(NoWindows));
+                (shell, test_engine::no_screens())
+            })
         }
 
         /// A server whose programs' windows draw.
         #[cfg(any(target_vendor = "apple", target_os = "linux"))]
         pub(crate) fn drawing(test: &str) -> TestServer {
-            TestServer::over(test, test_engine::drawing::engine)
+            TestServer::over(test, || test_engine::drawing::outside(true))
         }
 
         /// A server whose programs' views draw in no window, as a phone's deck shows a tab.
         #[cfg(any(target_vendor = "apple", target_os = "linux"))]
         pub(crate) fn drawing_in_no_window(test: &str) -> TestServer {
-            TestServer::over(test, test_engine::drawing::deck_engine)
+            TestServer::over(test, || test_engine::drawing::outside(false))
         }
 
-        /// A server whose engine uses `PromptsOnRequest` wired to `asking`, returning the server
-        /// and the prompt requests receiver.
+        /// A server whose apps' users are asked through `PromptsOnRequest`, and where its
+        /// questions arrive.
         fn asking_prompts(test: &str) -> (TestServer, crate::logic::prompts::PromptRequests) {
-            let runs = Arc::new(RunningApps::default());
-            let (prompts, requests) =
-                crate::logic::prompts::PromptsOnRequest::new(Arc::clone(&runs));
-            let server = TestServer::over_with(test, runs, Arc::new(prompts), || {
-                Arc::new(test_engine::engine(Arc::new(NoWindows)))
-            });
-            (server, requests)
-        }
-
-        /// A server of the test's own over the engine `engine` makes, with nobody to ask.
-        fn over(test: &str, engine: impl FnOnce() -> Arc<WaOS>) -> TestServer {
-            let runs = Arc::new(RunningApps::default());
-            Self::over_with(
+            TestServer::over_with(
                 test,
-                runs,
-                Arc::new(waos_services::permissions::NoPrompts),
-                engine,
+                |running| {
+                    let (prompts, requests) =
+                        crate::logic::prompts::PromptsOnRequest::new(Arc::clone(running));
+                    (Arc::new(prompts) as Arc<dyn Prompts>, requests)
+                },
+                || {
+                    let shell = test_engine::shell(Arc::new(NoWindows));
+                    (shell, test_engine::no_screens())
+                },
             )
         }
 
-        /// A server over the engine `engine` makes, its apps running among `runs` and their
-        /// users asked through `prompts`.
-        fn over_with(
+        /// A server of the test's own over the shell `outside` makes, with nobody to ask.
+        fn over(test: &str, outside: impl FnOnce() -> (Shell, PlatformState)) -> TestServer {
+            let prompts = |_: &Arc<RunningApps>| (Arc::new(NoPrompts) as Arc<dyn Prompts>, ());
+            TestServer::over_with(test, prompts, outside).0
+        }
+
+        /// A server over the shell `outside` makes, its apps' users asked through what
+        /// `prompts` makes, with what it keeps of them.
+        fn over_with<P>(
             test: &str,
-            runs: Arc<RunningApps>,
-            prompts: Arc<dyn waos_services::permissions::Prompts>,
-            engine: impl FnOnce() -> Arc<WaOS>,
-        ) -> TestServer {
+            prompts: impl FnOnce(&Arc<RunningApps>) -> (Arc<dyn Prompts>, P),
+            outside: impl FnOnce() -> (Shell, PlatformState),
+        ) -> (TestServer, P) {
             let folder =
                 std::env::temp_dir().join(format!("waos-app-{}-{test}", std::process::id()));
             let _ = fs::remove_dir_all(&folder);
-            let engine = engine();
             let socket = Self::test_listener(&folder, test);
-            let crate::logic::app_services::Domains {
-                packages,
-                permissions,
-                storage,
-                ..
-            } = test_installs::domains(&folder.join("store"), &runs, prompts);
-            let asking = AskingNow::new(permissions.asking());
-            let services = AppServices::new(
-                Arc::clone(&runs),
-                packages,
-                permissions.clone(),
-                engine,
-                ProgramEnvironments::new(
-                    waos_local::LocalCapabilities::new(),
-                    permissions.clone(),
-                    storage.clone(),
-                ),
-                ProgramPlaces::new(ProgramPlace::Windows),
-            );
+            let setup = Setup::for_tests(&folder, tokio::runtime::Handle::current());
+            let (started, (asking, prompted)) = startup::start(setup, prompts, |before, kept| {
+                let (shell, platform) = outside();
+                let asking = AskingNow::new(before.permissions.asking());
+                let capabilities = waos_local::LocalCapabilities::new();
+                Ok(Outside::new(shell, platform, capabilities, (asking, kept)))
+            })
+            .expect("WaOS starts");
+            let services = AppServices::of(&started);
             let access = DeveloperAccess::on_loopback(folder.join("developer"));
             let server = DevServer::start(
                 services.clone(),
@@ -589,17 +581,18 @@ pub(crate) mod tests {
                 access.clone(),
             )
             .expect("the server binds");
-            TestServer {
+            let server = TestServer {
                 folder,
                 socket,
-                runs,
-                storage,
-                permissions,
+                runs: started.running,
+                storage: started.storage,
+                permissions: started.permissions,
                 asking,
                 services,
                 access,
                 server: Some(server),
-            }
+            };
+            (server, prompted)
         }
 
         /// Where the test's server listens, apart from every other test's and from the user's own

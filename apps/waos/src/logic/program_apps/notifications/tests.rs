@@ -15,7 +15,6 @@ use waos_window_messages::{FromWindow, LaunchReason, PermissionRequestId, PostId
 use super::*;
 use waos_services::permissions::Setting;
 
-use crate::logic::app_services::Domains;
 use crate::logic::notification_permissions::NotificationPermissionReading;
 use crate::logic::program_apps::app_reach::LaunchAttempt;
 use crate::logic::program_apps::app_reach::tests::Launches;
@@ -24,6 +23,7 @@ use crate::logic::program_apps::window_process::WindowProcess;
 use crate::logic::program_apps::window_process::tests::{
     Printed, Served, next, next_wanted, window_process_keeping,
 };
+use crate::logic::startup::Domains;
 use crate::logic::test_engine::{self, NoWindows, WITHIN};
 use crate::logic::test_installs;
 

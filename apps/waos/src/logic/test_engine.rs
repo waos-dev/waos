@@ -1,8 +1,8 @@
-//! An engine for the app's tests: no screens, screens that never refresh, and the placement the test gives it, or one that makes no windows, with the prompts
-//! the test gives it, or none to ask, keeping no days of what the programs do unless the test
-//! gives it the log to keep them in, as the app gives its store; or over a shell the test fills
-//! in further, on the time it gives; or, on Apple's systems and Linux, one whose programs' windows
-//! draw (`drawing::engine`), built over `waos_headless`'s screen. A test loads
+//! An engine for the app's tests, and the shells a test's WaOS starts over (`startup`): no
+//! screens, screens that never refresh, and the placement the test gives it, or one that makes no
+//! windows, keeping no days of what the programs do; or over a shell the test fills in further, on
+//! the time it gives; or, on Apple's systems and Linux, a shell whose programs' windows draw
+//! (`drawing::outside`), built over `waos_headless`'s screen. A test loads
 //! `waos_test_programs`' programs from their code folders (`waos_test_programs::code_of`), and
 //! installs them with their code compiled already (`test_installs`).
 
@@ -12,8 +12,8 @@ use std::time::Duration;
 use waos::bindings::wasdk::platform::system::Brightness;
 use waos::bindings::wasdk::platform::views::ViewError;
 use waos::{
-    AuditLog, EngineTime, FreezePolicy, HttpProxy, PlatformState, RunningProgram, Shell,
-    ViewPlacement, ViewRequest, VsyncWaiter, WaOS, WaOSConfig,
+    EngineTime, FreezePolicy, HttpProxy, PlatformState, RunningProgram, Shell, ViewPlacement,
+    ViewRequest, VsyncWaiter, WaOS, WaOSConfig,
 };
 
 /// How long a test waits for a program or the app to do something before it fails. No wait
@@ -46,15 +46,6 @@ impl VsyncWaiter for NoRefreshes {
 /// An engine placing views with `views`.
 pub(crate) fn engine(views: Arc<dyn ViewPlacement>) -> WaOS {
     engine_over(shell(views), EngineTime::Real)
-}
-
-/// An engine placing views with `views`, keeping the days of what its programs do in `audit`.
-pub(crate) fn engine_keeping_days(views: Arc<dyn ViewPlacement>, audit: Arc<dyn AuditLog>) -> WaOS {
-    let config = WaOSConfig {
-        audit: Some(audit),
-        ..config(EngineTime::Real)
-    };
-    engine_of(config, shell(views))
 }
 
 /// The shell of an engine for the app's tests: `views` places its views, its screens never
@@ -105,32 +96,31 @@ fn config(time: EngineTime) -> WaOSConfig {
 
 /// An engine of `config` over `shell`, with no screens.
 fn engine_of(config: WaOSConfig, shell: Shell) -> WaOS {
-    let platform = PlatformState {
+    WaOS::new(config, shell, no_screens()).expect("an engine")
+}
+
+/// A machine with no screens, light, of no language or time zone.
+pub(crate) fn no_screens() -> PlatformState {
+    PlatformState {
         screens: Vec::new(),
         platform_brightness: Brightness::Light,
         caption_style: None,
         locales: Vec::new(),
         time_zone: None,
-    };
-    WaOS::new(config, shell, platform).expect("an engine")
+    }
 }
 
-/// An engine whose programs' windows draw, where the engine makes hardware buffers (or Linux
+/// A shell whose programs' windows draw, where the engine makes hardware buffers (or Linux
 /// offscreen buffers).
 #[cfg(any(target_vendor = "apple", target_os = "linux"))]
 pub(crate) mod drawing {
-    use std::sync::Arc;
-
     use waos::bindings::wasdk::platform::system::Brightness;
     use waos::bindings::wasdk::platform::views::RequestId;
-    use waos::{
-        EngineTime, FreezePolicy, HttpProxy, PlatformState, ProgramView, RunningProgram,
-        ViewRequest, WaOS, WaOSConfig, WindowConfig,
-    };
+    use waos::{PlatformState, ProgramView, RunningProgram, ViewRequest, WindowConfig};
 
     use waos_headless::{Display, HeadlessShell, Refreshes};
 
-    /// The size of a window [`engine`]'s shell gives, in physical pixels, at 2x.
+    /// The size of a window [`outside`]'s shell gives, in physical pixels, at 2x.
     pub(crate) const WINDOW_WIDTH: u32 = 400;
     pub(crate) const WINDOW_HEIGHT: u32 = 300;
 
@@ -144,31 +134,12 @@ pub(crate) mod drawing {
         }
     }
 
-    /// An engine whose programs' windows draw: each request given a window at once, focused and in
-    /// sight, on one screen that refreshes as soon as it is asked, each window keeping the
-    /// picture presented last until the next replaces it; with nobody to ask.
-    pub(crate) fn engine() -> Arc<WaOS> {
-        engine_giving(true)
-    }
-
-    /// An engine as [`engine`]'s, but each view given in no window, as a phone's deck shows a tab.
-    pub(crate) fn deck_engine() -> Arc<WaOS> {
-        engine_giving(false)
-    }
-
-    /// An engine as [`engine`]'s, placing views in windows when `in_windows`.
-    fn engine_giving(in_windows: bool) -> Arc<WaOS> {
+    /// What a test's WaOS whose apps' windows draw runs over: each request given a window at once
+    /// when `in_windows`, or a view in none, as a phone's deck shows a tab, focused and in sight, on
+    /// one screen that refreshes as soon as it is asked, each window keeping the picture presented
+    /// last until the next replaces it: its shell, and the machine with the one screen.
+    pub(crate) fn outside(in_windows: bool) -> (waos::Shell, PlatformState) {
         let headless = HeadlessShell::new(display(in_windows), Refreshes::WhenAsked);
-        let shell = headless.shell();
-        let config = WaOSConfig {
-            freeze: FreezePolicy::default(),
-            compiler: waos::Compiler::new(false).expect("a compiler"),
-            http_proxy: HttpProxy::None,
-            time: EngineTime::Real,
-            temporary_folders: std::env::temp_dir().join("waos-tests"),
-            audit: None,
-            inspected_programs: None,
-        };
         let platform = PlatformState {
             screens: vec![headless.screen()],
             platform_brightness: Brightness::Light,
@@ -176,7 +147,7 @@ pub(crate) mod drawing {
             locales: Vec::new(),
             time_zone: None,
         };
-        Arc::new(WaOS::new(config, shell, platform).expect("an engine"))
+        (headless.shell(), platform)
     }
 
     /// Opens a view for `program`'s `request` in a window of its own, filling the test screen.

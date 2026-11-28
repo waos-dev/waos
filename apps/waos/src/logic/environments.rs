@@ -24,19 +24,9 @@ pub(crate) struct ProgramEnvironments {
 }
 
 impl ProgramEnvironments {
-    /// Environments over `capabilities`, this computer's, `permissions`, and the apps' own folders
-    /// in `storage`.
+    /// Environments over `capabilities`, this computer's, with `audio` as the sound devices,
+    /// `permissions`, and the apps' own folders in `storage`.
     pub(crate) fn new(
-        capabilities: LocalCapabilities,
-        permissions: Permissions,
-        storage: AppStorage,
-    ) -> Arc<ProgramEnvironments> {
-        let audio = capabilities.environment().audio;
-        ProgramEnvironments::with_audio(capabilities, audio, permissions, storage)
-    }
-
-    /// [`new`](Self::new), with `audio` as the sound devices in place of `capabilities`' own.
-    pub(crate) fn with_audio(
         capabilities: LocalCapabilities,
         audio: Option<Arc<dyn AudioDevices>>,
         permissions: Permissions,

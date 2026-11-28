@@ -96,7 +96,7 @@ impl Desktop {
     fn with_tray(test: &str, tray: impl FnOnce(MockTrayIcons) -> MockTrayIcons) -> Desktop {
         let folder =
             std::env::temp_dir().join(format!("waos-desktop-{}-{test}", std::process::id()));
-        let crate::logic::app_services::Domains {
+        let crate::logic::startup::Domains {
             packages,
             permissions,
             storage,

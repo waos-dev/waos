@@ -51,16 +51,12 @@ impl HeldStarts {
 mod tests {
     use futures::StreamExt;
     use waos::TraceKind;
-    use waos_local::LocalCapabilities;
 
     use super::*;
     use waos::inspection::InspectedPrograms;
 
-    use crate::logic::app_services::AppServices;
-    use crate::logic::environments::ProgramEnvironments;
     use crate::logic::inspected_programs::ProgramsOnThisComputer;
-    use crate::logic::program_places::{ProgramPlace, ProgramPlaces};
-    use crate::logic::running_apps::RunningApps;
+    use crate::logic::startup::{self, Setup};
     use crate::logic::test_engine::{self, NoWindows};
     use crate::logic::test_installs;
 
@@ -68,34 +64,16 @@ mod tests {
     async fn an_inspector_starts_a_development_install_held_in_place_of_the_one_running_and_ends_it()
      {
         let folder = tempfile::tempdir().unwrap();
-        let engine = Arc::new(test_engine::engine(Arc::new(NoWindows)));
-        let directory = folder.path().join("store");
-        let runs = Arc::new(RunningApps::default());
-        let crate::logic::app_services::Domains {
-            packages,
-            permissions,
-            storage,
-            ..
-        } = test_installs::domains(
-            &directory,
-            &runs,
-            Arc::new(waos_services::permissions::NoPrompts),
-        );
-        let services = AppServices::new(
-            Arc::clone(&runs),
-            Arc::clone(&packages),
-            permissions.clone(),
-            Arc::clone(&engine),
-            ProgramEnvironments::new(
-                LocalCapabilities::new(),
-                permissions.clone(),
-                storage.clone(),
-            ),
-            ProgramPlaces::new(ProgramPlace::Windows),
-        );
+        let setup = Setup::for_tests(folder.path(), tokio::runtime::Handle::current());
+        let started = startup::tests::start_asking_nobody(setup, |_before| {
+            let shell = test_engine::shell(Arc::new(NoWindows));
+            (shell, test_engine::no_screens())
+        });
+        let (runs, packages) = (Arc::clone(&started.running), Arc::clone(&started.packages));
+        // What an inspector sees, as the engine is handed it.
         let programs = ProgramsOnThisComputer::new(
-            storage,
-            permissions,
+            started.storage,
+            started.permissions,
             Arc::clone(&packages),
             Arc::clone(&runs),
         );
@@ -108,7 +86,7 @@ mod tests {
         test_installs::install_development(&packages, manifest, waos_test_programs::FOREVER);
         let id: ProgramId = "dev.example.forever.development".parse().unwrap();
         let starts = HeldStarts {
-            starter: services.starter,
+            starter: started.starter,
             packages,
         };
         programs.serve_starts(starts, tokio::runtime::Handle::current());

@@ -9,8 +9,9 @@
 //! `Installing`) holds the compiler ([`HeldCompiler`]), so the compile waits for the test rather
 //! than the test guessing with a timer how long it lasts.
 //!
-//! The invariant: a test that installs an app installs it through a package manager made here, so
-//! no test waits on a compile another already did, and every test runs the package manager's real
+//! The invariant: a test that installs an app installs it through a package manager handed the
+//! tests' compiler, a test's WaOS's (`startup::Setup::for_tests`) or one made here, so no test
+//! waits on a compile another already did, and every test runs the package manager's real
 //! checks and its one-step install.
 
 use std::collections::HashMap;
@@ -27,11 +28,11 @@ use waos_services::packages::{
     Caller, CodeCompiler, DevelopmentBuild, InstalledProgram, InstalledVersion, PackageContent,
     PackageManager,
 };
-use waos_services::permissions::{NoPrompts, Prompts};
+use waos_services::permissions::NoPrompts;
 use waos_services::sources::SourceProxy;
 
-use super::app_services::{self, Domains};
 use super::running_apps::RunningApps;
+use super::startup::{self, Domains};
 
 /// The smallest component, as text, which the engine compiles as it does a binary: what a test
 /// installs where it shows or removes a program but never runs it, since an install compiles, and
@@ -132,7 +133,7 @@ impl CodeCompiler for HeldCompiler {
 }
 
 /// The tests' compiler, set up as the tests' engines are, so they map its code.
-fn test_compiler() -> TestCompiler {
+pub(crate) fn test_compiler() -> TestCompiler {
     static COMPILER: OnceLock<Compiler> = OnceLock::new();
     let compiler = COMPILER.get_or_init(|| Compiler::new(false).expect("a compiler"));
     TestCompiler(compiler.clone())
@@ -162,29 +163,7 @@ impl CodeCompiler for MarkerCompiler {
 pub(crate) fn domains_never_run(folder: &Path) -> Domains {
     let running = Arc::new(RunningApps::default());
     let (compiler, prompts) = (Arc::new(MarkerCompiler), Arc::new(NoPrompts));
-    app_services::open_domains(folder, compiler, &running, SourceProxy::None, prompts)
-        .expect("the domains open")
-}
-
-/// A test's domains over `folder`, the store's directory, as WaOS opens them, its package manager
-/// compiling once per content with a compiler set up as the tests' engines are, so they map its
-/// code, stopping apps among `running`, and Permissions asking the user through `prompts`.
-pub(crate) fn domains(
-    folder: &Path,
-    running: &Arc<RunningApps>,
-    prompts: Arc<dyn Prompts>,
-) -> Domains {
-    domains_compiling(folder, running, prompts, Arc::new(test_compiler()))
-}
-
-/// [`domains`], compiling with `compiler`: a [`HeldCompiler`] for a test that holds it.
-pub(crate) fn domains_compiling(
-    folder: &Path,
-    running: &Arc<RunningApps>,
-    prompts: Arc<dyn Prompts>,
-    compiler: Arc<dyn CodeCompiler>,
-) -> Domains {
-    app_services::open_domains(folder, compiler, running, SourceProxy::None, prompts)
+    startup::open_domains(folder, compiler, &running, SourceProxy::None, prompts)
         .expect("the domains open")
 }
 

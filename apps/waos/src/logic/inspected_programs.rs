@@ -255,7 +255,7 @@ mod tests {
     async fn an_inspector_sees_each_program_installed_with_its_icon_and_hears_an_install_whoever_makes_it()
      {
         let folder = tempfile::tempdir().unwrap();
-        let crate::logic::app_services::Domains {
+        let crate::logic::startup::Domains {
             packages,
             permissions,
             storage,
@@ -300,7 +300,7 @@ mod tests {
     #[tokio::test]
     async fn a_program_that_does_not_run_has_the_mounts_of_its_store_folder() {
         let folder = tempfile::tempdir().unwrap();
-        let crate::logic::app_services::Domains {
+        let crate::logic::startup::Domains {
             packages,
             permissions,
             storage,

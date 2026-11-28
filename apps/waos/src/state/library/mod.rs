@@ -69,7 +69,6 @@ use waos_services::packages::{
 };
 use waos_services::sources::{Source, Sources, Url};
 
-use crate::logic::app_services::AppServices;
 use crate::logic::app_starter::{Opening, StartPlace, StartRequest, StartStage};
 use crate::logic::app_store::{
     AppStorePlace, CatalogApp, ListedSource, catalog, featured, updates,
@@ -88,6 +87,7 @@ use crate::logic::program_faces::program_face;
 use crate::logic::program_places::ProgramPlace;
 use crate::logic::program_shortcuts::SystemShortcuts;
 use crate::logic::setting_changes::Offered;
+use crate::logic::startup::AppServices;
 use crate::logic::system_notifications::program_activation;
 use crate::state::deck::tabs::Tabs;
 use crate::state::phone_files::PhoneFiles;
@@ -284,9 +284,21 @@ pub(crate) fn first_sources() -> Vec<Source> {
     ]
 }
 
+/// The runtime the library reads sources, installs and loads apps on, and an inspector's starts
+/// run on: reqwest needs tokio.
+pub(crate) fn work() -> Result<Arc<Runtime>> {
+    let work = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(WORK_THREADS)
+        .thread_name("waos-library")
+        .enable_all()
+        .build()
+        .context("the library's runtime")?;
+    Ok(Arc::new(work))
+}
+
 /// The library over `sources`, opening apps with `services` where `programs_open` says, copying the
 /// packages handed without a path into `package_copies`, with WaOS's own preferences in
-/// `preferences`, where it keeps them, on a runtime of its own.
+/// `preferences`, where it keeps them, on `work`, made by [`work`].
 pub(crate) fn open_library(
     app: &mut App,
     sources: Sources,
@@ -294,16 +306,10 @@ pub(crate) fn open_library(
     package_copies: PackageCopies,
     programs_open: ProgramsOpen,
     preferences: Option<PreferencesFile>,
-) -> Result<Entity<Library>> {
-    let work = tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(WORK_THREADS)
-        .thread_name("waos-library")
-        .enable_all()
-        .build()
-        .context("the library's runtime")?;
-    let work = Arc::new(work);
+    work: Arc<Runtime>,
+) -> Entity<Library> {
     let preferences = preferences.map(KeptPreferences::of);
-    Ok(app.new_entity(|cx| {
+    app.new_entity(|cx| {
         Library::new(
             sources,
             services,
@@ -313,7 +319,7 @@ pub(crate) fn open_library(
             work,
             cx,
         )
-    }))
+    })
 }
 
 impl Library {
@@ -1413,6 +1419,7 @@ impl Library {
 
     /// The library's runtime, which reads, downloads and loads, for work of WaOS's that outlives
     /// whoever asked for it.
+    #[cfg(test)]
     pub(crate) fn runtime(&self) -> tokio::runtime::Handle {
         self.work.handle().clone()
     }

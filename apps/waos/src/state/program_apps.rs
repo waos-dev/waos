@@ -61,7 +61,6 @@ mod macos {
     use waos_window_messages::os::macos::SendRight;
 
     use super::ProgramPrompts;
-    use crate::logic::app_services::AppServices;
     use crate::logic::folders::AppFolders;
     use crate::logic::placement::WindowsOnRequest;
     use crate::logic::program_apps::{
@@ -70,6 +69,7 @@ mod macos {
         NotificationPermissions, ProgramApps, ToShow, WindowPresence,
     };
     use crate::logic::running_apps::RunningApps;
+    use crate::logic::startup::AppServices;
     use crate::os::LayerContext;
     use crate::state::app_nap_exemption::{self, AppNapExemption};
     use crate::state::desktop_host::with_macos;
