@@ -150,7 +150,7 @@ async fn a_file_dialog_whose_app_never_comes_fails_with_why() {
     launches.fail(0, "Launch Services: no app").await;
     launches.fail(1, "Launch Services: no app").await;
     printed
-        .line("open: failed (the program's app did not start: Launch Services: no app)")
+        .line("open: failed (the app's window process did not start: Launch Services: no app)")
         .await;
     launches.until(3).await;
     assert_eq!(

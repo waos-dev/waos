@@ -41,16 +41,37 @@ pub(crate) struct Served {
     pub(crate) window_presences: UnboundedReceiver<WindowPresence>,
 }
 
-/// The window process of `program`'s app, as WaOS serves it once it said hello.
+/// The window process of `program`'s app, as WaOS serves it once it said hello, `program` attached
+/// to it as the app's instance.
 pub(crate) fn window_process(program: RunningProgram) -> Served {
     let (notification_permissions, _readings) = NotificationPermissions::new();
     window_process_keeping(program, notification_permissions)
 }
 
-/// The same, what it says macOS said of the program's notifications kept in
+/// The same, what it says macOS said of the app's notifications kept in
 /// `notification_permissions`.
 pub(crate) fn window_process_keeping(
     program: RunningProgram,
+    notification_permissions: NotificationPermissions,
+) -> Served {
+    let app = program
+        .name()
+        .parse()
+        .expect("an app's instance runs under its id");
+    let served = window_process_of_keeping(app, notification_permissions);
+    served.process.attach(program);
+    served
+}
+
+/// The window process of the app `app`, as WaOS serves it once it said hello, no instance of the
+/// app attached to it.
+pub(crate) fn window_process_of(app: ProgramId) -> Served {
+    let (notification_permissions, _readings) = NotificationPermissions::new();
+    window_process_of_keeping(app, notification_permissions)
+}
+
+fn window_process_of_keeping(
+    app: ProgramId,
     notification_permissions: NotificationPermissions,
 ) -> Served {
     let (sent, arriving) = mpsc::unbounded();
@@ -61,7 +82,7 @@ pub(crate) fn window_process_keeping(
     let (dialog_reports, reported) = mpsc::unbounded();
     let (window_presences, presence) = mpsc::unbounded();
     let process = WindowProcess::new(
-        program,
+        app,
         send,
         Arc::new(canvases),
         dialog_reports,
@@ -857,7 +878,8 @@ async fn menus(app_menus: &AppMenus, printed: &Arc<Printed>) -> (RunningProgram,
             Path::new(waos_test_programs::MENUS),
             &waos_test_programs::code_of(waos_test_programs::MENUS),
         )
-        .expect("menus loads");
+        .expect("menus loads")
+        .named("dev.example.menus");
     let environment = ProgramEnvironment {
         output: Some(Arc::clone(printed) as Arc<dyn ProgramOutput>),
         ..ProgramEnvironment::default()

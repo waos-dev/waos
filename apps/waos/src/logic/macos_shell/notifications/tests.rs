@@ -364,7 +364,7 @@ async fn macos_permission_is_read_again_only_in_an_app_that_runs() {
     let program = notifications_through(&window_processes, &permissions, &store, &printed);
     launches.until(1).await;
     let in_apps = AppNotifications::new(Arc::clone(&window_processes), permissions.clone());
-    in_apps.read_system_permissions(std::slice::from_ref(&program));
+    in_apps.read_system_permissions();
     assert_eq!(
         launches.asked().len(),
         1,
@@ -380,7 +380,7 @@ async fn macos_permission_is_read_again_only_in_an_app_that_runs() {
         matches!(first, ToWindow::PostNotification { .. }),
         "the read asked while the app launched waited for nothing: {first:?}"
     );
-    in_apps.read_system_permissions(std::slice::from_ref(&program));
+    in_apps.read_system_permissions();
     let read = next(&mut sent).await;
     assert!(
         matches!(read, ToWindow::ReadNotificationPermission),
@@ -401,7 +401,7 @@ async fn a_notification_whose_app_never_comes_fails_with_why() {
     launches.fail(0, "Launch Services: no app").await;
     launches.fail(1, "Launch Services: no app").await;
     printed
-        .line("post greeting: failed (the program's app did not start: Launch Services: no app)")
+        .line("post greeting: failed (the app's window process did not start: Launch Services: no app)")
         .await;
     program.stop();
 }

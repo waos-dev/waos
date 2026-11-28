@@ -6,11 +6,13 @@ use futures::{FutureExt, StreamExt};
 use waos::{OpenRequest, ProgramEnd, ProgramEnvironment};
 use waos_headless::testing::Changes;
 use waos_window_messages::os::macos::{Arrival, ReceiveRight, SendRight};
-use waos_window_messages::{FromWindow, Hello, LaunchReason, PROTOCOL, ToWindow, decode, encode};
+use waos_window_messages::{
+    FromWindow, Hello, HostedLayers, LaunchReason, PROTOCOL, ToWindow, decode, encode,
+};
 
 use super::*;
 use crate::logic::macos_shell::CanvasCall;
-use crate::logic::macos_shell::window_process::tests::{Served, window_process};
+use crate::logic::macos_shell::window_process::tests::{Served, window_process, window_process_of};
 use crate::logic::test_engine;
 use crate::logic::test_engine::WITHIN;
 
@@ -35,12 +37,15 @@ struct AskedLaunch {
     answer: Option<oneshot::Sender<Result<LaunchedProcess, LaunchFailure>>>,
 }
 
-/// Window processes over stand-in bundles, listening under a name of the test's own, and the apps
-/// the user opens through them.
+/// Window processes over stand-in bundles, listening under a name of the test's own, the apps the
+/// user opens through them, and where what their prompts' dialogs report goes, as the main thread
+/// takes it and as a test reports it.
 pub(crate) struct Listening {
     pub(crate) window_processes: Arc<WindowProcesses>,
     pub(crate) name: String,
     pub(crate) user_opens: UnboundedReceiver<UserOpen>,
+    pub(crate) dialog_reports: UnboundedReceiver<DialogReport>,
+    pub(crate) report: DialogReports,
 }
 
 impl Launches {
@@ -63,12 +68,12 @@ impl Launches {
             .build()
             .expect("a runtime");
         let (canvases, _canvas_calls) = CanvasesOnRequest::new();
-        let (dialog_reports, _reported) = mpsc::unbounded();
+        let (report, dialog_reports) = mpsc::unbounded();
         let (notification_permissions, _readings) = NotificationPermissions::new();
         let (window_presences, _presences) = mpsc::unbounded();
         let routes = Routes {
             canvases: Arc::new(canvases),
-            dialog_reports,
+            dialog_reports: report.clone(),
             notification_permissions,
             window_presences,
         };
@@ -80,6 +85,8 @@ impl Launches {
             window_processes,
             name,
             user_opens,
+            dialog_reports,
+            report,
         }
     }
 
@@ -144,8 +151,8 @@ impl Bundles for AskedLaunches {
         Ok(())
     }
 
-    fn name(&self, program: &RunningProgram) -> String {
-        program.name().to_owned()
+    fn name(&self, app: &ProgramId) -> String {
+        app.to_string()
     }
 }
 
@@ -187,7 +194,7 @@ fn asked(
     window_processes: &WindowProcesses,
     program: &RunningProgram,
 ) -> impl Future<Output = ReachedApp> + use<> {
-    window_processes.of(program)
+    window_processes.of_instance(program)
 }
 
 #[tokio::test]
@@ -261,7 +268,7 @@ async fn an_app_that_never_comes_is_launched_once_more_then_fails_everything_tha
     let failed = waiting.await.err().expect("the app never came");
     assert_eq!(
         failed,
-        "the program's app did not start: Launch Services: no app"
+        "the app's window process did not start: Launch Services: no app"
     );
     let end = tokio::time::timeout(WITHIN, program.ended())
         .await
@@ -293,6 +300,7 @@ async fn a_hello_the_user_opened_waits_until_the_users_opens_are_read_and_is_ser
         window_processes,
         name,
         mut user_opens,
+        ..
     } = launches.listening();
     let program = survey_through(&window_processes);
     let window_process = ReceiveRight::new().unwrap();
@@ -333,4 +341,47 @@ async fn a_hello_the_user_opened_waits_until_the_users_opens_are_read_and_is_ser
         .await
         .expect("the run's window process is there");
     assert_eq!(served.err(), None, "the run opened is served by it");
+}
+
+/// What `sent` carries next, once it comes.
+async fn next_sent(sent: &mut UnboundedReceiver<ToWindow>) -> ToWindow {
+    tokio::time::timeout(WITHIN, sent.next())
+        .await
+        .expect("a message in time")
+        .expect("a message")
+}
+
+#[tokio::test]
+async fn a_question_for_an_app_with_no_instance_launches_its_window_process_and_is_shown_there() {
+    let launches = Launches::default();
+    let window_processes = launches.window_processes();
+    let layers = HostedLayers { context_id: 7 };
+    window_processes.show_prompt(&survey_id(), 1, [440.0, 320.0], layers);
+    launches.until(1).await;
+    assert_eq!(
+        launches.asked(),
+        [(survey_id(), LaunchAttempt::First)],
+        "the question launches the app's window process, by the app's id"
+    );
+
+    let Served {
+        process, mut sent, ..
+    } = window_process_of(survey_id());
+    said_hello(&window_processes, &survey_id(), &process);
+    let shown = next_sent(&mut sent).await;
+    assert!(
+        matches!(shown, ToWindow::ShowPrompt { prompt: 1, .. }),
+        "the question is shown there: {shown:?}"
+    );
+    assert!(process.instance().is_none(), "served with no instance");
+
+    window_processes.hide_prompt(&survey_id(), 1);
+    assert!(matches!(
+        next_sent(&mut sent).await,
+        ToWindow::HidePrompt { prompt: 1 }
+    ));
+    assert!(
+        matches!(next_sent(&mut sent).await, ToWindow::ProgramEnded),
+        "and it ends once it shows nothing more"
+    );
 }

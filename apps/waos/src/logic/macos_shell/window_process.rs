@@ -1,51 +1,54 @@
-//! One program's window process, as WaOS serves it once it said hello: each window the program asks
-//! for is opened there, once WaOS made the canvas its view shows (`canvases`), with where that
-//! canvas's layers are; each view shown there is added to the program, its hardware buffers
+//! One app's window process, as WaOS serves it once it said hello, and the app's instance attached
+//! to it once that first reaches it, never another after: each window the instance asks for is
+//! opened there, once WaOS made the canvas its view shows (`canvases`), with where that
+//! canvas's layers are; each view shown there is added to the instance, its hardware buffers
 //! presented to the canvas, in WaOS, and its calls handed back as `ViewCall`s; what the window
 //! reports of a view goes to the view, a new size placing the canvas at it, at once, or, where the
-//! window waits in the resize, with the program's picture at that size under the window's fence,
+//! window waits in the resize, with the instance's picture at that size under the window's fence,
 //! the window then hearing the picture is shown (`canvas_pictures`); a key's reply goes back once
-//! the program gives it; and when a window goes, its view and its canvas go with it, as every one
-//! does when the window process goes. The program's menu bar is shown there, the app's while it is
-//! in front, sent whole each time the program sets it and as the window process connects, and a
-//! choice in it goes back to the program by its id; its context menus open there at a point of a
-//! view shown there, each answering the program's call once it closes, or with none once the window
-//! process goes (`awaited_answers`). WaOS's prompts for the program are shown in dialogs there, and
+//! the instance gives it; and when a window goes, its view and its canvas go with it, as every one
+//! does when the window process goes. The instance's menu bar is shown there, the app's while it is
+//! in front, sent whole each time the instance sets it and as the window process connects, and a
+//! choice in it goes back to the instance by its id; its context menus open there at a point of a
+//! view shown there, each answering the instance's call once it closes, or with none once the window
+//! process goes (`awaited_answers`). WaOS's prompts for the app are shown in dialogs there, and
 //! what a dialog reports goes on to the main thread, where WaOS's view of the prompt is
 //! ([`DialogReport`]); when the window process goes, every dialog it showed is reported closed. The
-//! user's quitting the program's app asks the program, as WaOS's own Quit does, and the app hears
-//! its answer; a program that agrees is stopped, and its app ends with it. Its file dialogs open
-//! there, a sheet on the window showing the view the program names, or on their own where it names
-//! none or no window there shows it, each answering the program's call with the paths the user
+//! user's quitting the app asks the instance, as WaOS's own Quit does, and the window process
+//! hears its answer; an instance that agrees is stopped, and its window process ends with it. Its file dialogs open
+//! there, a sheet on the window showing the view the instance names, or on their own where it names
+//! none or no window there shows it, each answering the instance's call with the paths the user
 //! picked once it closes, which the engine mounts, or with why none were once the window process
 //! goes. Its notifications are posted, scheduled and removed there, under the app's bundle, each
-//! post answering the program's call once the system has it, or with why not once the window
-//! process goes, and what the user does to one there goes to the program. macOS's own question for
-//! them is put there too, answering what macOS says of the program's notifications then, or nothing
+//! post answering the instance's call once the system has it, or with why not once the window
+//! process goes, and what the user does to one there goes to the instance. macOS's own question for
+//! them is put there too, answering what macOS says of the app's notifications then, or nothing
 //! once the window process goes; macOS's permission for them is read there again when WaOS asks;
 //! and whatever the app says macOS said of them, as WaOS welcomed it, as the question is answered,
 //! as it comes to the front, as WaOS asks and as a post is answered, is kept for the engine, which
-//! reads it with the program's permission, and goes on to the main thread, where WaOS's settings
-//! page for the program says so ([`NotificationPermissions`]).
+//! reads it with the instance's permission, and goes on to the main thread, where WaOS's settings
+//! page for the app says so ([`NotificationPermissions`]).
 //!
 //! Everything WaOS keeps of the window process while it is there, its windows, its prompts'
 //! dialogs and what it was asked and owes an answer to, is one [`Connected`], taken whole as it
-//! goes.
+//! goes. A window process no instance attached to shows WaOS's prompts alone: what the window
+//! process says of an instance (a choice in the menu bar, files opened with the app, a click on a
+//! notification) goes nowhere then, and the user quitting the app is answered at once.
 //!
 //! The invariants a later editor will break: once the window process is gone nothing new is asked
-//! of it, and everything it owed is answered exactly once, a window the program asked for among
+//! of it, and everything it owed is answered exactly once, a window the instance asked for among
 //! it, since every ask is checked and kept under the one lock that taking `Connected` holds; and
 //! nothing here waits on the window process or on the main thread. A message is sent and the call
 //! returns, a canvas is made, placed and let go by a call to the main thread, a dialog's report and what macOS said are sent on to it, a key's reply
-//! is sent from the runtime the window process is served on, once the program answers, as the
+//! is sent from the runtime the window process is served on, once the instance answers, as the
 //! answer to a quit is, and the answer to a context menu, a file dialog, a notification's post or
-//! macOS's question resolves the program's call when it arrives.
+//! macOS's question resolves the instance's call when it arrives.
 
 use std::collections::{HashMap, HashSet};
 use std::future::ready;
 use std::path::PathBuf;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 use std::task::{Context, Poll};
 use std::time::SystemTime;
 
@@ -73,7 +76,6 @@ use super::awaited_answers::{APP_GONE, AppGone, AwaitedAnswer, AwaitedAnswers};
 use super::canvas_pictures::CanvasPictures;
 use super::canvases::{CanvasKey, CanvasesOnRequest};
 use super::file_dialogs::failed;
-use super::window_processes::app_id;
 use crate::logic::notification_permissions::NotificationPermissions;
 
 /// What sends messages to the window process, until WaOS closes it: nothing is sent after, and the
@@ -129,7 +131,9 @@ pub(crate) struct WindowPresence {
 pub(crate) type WindowPresences = UnboundedSender<WindowPresence>;
 
 pub(crate) struct WindowProcess {
-    program: RunningProgram,
+    app: ProgramId,
+    /// The app's instance it serves, once that reached it; never another after.
+    instance: OnceLock<RunningProgram>,
     send: SendToWindow,
     canvases: Arc<CanvasesOnRequest>,
     /// Where a key's reply is awaited.
@@ -200,12 +204,12 @@ struct AppWindow {
 }
 
 impl WindowProcess {
-    /// `program`'s window process, which `send` reaches, its views' canvases kept by `canvases`,
-    /// what its prompts' dialogs report sent to `dialog_reports`, what it says macOS said of the
-    /// program's notifications kept in `notification_permissions`, and whether each of its windows
-    /// is in sight to `window_presences`; key replies are awaited on `runtime`.
+    /// `app`'s window process, which `send` reaches, serving no instance yet, its views' canvases
+    /// kept by `canvases`, what its prompts' dialogs report sent to `dialog_reports`, what it says
+    /// macOS said of the app's notifications kept in `notification_permissions`, and whether each
+    /// of its windows is in sight to `window_presences`; key replies are awaited on `runtime`.
     pub(crate) fn new(
-        program: RunningProgram,
+        app: ProgramId,
         send: SendToWindow,
         canvases: Arc<CanvasesOnRequest>,
         dialog_reports: DialogReports,
@@ -214,7 +218,8 @@ impl WindowProcess {
         runtime: tokio::runtime::Handle,
     ) -> Arc<WindowProcess> {
         Arc::new(WindowProcess {
-            program,
+            app,
+            instance: OnceLock::new(),
             send,
             canvases,
             runtime,
@@ -257,18 +262,54 @@ impl WindowProcess {
         }
     }
 
-    pub(crate) fn program(&self) -> &RunningProgram {
-        &self.program
+    /// Whether a prompt is shown in a dialog there.
+    pub(crate) fn shows_prompts(&self) -> bool {
+        self.with_connected(|connected| !connected.prompts.is_empty()) == Some(true)
     }
 
-    /// Shows the program's menu bar in its app as the engine keeps it, the one the program set
-    /// last; nothing while it has set none, and the app shows the standard one.
+    /// The app it is the window process of.
+    pub(crate) fn app(&self) -> &ProgramId {
+        &self.app
+    }
+
+    /// The app's instance it serves, once that reached it.
+    pub(crate) fn instance(&self) -> Option<&RunningProgram> {
+        self.instance.get()
+    }
+
+    /// Whether it serves `program`.
+    pub(crate) fn serves(&self, program: &RunningProgram) -> bool {
+        self.instance() == Some(program)
+    }
+
+    /// `program`, the app's instance, reached it: it serves `program` from now on, unless it
+    /// serves another already.
+    pub(crate) fn attach(&self, program: RunningProgram) {
+        if let Err(program) = self.instance.set(program)
+            && !self.serves(&program)
+        {
+            tracing::warn!(app = %self.app, "a second instance reached the app's window process");
+        }
+    }
+
+    /// Hands `hear` the instance it serves; nothing where none reached it, which then has nothing
+    /// to hear.
+    fn to_instance(&self, hear: impl FnOnce(&RunningProgram)) {
+        match self.instance() {
+            Some(instance) => hear(instance),
+            None => tracing::info!(app = %self.app, "no instance of the app runs to hear it"),
+        }
+    }
+
+    /// Shows the instance's menu bar in its app as the engine keeps it, the one the instance set
+    /// last; nothing while it has set none, or none is attached, and the app shows the standard
+    /// one.
     pub(crate) fn show_menu_bar(&self) {
         let _sending = self
             .menu_bar_sending
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
-        if let Some(bar) = self.program.menu_bar() {
+        if let Some(bar) = self.instance().and_then(RunningProgram::menu_bar) {
             self.send.send(ToWindow::SetMenuBar(bar.to_vec()));
         }
     }
@@ -394,8 +435,9 @@ impl WindowProcess {
         let Some(connected) = kept.as_mut() else {
             drop(kept);
             self.canvases.remove(key);
-            self.program
-                .view_request_failed(request.id, ViewError::Failed(APP_GONE.to_owned()));
+            self.to_instance(|instance| {
+                instance.view_request_failed(request.id, ViewError::Failed(APP_GONE.to_owned()));
+            });
             return;
         };
         let pictures = CanvasPictures::new(
@@ -423,12 +465,13 @@ impl WindowProcess {
     /// No canvas could be made for the window `request` asks for, for `reason`: it fails.
     pub(crate) fn canvas_refused(&self, request: ViewRequest, reason: &str) {
         let error = ViewError::Failed(format!("WaOS could not keep the window's canvas: {reason}"));
-        self.program.view_request_failed(request.id, error);
+        self.to_instance(|instance| instance.view_request_failed(request.id, error));
     }
 
-    /// The program ended: the window process closes its windows and ends. Nothing is sent to one
-    /// already gone, as when the program ended because its app did.
-    pub(crate) fn program_ended(&self) {
+    /// WaOS ends the window process, its instance having ended or nothing being shown there: it
+    /// closes its windows and ends. Nothing is sent to one already gone, as when the instance
+    /// ended because its window process did.
+    pub(crate) fn end(&self) {
         if self.connected().is_some() {
             self.send.send(ToWindow::ProgramEnded);
         }
@@ -442,15 +485,15 @@ impl WindowProcess {
 
     /// Carries out what the window process sent, with the ports that came with it.
     pub(crate) fn received(&self, message: FromWindow, ports: Vec<SendRight>) {
-        tracing::trace!(program = self.program.name(), ?message);
+        tracing::trace!(app = %self.app, ?message);
         match message {
             FromWindow::Hello(_) => {
-                tracing::warn!(program = self.program.name(), "a second hello");
+                tracing::warn!(app = %self.app, "a second hello");
             }
             FromWindow::WindowOpened { window, opened } => self.add_view(window, opened),
             FromWindow::WindowRefused { window, error } => {
                 self.forget_window(window);
-                self.program.view_request_failed(window, error);
+                self.to_instance(|instance| instance.view_request_failed(window, error));
             }
             FromWindow::View {
                 window,
@@ -466,9 +509,11 @@ impl WindowProcess {
             }
             FromWindow::Key { window, key, event } => self.key(window, key, event),
             FromWindow::WindowClosed { window } => self.forget_window(window),
-            FromWindow::Opened(request) => self.program.open_requested(request),
+            FromWindow::Opened(request) => {
+                self.to_instance(|instance| instance.open_requested(request));
+            }
             FromWindow::Prompt { prompt, report } => self.dialog_reported(prompt, report),
-            FromWindow::MenuBarChosen(id) => self.program.menu_chosen(id),
+            FromWindow::MenuBarChosen(id) => self.to_instance(|instance| instance.menu_chosen(id)),
             FromWindow::ContextMenuClosed { menu, chosen } => {
                 self.with_connected(|connected| connected.context_menus.answered(menu, chosen));
             }
@@ -483,7 +528,7 @@ impl WindowProcess {
                 self.with_connected(|connected| connected.notifications.answered(post, posted));
             }
             FromWindow::NotificationActivated(activation) => {
-                self.program.notification_activated(activation);
+                self.to_instance(|instance| instance.notification_activated(activation));
             }
             FromWindow::NotificationPermission { state } => self.macos_said(state),
             FromWindow::NotificationPermissionAnswered { request, state } => {
@@ -495,19 +540,24 @@ impl WindowProcess {
         }
     }
 
-    /// The app said what macOS says of the program's notifications: kept, for the program's
-    /// permission to read, and for WaOS's settings page for the program to hear.
+    /// The app said what macOS says of its notifications: kept, for its instances' permission to
+    /// read, and for WaOS's settings page for the app to hear.
     fn macos_said(&self, state: SystemPermissionState) {
-        if let Ok(program) = app_id(&self.program) {
-            self.notification_permissions.said(program, state);
-        }
+        self.notification_permissions.said(self.app.clone(), state);
     }
 
-    /// The user quit the program's app: the program is asked, as WaOS's own Quit asks it, and the
-    /// app hears its answer; a program that agrees is stopped, and its app ends with it.
+    /// The user quit the app: its instance is asked, as WaOS's own Quit asks it, and the window
+    /// process hears its answer; an instance that agrees is stopped, and its window process ends
+    /// with it. One with no instance, showing WaOS's prompts alone, is answered at once that it may
+    /// quit.
     fn quit_requested(&self) {
-        let asked = self.program.request_exit();
-        let (send, program) = (self.send.clone(), self.program.clone());
+        let Some(program) = self.instance().cloned() else {
+            self.send
+                .send(ToWindow::QuitAnswered(AppExitResponse::Exit));
+            return;
+        };
+        let asked = program.request_exit();
+        let send = self.send.clone();
         self.runtime.spawn(async move {
             let response = asked.await;
             send.send(ToWindow::QuitAnswered(response));
@@ -539,8 +589,9 @@ impl WindowProcess {
             let opened = window.view.is_some();
             self.let_go(request, window);
             if !opened {
-                self.program
-                    .view_request_failed(request, ViewError::Failed(APP_GONE.to_owned()));
+                self.to_instance(|instance| {
+                    instance.view_request_failed(request, ViewError::Failed(APP_GONE.to_owned()));
+                });
             }
         }
         context_menus.app_gone();
@@ -568,14 +619,14 @@ impl WindowProcess {
     /// its size limits among them where the window said it has them; the window starts maximized
     /// or not, and with the system's setting for a double-click on a title bar, as it said.
     fn add_view(&self, window: RequestId, opened: OpenedWindow) {
-        let Some(pictures) = self.pictures_of(window) else {
+        let (Some(pictures), Some(instance)) = (self.pictures_of(window), self.instance()) else {
             tracing::warn!(window, "a window opened that WaOS did not ask for");
             return;
         };
         pictures.resize_at_once(opened.metrics, None);
         let send = self.send.clone();
         let calls = ViewCalls::new(move |call| send.send(ToWindow::View { window, call }));
-        let view = self.program.add_view(
+        let view = instance.add_view(
             window,
             PlacedView {
                 view: Arc::new(CanvasView::new(pictures, calls.clone())),
@@ -595,10 +646,10 @@ impl WindowProcess {
             },
         );
         tracing::info!(
-            program = self.program.name(),
+            app = %self.app,
             window,
             view = view.id(),
-            "a window was opened in the program's app"
+            "a window was opened in the app's window process"
         );
         self.with_connected(|connected| {
             if let Some(shown) = connected.windows.get_mut(&window) {
@@ -678,7 +729,7 @@ impl WindowProcess {
         gone.pictures.window_gone();
         self.canvases.remove(gone.key);
         if let Some(view) = gone.view {
-            self.program.remove_view(view.id());
+            self.to_instance(|instance| instance.remove_view(view.id()));
         }
     }
 
@@ -694,13 +745,10 @@ impl WindowProcess {
     }
 
     /// Tells the main thread whether the window `window` is in sight now, for the activity that
-    /// keeps macOS from throttling WaOS. A program with no id has no app, and no window here.
+    /// keeps macOS from throttling WaOS.
     fn tell_in_sight(&self, window: RequestId, in_sight: bool) {
-        let Ok(program) = app_id(&self.program) else {
-            return;
-        };
         let _ = self.window_presences.unbounded_send(WindowPresence {
-            program,
+            program: self.app.clone(),
             window,
             in_sight,
         });

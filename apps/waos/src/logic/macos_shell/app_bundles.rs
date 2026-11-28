@@ -19,7 +19,6 @@ use anyhow::{Context, Result};
 use futures::FutureExt;
 use futures::channel::oneshot;
 use futures::future::BoxFuture;
-use waos::RunningProgram;
 use waos_package::ProgramId;
 use waos_services::packages::PackageManager;
 use waos_window_messages::bundle::LAUNCHED_BY_WAOS;
@@ -27,7 +26,7 @@ use waos_window_messages::os::macos::AuditToken;
 
 use super::bundles::{BundleFiles, BundleFolders, KeptCodeHash, ProgramDescription, made_from};
 use super::window_processes::{Bundles, LaunchFailure, LaunchedProcess};
-use crate::logic::program_name::program_name;
+use crate::logic::program_name::name_of;
 use crate::os::{
     WaosFiles, code_hash_of_process, open_app, safe_storage_key, system_version, wait_for_exit,
 };
@@ -228,8 +227,8 @@ impl Bundles for AppBundles {
         Err("its code is not the app WaOS signed".to_owned())
     }
 
-    fn name(&self, program: &RunningProgram) -> String {
-        program_name(&self.packages, program)
+    fn name(&self, app: &ProgramId) -> String {
+        name_of(&self.packages, app.as_str())
     }
 }
 

@@ -67,7 +67,7 @@ impl AppNotifications {
     /// Puts macOS's question for `program`'s notifications in its app, launched for it if it does
     /// not run, and answers what macOS says then; what it said before where the app never came.
     fn request_from_macos(&self, program: &RunningProgram) -> SystemPermissionFuture {
-        let app = self.window_processes.of(program);
+        let app = self.window_processes.of_instance(program);
         let before = self.permission_state(program);
         Box::pin(async move {
             let answered = match app.await {
@@ -90,14 +90,11 @@ impl AppNotifications {
         }
     }
 
-    /// Has the app of each of `programs` that runs read macOS's permission for the program's
-    /// notifications again, telling it as it tells every reading; launches no app for it, since an
-    /// app reads it as WaOS welcomes it.
-    pub(crate) fn read_system_permissions(&self, programs: &[RunningProgram]) {
-        let running = programs
-            .iter()
-            .filter_map(|program| self.window_processes.running(program));
-        for app in running {
+    /// Has the window process of each app that runs one read macOS's permission for the app's
+    /// notifications again, telling it as it tells every reading; launches none for it, since a
+    /// window process reads it as WaOS welcomes it.
+    pub(crate) fn read_system_permissions(&self) {
+        for app in self.window_processes.all_running() {
             app.read_notification_permission();
         }
     }
@@ -110,7 +107,7 @@ impl AppNotifications {
         notification: &Notification,
         at: Option<SystemTime>,
     ) -> NotificationFuture {
-        let app = self.window_processes.of(program);
+        let app = self.window_processes.of_instance(program);
         let notification = notification.clone();
         Box::pin(async move {
             match app.await {
@@ -129,7 +126,7 @@ impl ShellNotifications for AppNotifications {
     fn remove(&self, program: &RunningProgram, id: &str) {
         let id = id.to_owned();
         self.window_processes
-            .with_app(program, move |app| match app {
+            .with_instance(program, move |app| match app {
                 Ok(app) => app.remove_notification(id),
                 Err(why) => tracing::warn!(why, "a notification is left as it is"),
             });

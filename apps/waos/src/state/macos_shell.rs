@@ -47,7 +47,6 @@ use crate::logic::macos_shell::{
 };
 use crate::logic::noted_file_dialogs::NotedFileDialogs;
 use crate::logic::program_places::{PlacedWhereOpened, ProgramPlaces, TabsOnRequest};
-use crate::logic::running_apps::RunningApps;
 use crate::logic::startup::BeforeTheEngine;
 use crate::os::LayerContext;
 use crate::state::app_nap_exemption::{self, AppNapExemption};
@@ -144,14 +143,13 @@ impl MacosShell {
         }
     }
 
-    /// From now on, what macOS says of an app's notifications goes to `library`, and every app
-    /// running in `running` has its window process read it again each time WaOS comes to the
-    /// front; answers where the apps' prompts are shown: in dialogs of their window processes,
-    /// launched for a prompt when they do not run, or by `own_windows` where there are none.
+    /// From now on, what macOS says of an app's notifications goes to `library`, and every app's
+    /// window process that runs reads it again each time WaOS comes to the front; answers where
+    /// the apps' prompts are shown: in dialogs of their window processes, launched for a prompt
+    /// when they do not run, or by `own_windows` where there are none.
     pub(crate) fn follow(
         self,
         app: &mut App,
-        running: &Arc<RunningApps>,
         library: &Entity<Library>,
         own_windows: Rc<PromptWindows>,
     ) -> ProgramPrompts {
@@ -171,7 +169,7 @@ impl MacosShell {
         });
         tell_system_permissions(app, library, notification_permission_readings);
         if let Some(notifications) = notifications {
-            read_system_permissions_at_the_front(app, notifications, Arc::clone(running));
+            read_system_permissions_at_the_front(app, notifications);
         }
         prompts_in_apps(app, &window_processes, dialog_reports, own_windows)
     }
@@ -260,21 +258,12 @@ fn tell_system_permissions(
     });
 }
 
-/// From now on, each time WaOS comes to the front, the app of every program running in `runs`
-/// reads macOS's permission for its notifications again, through `notifications`: macOS says
-/// nothing when the user changes it in System Settings, and a user WaOS's settings page sent
-/// there comes back to WaOS, not to the program's app.
-fn read_system_permissions_at_the_front(
-    app: &mut App,
-    notifications: Arc<AppNotifications>,
-    runs: Arc<RunningApps>,
-) {
-    let read_again = move |app: &mut App| {
-        let (notifications, runs) = (Arc::clone(&notifications), Arc::clone(&runs));
-        app.spawn(async move |_cx| {
-            notifications.read_system_permissions(&runs.programs().await);
-        });
-    };
+/// From now on, each time WaOS comes to the front, every app's window process that runs reads
+/// macOS's permission for its notifications again, through `notifications`: macOS says nothing
+/// when the user changes it in System Settings, and a user WaOS's settings page sent there comes
+/// back to WaOS, not to the app's window process.
+fn read_system_permissions_at_the_front(app: &mut App, notifications: Arc<AppNotifications>) {
+    let read_again = move |_app: &mut App| notifications.read_system_permissions();
     AppLifecycleListener::new(app).on_resume(app, Rc::new(read_again));
 }
 
@@ -372,7 +361,7 @@ impl KeptCanvases {
                         context_id: kept.context.id(),
                     };
                     tracing::info!(
-                        program = process.program().name(),
+                        app = %process.app(),
                         window = request.id,
                         context = layers.context_id,
                         "a view's canvas is kept in a layer context for its app's window"

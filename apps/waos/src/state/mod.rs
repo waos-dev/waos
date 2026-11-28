@@ -356,7 +356,7 @@ pub(crate) fn start(
         system_shell.opened_by_the_user(),
     ));
     #[cfg(target_os = "macos")]
-    let prompts = system_shell.follow(app, &running, &library, Rc::clone(&prompt_windows));
+    let prompts = system_shell.follow(app, &library, Rc::clone(&prompt_windows));
     #[cfg(not(target_os = "macos"))]
     let prompts = program_apps::follow(program_apps, Rc::clone(&prompt_windows));
     Questions::listen(app, prompted.questions, prompts.placement, packages);

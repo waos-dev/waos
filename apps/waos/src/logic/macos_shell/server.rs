@@ -2,11 +2,11 @@
 //! `MachBootstrapAcceptor` are the browser's: the bootstrap name of WaOS's data folder, checked in
 //! while WaOS serves window processes, which every window process's hello arrives on, with its own
 //! port; each hello answered `Welcome` with a port of the connection's once the window process is
-//! found to be its app's and the run it serves is known, or `Refused` with why, and what it carried
-//! handed to the run; and each connection's messages carried out on a thread of its own until the
+//! found to be its app's and, where it was opened by the user, the instance it serves is known, or
+//! `Refused` with why, and what it carried handed to that instance; and each connection's messages carried out on a thread of its own until the
 //! window process is gone. A hello the user's open sent, from the Dock or a notification's click,
-//! waits for the run that open answers, and the hellos after it wait behind it: one is taken at a
-//! time.
+//! waits for the instance that open answers, and the hellos after it wait behind it: one is taken
+//! at a time.
 //!
 //! The invariants: a hello's sender is known by the audit token the kernel wrote on its message,
 //! never by what the hello says, and nothing is welcomed, nor opened for the user, before its code
@@ -132,34 +132,42 @@ impl Hellos {
             Ok(message) => return tracing::warn!(?message, "a message before any hello"),
             Err(error) => return refuse(&app, &format!("a hello this WaOS cannot read: {error}")),
         };
-        tracing::info!(?hello, pid = sender.pid(), "a program's app said hello");
+        tracing::info!(
+            ?hello,
+            pid = sender.pid(),
+            "an app's window process said hello"
+        );
         let found = Arc::clone(&self.bundles)
             .check(&hello.program, &sender)
-            .and_then(|()| self.program_for(&hello));
+            .and_then(|()| self.instance_for(&hello));
         match found {
-            Ok(program) => {
-                if let Err(error) = self.serve(hello, program, app) {
-                    tracing::warn!(%error, "the program's app could not be served");
+            Ok(instance) => {
+                if let Err(error) = self.serve(hello, instance, app) {
+                    tracing::warn!(%error, "the app's window process could not be served");
                 }
             }
             Err(reason) => refuse(&app, &reason),
         }
     }
 
-    /// The run a checked hello's window process serves: the one WaOS launched it for, or, for a
-    /// window process the user opened or a click on one of its app's notifications launched, the
-    /// run opening it answers.
-    fn program_for(&self, hello: &Hello) -> Result<RunningProgram, String> {
+    /// The instance a checked hello's window process serves from its hello on: none for one WaOS
+    /// launched, which the instance that asked for it attaches to, if one did; for a window process
+    /// the user opened or a click on one of its app's notifications launched, the instance opening
+    /// it answers.
+    fn instance_for(&self, hello: &Hello) -> Result<Option<RunningProgram>, String> {
         match &hello.launched_for {
-            LaunchReason::ProgramRunning => (self.table.launching(&hello.program))
-                .ok_or_else(|| "WaOS launched no app for it".to_owned()),
+            LaunchReason::ProgramRunning if self.table.launching(&hello.program) => Ok(None),
+            LaunchReason::ProgramRunning => {
+                Err("WaOS launched no window process for it".to_owned())
+            }
             LaunchReason::UserOpened | LaunchReason::NotificationActivated(_) => {
-                self.opened_by_the_user(&hello.program)
+                self.opened_by_the_user(&hello.program).map(Some)
             }
         }
     }
 
-    /// The run the user's open of `app` answers, once it does; the hellos after this one wait.
+    /// The instance the user's open of `app` answers, once it does; the hellos after this one
+    /// wait.
     fn opened_by_the_user(&self, app: &ProgramId) -> Result<RunningProgram, String> {
         let (opened, answered) = oneshot::channel();
         let open = UserOpen {
@@ -173,10 +181,15 @@ impl Hellos {
             .unwrap_or_else(|_| Err("WaOS did not open it".to_owned()))
     }
 
-    /// Welcomes the window process `app` with a port of the connection's, serves it as
-    /// `program`'s, hands the program what the hello carried, and carries out what the window
-    /// process sends on a thread of its own.
-    fn serve(&self, hello: Hello, program: RunningProgram, app: SendRight) -> io::Result<()> {
+    /// Welcomes the window process `app` with a port of the connection's, serves it as its app's,
+    /// `instance` attached where the hello came of opening it, hands the instance what the hello
+    /// carried, and carries out what the window process sends on a thread of its own.
+    fn serve(
+        &self,
+        hello: Hello,
+        instance: Option<RunningProgram>,
+        app: SendRight,
+    ) -> io::Result<()> {
         let Hello {
             program: id,
             launched_for,
@@ -184,18 +197,20 @@ impl Hellos {
         } = hello;
         let connection = ReceiveRight::new()?;
         let welcome = Welcome {
-            name: self.bundles.name(&program),
+            name: self.bundles.name(&id),
         };
         let give = connection.make_send()?;
         connection.notify_when_no_senders()?;
         app.send(PROTOCOL, &encode(&ToWindow::Welcome(welcome)), vec![give])?;
         let send = SendToWindow::new(move |message| {
             if let Err(error) = app.send(PROTOCOL, &encode(&message), Vec::new()) {
-                tracing::warn!(%error, ?message, "the program's app did not take a message");
+                tracing::warn!(%error, ?message, "the app's window process did not take a message");
             }
         });
-        let process = self.table.connect(&id, program.clone(), send);
-        deliver_hello(&program, launched_for, opened);
+        let process = self.table.connect(&id, instance.clone(), send);
+        if let Some(instance) = &instance {
+            deliver_hello(instance, launched_for, opened);
+        }
         let table = Arc::clone(&self.table);
         thread::Builder::new()
             .name(format!("waos-app {id}"))

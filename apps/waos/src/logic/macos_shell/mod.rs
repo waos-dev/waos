@@ -1,11 +1,13 @@
-//! macOS's parts of WaOS's shell, as Chrome's app shims are the browser's: each running app's
-//! windows open in a window process of its own, launched from the app's bundle (`app_bundles`,
-//! `bundles`) through Launch Services, and served by WaOS once it said hello over Mach (`server`,
-//! `window_process`), at most one per app (`window_processes`); what each view shows stays in
+//! macOS's parts of WaOS's shell, as Chrome's app shims are the browser's: each app's windows open
+//! in a window process of its own, which belongs to the app, launched from the app's bundle by the
+//! app's id (`app_bundles`, `bundles`) through Launch Services, and served by WaOS once it said
+//! hello over Mach (`server`, `window_process`), at most one per app, the app's instance attaching
+//! to it as it first reaches it (`window_processes`); what each view shows stays in
 //! WaOS, on a canvas WaOS keeps in a layer context the window shows (`canvases`), a window's new
 //! size showing only with the app's picture at it, which the window waits for inside the resize
 //! (`canvas_pictures`); and so do WaOS's prompts for the app, which its window process shows in
-//! dialogs of their own, reporting back what each dialog does. The app's menu bar and its context
+//! dialogs of their own, reporting back what each dialog does, whether or not an instance of the
+//! app runs. The app's menu bar and its context
 //! menus are its window process's too, macOS showing the bar of the app in front: the bar is sent
 //! whole each time the app sets it while its window process runs, and as it connects; a context
 //! menu opens there and is answered once it closes, or with none once the window process goes or
@@ -22,7 +24,7 @@
 //! A window process the user opens alone, from the Dock or the Finder, finds WaOS, or starts it,
 //! and says hello; WaOS opens its app as the user's open (`system_shell::UserOpen`), and so it
 //! does for one macOS launched for a click on one of the app's notifications, which the hello
-//! carries and the app then hears. Every hello is checked: the process that sent it must be the
+//! carries and the app's instance then hears. Every hello is checked: the process that sent it must be the
 //! app's bundle as WaOS signed it, by the code hash WaOS kept, which the record's HMAC must vouch
 //! for first.
 //!
@@ -66,13 +68,13 @@ pub(crate) use app_bundles::{AppBundles, AppsFolders};
 pub(crate) use canvas_pictures::{CanvasPictures, ToShow};
 pub(crate) use canvases::{CanvasCall, CanvasKey, CanvasPlace, CanvasesOnRequest};
 pub(crate) use notifications::AppNotifications;
-pub(crate) use window_process::{DialogReport, WindowPresence, WindowProcess};
-pub(crate) use window_processes::{ReachedApp, Routes, WindowProcesses};
+pub(crate) use window_process::{DialogReport, WindowPresence};
+pub(crate) use window_processes::{Routes, WindowProcesses};
 #[cfg(test)]
 pub(crate) use {
     window_process::tests::{Compositing, Served, window_process},
     window_processes::LaunchAttempt,
-    window_processes::tests::{Launches, said_hello},
+    window_processes::tests::{Launches, Listening, said_hello},
 };
 
 /// How many threads launch the window processes and wait for the apps' answers.

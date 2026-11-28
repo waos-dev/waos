@@ -12,7 +12,7 @@ use waos_window_messages::ToWindow;
 
 use super::*;
 use crate::logic::macos_shell::{
-    Compositing, LaunchAttempt, Launches, Served, said_hello, window_process,
+    Compositing, LaunchAttempt, Launches, Listening, Served, said_hello, window_process,
 };
 use crate::logic::test_engine::{self, NoWindows};
 
@@ -50,7 +50,13 @@ struct Prompting {
 }
 
 impl Prompting {
-    fn new(window_processes: &Arc<WindowProcesses>) -> Prompting {
+    fn new(listening: Listening) -> Prompting {
+        let Listening {
+            window_processes,
+            dialog_reports: reported,
+            report: reports,
+            ..
+        } = listening;
         let windows = Rc::new(TestWindows::new());
         let platform = Rc::new(
             TestPlatform::new()
@@ -58,8 +64,7 @@ impl Prompting {
                 .with_windows(Rc::clone(&windows)),
         );
         let made = Rc::new(RefCell::new(None));
-        let (kept, window_processes) = (Rc::clone(&made), Arc::clone(window_processes));
-        let (reports, reported) = mpsc::unbounded();
+        let kept = Rc::clone(&made);
         let shell = Shell::new(Rc::clone(&platform) as PlatformRef, move |app| {
             let compositor = app.platform().compositor().expect("a compositor");
             *kept.borrow_mut() = Some(PromptDialogs::new(
@@ -105,10 +110,11 @@ fn a_prompt_of_a_program_with_no_app_launches_the_app_and_shows_there_not_in_wao
     let runtime = tokio::runtime::Runtime::new().unwrap();
     let _within = runtime.enter();
     let launches = Launches::default();
-    let window_processes = launches.window_processes();
+    let listening = launches.listening();
+    let window_processes = Arc::clone(&listening.window_processes);
     let engine = test_engine::engine(Arc::new(NoWindows));
     let program = forever(&engine);
-    let prompting = Prompting::new(&window_processes);
+    let prompting = Prompting::new(listening);
 
     let dismissed = Rc::new(Cell::new(false));
     let _shown = prompting.show(&program, &dismissed);
@@ -148,10 +154,11 @@ fn a_prompts_view_arrives_as_every_view_and_is_built_from_the_data_naming_the_pr
     let runtime = tokio::runtime::Runtime::new().unwrap();
     let _within = runtime.enter();
     let launches = Launches::default();
-    let window_processes = launches.window_processes();
+    let listening = launches.listening();
+    let window_processes = Arc::clone(&listening.window_processes);
     let engine = test_engine::engine(Arc::new(NoWindows));
     let program = forever(&engine);
-    let mut prompting = Prompting::new(&window_processes);
+    let mut prompting = Prompting::new(listening);
     let dismissed = Rc::new(Cell::new(false));
     let _shown = prompting.show(&program, &dismissed);
     let Served { process, .. } = window_process(program.clone());
@@ -204,10 +211,9 @@ fn a_prompt_whose_app_never_comes_is_put_away_unanswered() {
     let runtime = tokio::runtime::Runtime::new().unwrap();
     let _within = runtime.enter();
     let launches = Launches::default();
-    let window_processes = launches.window_processes();
     let engine = test_engine::engine(Arc::new(NoWindows));
     let program = forever(&engine);
-    let prompting = Prompting::new(&window_processes);
+    let prompting = Prompting::new(launches.listening());
 
     let dismissed = Rc::new(Cell::new(false));
     let _shown = prompting.show(&program, &dismissed);

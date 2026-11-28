@@ -87,7 +87,7 @@ fn open_in_app(
     kind: FileDialog,
 ) -> FileDialogFuture<Vec<PathBuf>> {
     let_come_forward(program);
-    let app = window_processes.of(program);
+    let app = window_processes.of_instance(program);
     Box::pin(async move {
         match app.await {
             Ok(app) => app.open_file_dialog(parent, kind).await,
