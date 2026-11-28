@@ -721,7 +721,7 @@ fn the_camera_is_simulated_for_every_program_in_the_launcher() {
     pick(&mut desktop, view, words::ASK, words::SIMULATED);
     let global = desktop.permissions.global_settings().unwrap();
     assert_eq!(global.answers.camera, Some(Answer::Simulated));
-    let detail = if crate::state::SIMULATED_CAMERA {
+    let detail = if crate::system_shell::SIMULATED_CAMERA {
         words::SIMULATED_CAMERA_DETAIL
     } else {
         words::NO_SIMULATED_CAMERA

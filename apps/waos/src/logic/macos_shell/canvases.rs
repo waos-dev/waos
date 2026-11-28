@@ -5,7 +5,7 @@
 //! size the window reports, at once where nothing waits, or with the program's picture at that
 //! size under the window's fence where the window waits in its resize for it (`canvas_pictures`),
 //! and let go once its window is gone. Each of those is a call on its way to the main thread
-//! (`state::program_apps`), where Core Animation's contexts and Waft's placing are.
+//! (`state::macos_shell`), where Core Animation's contexts and Waft's placing are.
 //!
 //! The invariant: a canvas's calls reach the main thread in the order made, its making first and
 //! its removal last.

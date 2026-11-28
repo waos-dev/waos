@@ -1,4 +1,4 @@
-//! Each installed program's entry where the system lists its apps, on Windows and Linux: a Start
+//! Each installed app's entry where the system lists its apps, on Windows and Linux: a Start
 //! menu shortcut on Windows (`start_menu`), a desktop entry on Linux (`desktop_entries`), each
 //! under the program's identity (`logic::program_identities`) and starting `waos open --program
 //! <id>`. It is what finds the program by its name, what its pin is, and on GNOME what its windows
@@ -168,24 +168,27 @@ struct KeptEntry {
 }
 
 impl ProgramEntries {
-    /// The entries of this system's own kind, among `folders`, starting the WaOS `identities`
-    /// names: Start menu shortcuts on Windows, desktop entries on Linux.
+    /// From now on, the entries `system` writes, among `folders`, match the apps `packages` has
+    /// installed, now and at each change it announces; none where WaOS cannot say where it is,
+    /// which its entries would start, and a failure to follow is said.
     #[cfg(any(windows, target_os = "linux"))]
-    pub(crate) fn of_this_system(folders: &AppFolders, identities: Identities) -> ProgramEntries {
-        #[cfg(windows)]
-        let system = start_menu::StartMenu {
-            folder: folders.start_menu.clone(),
+    pub(crate) fn follow_installed(
+        system: Box<dyn SystemEntries>,
+        folders: &AppFolders,
+        packages: &Arc<PackageManager>,
+    ) {
+        let Some(identities) = Identities::of_this_waos(folders.program_icons.clone()) else {
+            return;
         };
-        #[cfg(target_os = "linux")]
-        let system = desktop_entries::DesktopEntries {
-            applications: folders.applications.clone(),
-        };
-        ProgramEntries::open(Box::new(system), identities, &folders.data)
+        let entries = ProgramEntries::open(system, identities, &folders.data);
+        if let Err(error) = entries.follow(Arc::clone(packages)) {
+            tracing::warn!(%error, "the apps' entries do not follow the store");
+        }
     }
 
     /// From now on, the entries match the installed programs of `packages`, on a thread of their
     /// own: now, and again at each change the package manager announces.
-    pub(crate) fn follow(self, packages: Arc<PackageManager>) -> io::Result<()> {
+    fn follow(self, packages: Arc<PackageManager>) -> io::Result<()> {
         std::thread::Builder::new()
             .name("waos-program-entries".to_owned())
             .spawn(move || self.keep_matching(&packages))?;

@@ -13,7 +13,7 @@
 //! WaOS asks and as a post is answered, is kept (`notification_permissions`) and told to WaOS's
 //! settings page for the program, which says so and sends the user to System Settings, since macOS
 //! asks only once. WaOS asks each app that runs to read it again as WaOS comes to the front
-//! (`state::program_apps`), since a user the page sent to System Settings comes back to WaOS, not
+//! (`state::macos_shell`), since a user the page sent to System Settings comes back to WaOS, not
 //! to the program's app; an app that does not run is not launched for it. What the user does to one
 //! comes back from the window process to the program, and a click that launched the app comes with
 //! its hello (`server`).

@@ -20,12 +20,8 @@ use waos_dev_protocol::{OpenAnswer, Refusal, RefusalKind, ServerConnection};
 use waos_package::ProgramId;
 use waos_services::packages::PackageManager;
 
-#[cfg(target_os = "macos")]
-use super::app_instances::OpenPlace;
-use super::app_instances::{AppInstances, OpenConfiguration, OpenedFor};
-#[cfg(target_os = "macos")]
+use super::app_instances::{AppInstances, OpenConfiguration, OpenPlace, OpenedFor};
 use super::program_places::ProgramPlace;
-#[cfg(target_os = "macos")]
 use crate::system_shell::UserOpen;
 
 /// Hands `request` to the app `id`: its instance running, or else the installed app, opened
@@ -81,7 +77,6 @@ pub(crate) async fn program_named(
 /// Opens each app the user opened through the system among `instances`, as the library opens one
 /// the user opens there, in a window, the one running left as it is; answers each open with the
 /// instance, or why there is none. Ends with `opens`.
-#[cfg(target_os = "macos")]
 pub(crate) async fn open_each(
     instances: Arc<AppInstances>,
     mut opens: futures::stream::BoxStream<'static, UserOpen>,

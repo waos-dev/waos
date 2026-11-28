@@ -30,14 +30,13 @@ use futures::stream::{self, BoxStream};
 use waft::ui::CompositionLayer;
 use waft::{App, AppLifecycleListener, Entity};
 use waos::{
-    Shell, ShellContextMenus, ShellFileDialogs, ShellMenuBar, ShellNotifications,
-    ShellSystemPermissions, ViewPlacement, ViewRequest,
+    Shell, ShellCameras, ShellContextMenus, ShellFileDialogs, ShellImageCodecs, ShellMenuBar,
+    ShellNotifications, ShellSystemPermissions, ViewPlacement, ViewRequest,
 };
 use waos_program_window::{CanvasLayer, PromptWindows};
 use waos_window_messages::HostedLayers;
 use waos_window_messages::os::macos::SendRight;
 
-use super::program_apps::ProgramPrompts;
 use crate::logic::asking_now::AskingNow;
 use crate::logic::folders::AppFolders;
 use crate::logic::macos_shell::{
@@ -46,20 +45,22 @@ use crate::logic::macos_shell::{
     NotificationPermissions, Routes, ToShow, WindowProcesses,
 };
 use crate::logic::noted_file_dialogs::NotedFileDialogs;
+use crate::logic::program_identities::Identities;
 use crate::logic::program_places::{PlacedWhereOpened, ProgramPlaces, TabsOnRequest};
+use crate::logic::simulated_cameras::SimulatedCameras;
 use crate::logic::startup::BeforeTheEngine;
 use crate::os::LayerContext;
 use crate::state::app_nap_exemption::{self, AppNapExemption};
 use crate::state::desktop_host::with_macos;
 use crate::state::library::Library;
 use crate::state::prompt_dialogs::PromptDialogs;
-use crate::system_shell::{SystemShell, UserOpen};
+use crate::system_shell::{AfterTheEngine, AppPrompts, SharedParts, SystemShell, UserOpen};
 use crate::ui::every_window::ViewContent;
 
 /// WaOS on macOS: its apps' window processes, or why there can be none, and what reaches the parts
 /// of WaOS made after the engine, the library and WaOS's prompts.
 pub(crate) struct MacosShell {
-    /// The parts of the engine's shell every desktop has, Waft's and WaOS's own.
+    /// The parts of the engine's shell every system has, Waft's and WaOS's own.
     shared: Shell,
     /// Where the apps' views go, a tab or a window, as each was opened.
     places: ProgramPlaces,
@@ -82,20 +83,37 @@ pub(crate) struct MacosShell {
 }
 
 impl MacosShell {
+    /// Where the views of the apps go: a tab or `windows`, as each was opened.
+    fn placed_where_opened(&self, windows: Arc<dyn ViewPlacement>) -> Arc<dyn ViewPlacement> {
+        Arc::new(PlacedWhereOpened {
+            places: self.places.clone(),
+            tabs: self.tabs.clone(),
+            windows,
+        })
+    }
+}
+
+impl SystemShell for MacosShell {
+    const SIMULATED_CAMERA: bool = true;
+    const APPS_OPEN_AS_CHOSEN: bool = false;
+
     /// WaOS on macOS: the window processes of the apps `before`'s package manager installs, each
     /// lasting while its app's instance runs, as `before` tells, their bundles among `folders`,
-    /// their views placed as `before`'s places say, in `tabs` or in their
-    /// window processes, their file dialogs noted in `asking`, their canvases kept on `app`'s main
+    /// their views placed as `before`'s places say, in `shared`'s tabs or in their
+    /// window processes, their file dialogs noted in `shared`'s asking, their canvases kept on `app`'s main
     /// thread and whether each of their windows is in sight telling the activity macOS must not
-    /// throttle WaOS under from now on; the rest of the engine's shell is `shared`.
-    pub(crate) fn new(
+    /// throttle WaOS under from now on; the rest of the engine's shell is `shared`'s.
+    fn new(
         app: &mut App,
         folders: &AppFolders,
         before: &BeforeTheEngine<'_>,
-        tabs: TabsOnRequest,
-        asking: Arc<AskingNow>,
-        shared: Shell,
+        shared: SharedParts,
     ) -> MacosShell {
+        let SharedParts {
+            shell: shared,
+            tabs,
+            asking,
+        } = shared;
         let (canvases, canvas_calls) = CanvasesOnRequest::new();
         keep_canvases(app, canvas_calls);
         let (window_presences, presences) = mpsc::unbounded();
@@ -148,54 +166,17 @@ impl MacosShell {
         }
     }
 
-    /// From now on, what macOS says of an app's notifications goes to `library`, and every app's
-    /// window process that runs reads it again each time WaOS comes to the front; answers where
-    /// the apps' prompts are shown: in dialogs of their window processes, launched for a prompt
-    /// when they do not run, or by `own_windows` where there are none.
-    pub(crate) fn follow(
-        self,
-        app: &mut App,
-        library: &Entity<Library>,
-        own_windows: Rc<PromptWindows>,
-    ) -> ProgramPrompts {
-        let MacosShell {
-            window_processes,
-            notifications,
-            dialog_reports,
-            notification_permissions,
-            notification_permission_readings,
-            ..
-        } = self;
-        let Ok(window_processes) = window_processes else {
-            return in_own_windows(own_windows);
-        };
-        library.update(app, |library, _| {
-            library.read_notification_permissions(notification_permissions)
-        });
-        tell_system_permissions(app, library, notification_permission_readings);
-        if let Some(notifications) = notifications {
-            read_system_permissions_at_the_front(app, notifications);
-        }
-        prompts_in_apps(app, &window_processes, dialog_reports, own_windows)
+    /// None: an app's windows are its window process's, which has its bundle's identity.
+    fn identities(_folders: &AppFolders) -> Option<Identities> {
+        None
     }
 
-    /// The activity macOS must not throttle WaOS under, for what else keeps it: the apps that
-    /// compile and start.
-    pub(crate) fn app_nap_exemption(&self) -> Entity<AppNapExemption> {
-        self.app_nap_exemption.clone()
+    fn simulated_cameras(
+        codecs: Option<Arc<dyn ShellImageCodecs>>,
+    ) -> Option<Arc<dyn ShellCameras>> {
+        Some(Arc::new(SimulatedCameras::new(codecs)))
     }
 
-    /// Where the views of the apps go: a tab or `windows`, as each was opened.
-    fn placed_where_opened(&self, windows: Arc<dyn ViewPlacement>) -> Arc<dyn ViewPlacement> {
-        Arc::new(PlacedWhereOpened {
-            places: self.places.clone(),
-            tabs: self.tabs.clone(),
-            windows,
-        })
-    }
-}
-
-impl SystemShell for MacosShell {
     /// The engine's shell on macOS: an app's windows, menu bar, context menus and file dialogs
     /// are its window process's, its notifications posted there under its bundle, and macOS's
     /// permission for them read there; where there can be no window processes, every window an
@@ -240,6 +221,43 @@ impl SystemShell for MacosShell {
             None => stream::empty().boxed(),
         }
     }
+
+    /// From now on, the activity macOS must not throttle WaOS under is held while `after`'s
+    /// package manager installs or optimizes an app and while an app is opened, what macOS says
+    /// of an app's notifications goes to `after`'s library, and every app's window process that
+    /// runs reads it again each time WaOS comes to the front; answers where the apps' prompts are
+    /// shown: in dialogs of their window processes, launched for a prompt when they do not run, or
+    /// in WaOS's own windows where there are none.
+    fn follow(self, app: &mut App, after: AfterTheEngine<'_>) -> AppPrompts {
+        let AfterTheEngine {
+            library,
+            instances,
+            packages,
+            prompt_windows: own_windows,
+        } = after;
+        let MacosShell {
+            window_processes,
+            notifications,
+            dialog_reports,
+            notification_permissions,
+            notification_permission_readings,
+            app_nap_exemption,
+            ..
+        } = self;
+        app_nap_exemption::follow_sessions(app, app_nap_exemption.clone(), packages.sessions());
+        app_nap_exemption::follow_starts(app, app_nap_exemption, instances.opening());
+        let Ok(window_processes) = window_processes else {
+            return AppPrompts::in_own_windows(own_windows);
+        };
+        library.update(app, |library, _| {
+            library.read_notification_permissions(notification_permissions)
+        });
+        tell_system_permissions(app, library, notification_permission_readings);
+        if let Some(notifications) = notifications {
+            read_system_permissions_at_the_front(app, notifications);
+        }
+        prompts_in_apps(app, &window_processes, dialog_reports, own_windows)
+    }
 }
 
 /// Tells `library` each thing macOS says of a program's notifications, in order, on the main
@@ -280,25 +298,16 @@ fn prompts_in_apps(
     window_processes: &Arc<WindowProcesses>,
     reports: UnboundedReceiver<DialogReport>,
     own_windows: Rc<PromptWindows>,
-) -> ProgramPrompts {
+) -> AppPrompts {
     let Some(compositor) = app.platform().compositor() else {
-        return in_own_windows(own_windows);
+        return AppPrompts::in_own_windows(own_windows);
     };
     let dialogs = PromptDialogs::new(app, Arc::clone(window_processes), compositor, reports);
     let shown = dialogs.shown();
     let views: ViewContent = Rc::new(move |app, view| shown.read(app).content_of(view));
-    ProgramPrompts {
+    AppPrompts {
         placement: Rc::new(dialogs),
         views: Some(views),
-    }
-}
-
-/// The programs' prompts in WaOS's own windows, by `own_windows`, which add no views of their
-/// own.
-fn in_own_windows(own_windows: Rc<PromptWindows>) -> ProgramPrompts {
-    ProgramPrompts {
-        placement: own_windows,
-        views: None,
     }
 }
 

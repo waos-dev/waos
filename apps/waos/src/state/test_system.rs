@@ -48,6 +48,7 @@ use crate::logic::startup::{self, Setup};
 use crate::logic::stores::Stores;
 use crate::logic::test_engine::{self, NoWindows};
 use crate::logic::test_installs;
+use crate::system_shell::{SystemShell, ThisSystemShell};
 
 /// `path` as the engine hands it to the system: its links resolved, named as the system's apps
 /// name it (`waos::machine_paths::plain`).
@@ -106,7 +107,7 @@ impl TestSystem {
         shell.image_codecs = image_codecs.as_ref().map(ImageCodecs::shell);
         shell.gpus = video_decoders.as_ref().map(VideoDecoders::shell);
         shell.cameras = cameras.as_ref().map(Cameras::shell);
-        shell.simulated_cameras = super::simulated_cameras(shell.image_codecs.clone());
+        shell.simulated_cameras = ThisSystemShell::simulated_cameras(shell.image_codecs.clone());
         shell.recording_indicator =
             Some(Arc::new(recording_indicator) as Arc<dyn ShellRecordingIndicator>);
         shell.video_frame_readers = platform

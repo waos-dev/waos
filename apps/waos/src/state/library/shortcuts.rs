@@ -23,6 +23,10 @@ use crate::logic::program_shortcuts::{
 impl Library {
     /// From now on the installed programs' shortcuts are kept in `system`, and what it keeps is
     /// made to match what the package manager has installed: now, and at each change it announces.
+    #[cfg_attr(
+        not(target_os = "android"),
+        allow(dead_code, reason = "tested on every system, used on Android")
+    )]
     pub(crate) fn keep_shortcuts(
         &mut self,
         system: Rc<dyn SystemShortcuts>,
