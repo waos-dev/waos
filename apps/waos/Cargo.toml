@@ -163,10 +163,6 @@ tempfile.workspace = true
 # The digest a source's listing gives of each package.
 sha2.workspace = true
 
-# Image I/O's codecs without the event loop, which a program's real photo is decoded through.
-[target.'cfg(target_os = "macos")'.dev-dependencies]
-waft-embedder-winit = { workspace = true, features = ["test-support"] }
-
 # What `cargo waft build macos -p waos-app` makes WaOS.app from.
 [package.metadata.waft]
 identifier = "dev.waos.app"

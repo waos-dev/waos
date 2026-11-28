@@ -59,30 +59,20 @@ mod tests {
 
     use crate::logic::inspected_programs::ProgramsOnThisComputer;
     use crate::logic::startup::{self, Setup};
-    use crate::logic::test_engine::{self, NoWindows};
     use crate::logic::test_installs;
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn an_inspector_starts_a_development_install_held_in_place_of_the_one_running_and_ends_it()
-     {
+    async fn an_inspector_starts_an_installed_app_held_in_place_of_the_one_running_and_ends_it() {
         let folder = tempfile::tempdir().unwrap();
-        let setup = Setup::on_files(folder.path(), tokio::runtime::Handle::current());
-        let started = startup::tests::start_asking_nobody(setup, |_before| {
-            let shell = test_engine::shell(Arc::new(NoWindows));
-            (shell, test_engine::no_screens())
-        });
+        let id: ProgramId = "dev.example.forever".parse().unwrap();
+        let forever = test_installs::built_app(waos_test_programs::FOREVER, id.as_str(), "Forever");
+        let runtime = tokio::runtime::Handle::current();
+        let setup = Setup::in_memory(folder.path(), vec![forever], runtime);
+        let started = startup::tests::start_with_no_windows(setup);
         let (runs, packages) = (
             Arc::clone(&started.instances),
             Arc::clone(&started.packages),
         );
-        let manifest = waos_package::Manifest::new(
-            "dev.example.forever".parse().unwrap(),
-            "Forever",
-            "0.1.0".parse().unwrap(),
-        )
-        .unwrap();
-        test_installs::install_development(&packages, manifest, waos_test_programs::FOREVER);
-        let id: ProgramId = "dev.example.forever.development".parse().unwrap();
         let starts = HeldStarts {
             instances: Arc::clone(&runs),
             packages,

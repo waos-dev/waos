@@ -49,7 +49,6 @@ use crate::logic::app_instances::AppInstances;
 use crate::logic::opened_package::tests::{write_package, write_package_of, write_package_showing};
 use crate::logic::package_copies::PackageCopies;
 use crate::logic::phone_files::PhoneFilesAccess;
-use crate::logic::phone_files::PhoneFilesOnRequest;
 use crate::logic::placement::WindowsOnRequest;
 use crate::logic::preferences::PreferencesFile;
 use crate::logic::program_faces::ProgramFaces;
@@ -96,8 +95,6 @@ pub(crate) struct LibraryDesktop {
     pub(crate) output_picker: Arc<OutputPickerOnRequest>,
     /// What the engine shows its picker of machines through, for a test to pick as a program does.
     pub(crate) machine_picker: Arc<MachinePickerOnRequest>,
-    /// What asks for the phone's files, on a desktop with a phone's.
-    pub(crate) phone_files_on_request: Option<PhoneFilesOnRequest>,
     /// What the engine tells who records, for a test to tell as the engine does.
     pub(crate) recording_indicator: Arc<RecordingIndicatorOnRequest>,
     pub(crate) folder: TempDir,
@@ -204,8 +201,7 @@ impl LibraryDesktop {
         let (phone_files_on_request, phone_files_followed) = (kind.phone_files.as_ref())
             .map(|access| phone_files_on_request(access.as_ref(), prompts.phone_files_off()))
             .unzip();
-        let machine_picker =
-            Arc::new(prompts.machine_picker(asking, phone_files_on_request.clone()));
+        let machine_picker = Arc::new(prompts.machine_picker(asking, phone_files_on_request));
         let (recording_indicator, recording_changes) = RecordingIndicatorOnRequest::new();
         let platform = Rc::new(LibraryPlatform::new(kind.system));
         let phone_files = kind.phone_files;
@@ -262,7 +258,6 @@ impl LibraryDesktop {
             prompts,
             output_picker,
             machine_picker,
-            phone_files_on_request,
             recording_indicator: Arc::new(recording_indicator),
             folder,
             key: SigningKey::generate(),

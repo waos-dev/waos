@@ -62,7 +62,7 @@ pub struct DevelopmentBuild {
 
 impl DevelopmentBuild {
     /// The manifest it is installed with: its own, under the app's development id.
-    pub(crate) fn installed_manifest(manifest: &Manifest) -> Manifest {
+    pub fn installed_manifest(manifest: &Manifest) -> Manifest {
         Manifest::new(
             manifest.id().development(),
             manifest.name(),

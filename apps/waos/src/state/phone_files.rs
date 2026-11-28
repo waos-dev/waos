@@ -180,3 +180,164 @@ fn take_requests(
         }
     });
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use futures::FutureExt as _;
+    use waft::ui::PlatformRef;
+    use waft::{AppCell, AppLifecycleState};
+    use waft_services::ServicesBinding;
+    use waft_test::TestPlatform;
+    use waos::{AppInstance, ShellSystemPermissions, SystemPermission, SystemPermissionState};
+
+    use super::*;
+    use crate::logic::app_instances::{OpenConfiguration, OpenedFor};
+    use crate::logic::phone_files::TestPhone;
+    use crate::logic::prompts::{Asked, Asking, PromptsOnRequest};
+    use crate::logic::startup::Setup;
+    use crate::logic::startup::tests::start_with_no_windows;
+    use crate::logic::test_installs;
+    use crate::state::library::work;
+    use crate::state::test_turns::{Turn, turn_until};
+
+    /// The phone's files, out of WaOS's reach on a phone of the test's own, followed on an app
+    /// of Waft's test platform, with an app running whose user picks on the phone's storage; the
+    /// test plays that user, reading what they are told where it arrives.
+    struct PhoneFilesTest {
+        cell: Rc<AppCell>,
+        platform: Rc<TestPlatform>,
+        phone: Rc<TestPhone>,
+        on_request: PhoneFilesOnRequest,
+        told: UnboundedReceiver<Asked>,
+        program: AppInstance,
+        work: Arc<tokio::runtime::Runtime>,
+        _folder: tempfile::TempDir,
+    }
+
+    impl PhoneFilesTest {
+        fn new() -> PhoneFilesTest {
+            let folder = tempfile::tempdir().unwrap();
+            let forever = "dev.example.forever";
+            let app = test_installs::built_app(waos_test_programs::FOREVER, forever, "Forever");
+            let work = work().unwrap();
+            let setup = Setup::in_memory(folder.path(), vec![app], work.handle().clone());
+            let started = start_with_no_windows(setup);
+            let configuration = OpenConfiguration::new(OpenedFor::User);
+            let opened = work.block_on(
+                started
+                    .instances
+                    .open(&forever.parse().unwrap(), configuration),
+            );
+            let program = opened.expect("it opens").instance().clone();
+            let phone = Rc::new(TestPhone::reachable(false));
+            let (prompts, prompted) = PromptsOnRequest::new();
+            let (on_request, followed) =
+                phone_files_on_request(phone.as_ref(), prompts.phone_files_off());
+            let platform = Rc::new(TestPlatform::new());
+            let cell = AppCell::with_platform(Rc::clone(&platform) as PlatformRef);
+            let access = Rc::clone(&phone) as Rc<dyn PhoneFilesAccess>;
+            follow_phone_files(&mut cell.borrow_mut(), access, followed);
+            cell.checkpoint();
+            PhoneFilesTest {
+                cell,
+                platform,
+                phone,
+                on_request,
+                told: prompted.questions,
+                program,
+                work,
+                _folder: folder,
+            }
+        }
+
+        /// The user picks a file on the phone's storage, which the system keeps from WaOS.
+        fn pick_on_the_storage(&self) -> waos::SystemPermissionFuture {
+            let music = SystemPermission::Path(Path::new("/storage/emulated/0/Music"));
+            ShellSystemPermissions::request(&self.on_request, music, &self.program)
+        }
+
+        /// Runs the app's tasks as they wake until `done`.
+        fn turn_until(&self, what: &str, done: impl Fn() -> bool) {
+            turn_until(&self.platform, what, || {
+                self.cell.checkpoint();
+                if done() { Turn::Done } else { Turn::Idle }
+            });
+        }
+
+        /// The user leaves WaOS for the system's page and comes back.
+        fn come_back(&self) {
+            for state in [AppLifecycleState::Paused, AppLifecycleState::Resumed] {
+                let mut app = self.cell.borrow_mut();
+                ServicesBinding::instance(&mut app).handle_lifecycle_message(&mut app, state);
+            }
+            self.cell.checkpoint();
+        }
+    }
+
+    impl Drop for PhoneFilesTest {
+        fn drop(&mut self) {
+            self.program.stop();
+            self.work.block_on(self.program.ended());
+        }
+    }
+
+    #[test]
+    fn a_pick_out_of_reach_opens_the_systems_page_and_is_answered_as_the_user_comes_back() {
+        let mut test = PhoneFilesTest::new();
+        let mut picked = test.pick_on_the_storage();
+        test.turn_until("the system's page opened", || {
+            test.phone.pages_opened() == 1
+        });
+        assert_eq!(
+            picked.as_mut().now_or_never(),
+            None,
+            "not while the page is open"
+        );
+
+        test.phone.reachable.set(true);
+        test.come_back();
+
+        assert_eq!(
+            picked.as_mut().now_or_never(),
+            Some(SystemPermissionState::Allowed)
+        );
+        assert!(test.told.try_recv().is_err(), "nothing to tell");
+    }
+
+    #[test]
+    fn a_pick_still_out_of_reach_as_the_user_comes_back_is_denied_once_they_are_told() {
+        let mut test = PhoneFilesTest::new();
+        let mut picked = test.pick_on_the_storage();
+        test.turn_until("the system's page opened", || {
+            test.phone.pages_opened() == 1
+        });
+
+        test.come_back();
+
+        let told = test
+            .work
+            .block_on(test.told.next())
+            .expect("told they are off");
+        assert!(matches!(told.asking, Asking::PhoneFilesOff { .. }));
+        assert_eq!(
+            picked.as_mut().now_or_never(),
+            None,
+            "not before it is read"
+        );
+        told.asking.reply(None);
+        let mut state = None;
+        turn_until(&test.platform, "the pick answered", || {
+            test.cell.checkpoint();
+            state = picked.as_mut().now_or_never();
+            if state.is_some() {
+                Turn::Done
+            } else {
+                Turn::Idle
+            }
+        });
+        assert_eq!(state, Some(SystemPermissionState::Denied));
+        assert!(test.told.try_recv().is_err(), "told once");
+    }
+}

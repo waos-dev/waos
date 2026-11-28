@@ -457,7 +457,7 @@ async fn serve_request(
 pub(crate) mod tests {
     use std::fs;
     use std::path::Path;
-    use std::time::{Duration, Instant};
+    use std::time::Instant;
 
     use serde::de::DeserializeOwned;
     use waos::{AppInstance, PlatformState, Shell};
@@ -475,12 +475,14 @@ pub(crate) mod tests {
     use crate::logic::app_instances::RunningInstances;
     use crate::logic::developer_access::Listening;
     use crate::logic::open_command::{self, Sent};
-    use crate::logic::opened_package::tests::write_package;
-    use crate::logic::program_places::ProgramPlace;
-    use crate::logic::quit_question::every_program_agrees;
     use crate::logic::startup::{self, Outside, Setup};
+    use crate::logic::stores::Stores;
     use crate::logic::test_engine::{self, NoWindows, REFUSAL, WITHIN};
     use crate::logic::test_installs;
+    use waos_services::packages::{
+        AppInMemory, CodeCompiler, DevelopmentBuild, InstalledAppsInMemory, InstalledAppsStore,
+        InstalledProgram, InstalledVersion, Origin,
+    };
     use waos_services::permissions::{NoPrompts, Prompts};
 
     /// The development id of the program `id`: what `waos install` installs it as, and what a run
@@ -489,8 +491,6 @@ pub(crate) mod tests {
         id.parse::<ProgramId>().unwrap().development()
     }
 
-    /// A server of the test's own: its socket, its store and its code cache in a folder of its
-    /// own, removed with it.
     /// The version and category a test's `waos install` sends.
     const VERSION: &str = "0.1.0";
     const CATEGORY: &str = "productivity";
@@ -507,16 +507,53 @@ pub(crate) mod tests {
             .unwrap()
     }
 
+    /// Where a test's server keeps its installed apps.
+    enum Store {
+        InMemory,
+        Files,
+    }
+
+    /// The development install of `manifest`, as `waos install` installs it, its component the
+    /// test program at `component`, its code in `code`.
+    fn development_build(
+        manifest: waos_package::Manifest,
+        component: &str,
+        code: PathBuf,
+    ) -> AppInMemory {
+        let build = DevelopmentBuild {
+            manifest,
+            component: fs::read(component).unwrap(),
+            icon: None,
+        };
+        let program = InstalledProgram {
+            manifest: DevelopmentBuild::installed_manifest(&build.manifest),
+            origin: Origin::Development {
+                component_sha256: component_digest(&build.component),
+            },
+        };
+        AppInMemory {
+            version: Some(InstalledVersion::new(component.into(), code)),
+            ..AppInMemory::new(program)
+        }
+    }
+
+    /// A server of the test's own, over WaOS's one startup: its socket and its apps' own folders
+    /// in a folder of its own, removed with it, and its installed apps kept in memory, filled
+    /// from the test programs' builds, or, for what an install leaves on disk, on files there.
     pub(crate) struct TestServer {
         pub(crate) folder: PathBuf,
         pub(crate) socket: PathBuf,
         pub(crate) instances: Arc<AppInstances>,
-        pub(crate) storage: waos_services::app_storage::AppStorage,
         pub(crate) permissions: waos_services::permissions::Permissions,
         /// What the server's programs' users are asked, which a test notes as the prompts do.
         pub(crate) asking: Arc<AskingNow>,
         pub(crate) packages: Arc<waos_services::packages::PackageManager>,
-        pub(crate) places: crate::logic::program_places::ProgramPlaces,
+        /// The installed apps, kept in memory, which the test fills with the apps its build made;
+        /// none for a server whose store is on files.
+        installed: Option<Arc<InstalledAppsInMemory>>,
+        /// The package manager's compiler, which a test holds to see what happens while it
+        /// compiles.
+        pub(crate) compiler: Arc<test_installs::HeldCompiler>,
         /// Its developer access, off until a test turns it on, listening on the loopback.
         pub(crate) access: DeveloperAccess,
         server: Option<DevServer>,
@@ -528,9 +565,18 @@ pub(crate) mod tests {
     }
 
     impl TestServer {
-        /// A server whose programs run with no windows.
+        /// A server whose programs run with no windows, its store in memory.
         pub(crate) fn start(test: &str) -> TestServer {
-            TestServer::over(test, || {
+            TestServer::over(test, Store::InMemory, || {
+                let shell = test_engine::shell(Arc::new(NoWindows));
+                (shell, test_engine::no_screens())
+            })
+        }
+
+        /// A server whose programs run with no windows, its store on files in its folder: for
+        /// what an install leaves on disk, its code compiled and its folder.
+        pub(crate) fn on_files(test: &str) -> TestServer {
+            TestServer::over(test, Store::Files, || {
                 let shell = test_engine::shell(Arc::new(NoWindows));
                 (shell, test_engine::no_screens())
             })
@@ -555,7 +601,7 @@ pub(crate) mod tests {
             (headless, platform): (waos_headless::HeadlessShell, PlatformState),
         ) -> TestServer {
             let shell = headless.shell();
-            let mut server = TestServer::over(test, || (shell, platform));
+            let mut server = TestServer::over(test, Store::InMemory, || (shell, platform));
             server.headless = Some(headless);
             server
         }
@@ -598,35 +644,13 @@ pub(crate) mod tests {
                 .unwrap_or_else(|_| panic!("never within {WITHIN:?}: {what}"))
         }
 
-        /// A server whose apps' users are asked through `PromptsOnRequest`, and where its
-        /// questions arrive.
-        fn asking_prompts(test: &str) -> (TestServer, crate::logic::prompts::PromptRequests) {
-            TestServer::over_with(
-                test,
-                || {
-                    let (prompts, requests) = crate::logic::prompts::PromptsOnRequest::new();
-                    (Arc::new(prompts) as Arc<dyn Prompts>, requests)
-                },
-                || {
-                    let shell = test_engine::shell(Arc::new(NoWindows));
-                    (shell, test_engine::no_screens())
-                },
-            )
-        }
-
-        /// A server of the test's own over the shell `outside` makes, with nobody to ask.
-        fn over(test: &str, outside: impl FnOnce() -> (Shell, PlatformState)) -> TestServer {
-            let prompts = || (Arc::new(NoPrompts) as Arc<dyn Prompts>, ());
-            TestServer::over_with(test, prompts, outside).0
-        }
-
-        /// A server over the shell `outside` makes, its apps' users asked through what
-        /// `prompts` makes, with what it keeps of them.
-        fn over_with<P>(
+        /// A server of the test's own, its store as `store` says, over the shell `outside` makes,
+        /// with nobody to ask.
+        fn over(
             test: &str,
-            prompts: impl FnOnce() -> (Arc<dyn Prompts>, P),
+            store: Store,
             outside: impl FnOnce() -> (Shell, PlatformState),
-        ) -> (TestServer, P) {
+        ) -> TestServer {
             let folder =
                 std::env::temp_dir().join(format!("waos-app-{}-{test}", std::process::id()));
             let _ = fs::remove_dir_all(&folder);
@@ -636,22 +660,36 @@ pub(crate) mod tests {
                 .enable_all()
                 .build()
                 .expect("the server's runtime");
-            let setup = Setup::on_files(&folder, runtime.handle().clone());
-            let (started, (asking, prompted)) = startup::start(setup, prompts, |before, kept| {
+            let (stores, installed) = match store {
+                Store::InMemory => {
+                    let installed = Arc::new(InstalledAppsInMemory::default());
+                    let stores = Stores {
+                        installed_apps: Arc::clone(&installed) as Arc<dyn InstalledAppsStore>,
+                        ..Stores::in_memory(Vec::new())
+                    };
+                    (stores, Some(installed))
+                }
+                Store::Files => (Stores::files(&folder.join("store")).unwrap(), None),
+            };
+            let compiler = Arc::new(test_installs::HeldCompiler::default());
+            let setup = Setup {
+                install_compiler: Arc::clone(&compiler) as Arc<dyn CodeCompiler>,
+                ..Setup::for_tests(&folder, stores, runtime.handle().clone())
+            };
+            let prompts = || (Arc::new(NoPrompts) as Arc<dyn Prompts>, ());
+            let (started, asking) = startup::start(setup, prompts, |before, ()| {
                 let (shell, platform) = outside();
                 let asking = AskingNow::new(before.permissions.asking());
                 let capabilities = waos_local::LocalCapabilities::new();
-                Ok(Outside::new(shell, platform, capabilities, (asking, kept)))
+                Ok(Outside::new(shell, platform, capabilities, asking))
             })
             .expect("WaOS starts");
             let startup::Started {
                 instances,
                 packages,
                 permissions,
-                storage,
                 engine,
                 environments,
-                places,
                 ..
             } = started;
             let served = ServedDomains {
@@ -664,21 +702,20 @@ pub(crate) mod tests {
             let access = DeveloperAccess::on_loopback(folder.join("developer"));
             let server = DevServer::start(served, Arc::clone(&asking), &socket, access.clone())
                 .expect("the server binds");
-            let server = TestServer {
+            TestServer {
                 folder,
                 socket,
                 instances,
-                storage,
                 permissions,
                 asking,
                 packages,
-                places,
+                installed,
+                compiler,
                 access,
                 server: Some(server),
                 headless: None,
                 runtime: Some(runtime),
-            };
-            (server, prompted)
+            }
         }
 
         /// Where the test's server listens, apart from every other test's and from the user's own
@@ -750,9 +787,32 @@ pub(crate) mod tests {
         }
 
         /// Installs the test program at `component` as the program `id`'s development install,
-        /// as [`install`](Self::install) would, with its code compiled already.
+        /// as [`install`](Self::install) would, with its code compiled already: in the store in
+        /// memory, the build's own, or on files, compiled once in a test run.
         pub(crate) fn install_compiled(&self, id: &str, component: &str) {
-            test_installs::install_development(&self.packages, development_manifest(id), component);
+            let manifest = development_manifest(id);
+            let Some(installed) = &self.installed else {
+                test_installs::install_development(&self.packages, manifest, component);
+                return;
+            };
+            let code = waos_test_programs::code_of(component);
+            installed.put(development_build(manifest, component, code));
+        }
+
+        /// Installs the test program at `component` as the published app `id`, named `name`, in
+        /// the store in memory, from the test's build.
+        pub(crate) fn install_built(&self, component: &str, id: &str, name: &str) {
+            let installed = self.installed.as_ref().expect("a store in memory");
+            installed.put(test_installs::built_app(component, id, name));
+        }
+
+        /// Installs the test program at `component` as the program `id`'s development install,
+        /// in the store in memory, with no code of this engine's, as after an update of WaOS
+        /// that changed it: its first launch compiles it, into the server's folder.
+        pub(crate) fn install_not_compiled(&self, id: &str, component: &str) {
+            let installed = self.installed.as_ref().expect("a store in memory");
+            let code = self.folder.join("code").join(id);
+            installed.put(development_build(development_manifest(id), component, code));
         }
 
         /// What WaOS answers an install of `component` as the program `id`, sent in one part.
@@ -1064,6 +1124,7 @@ pub(crate) mod tests {
         let server = TestServer::start("launch-attach-stop");
         let component = fs::read(waos_test_programs::FOREVER).unwrap();
         let id = development(FOREVER);
+        server.install_compiled(FOREVER, waos_test_programs::FOREVER);
         assert_eq!(
             server.install(FOREVER, &component).await,
             InstallAnswer::Installed { id: id.clone() }
@@ -1129,74 +1190,35 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
-    async fn a_second_run_of_the_same_program_ends_the_first_with_replaced() {
-        let server = TestServer::start("replaced");
-        let mut first = server
-            .run(FOREVER, Path::new(waos_test_programs::FOREVER))
+    async fn a_launch_that_compiles_answers_compiling_first() {
+        let server = TestServer::start("launch-compiling");
+        server.install_not_compiled(FOREVER, waos_test_programs::FOREVER);
+        let launched = server
+            .launch(&development(FOREVER), Vec::new(), Vec::new())
             .await;
-        started(&mut first).await;
-        let mut second = server
-            .run(FOREVER, Path::new(waos_test_programs::FOREVER))
-            .await;
-        let frames = frames_until(&mut first, |frame| matches!(frame, RunEvent::Ended(_))).await;
-        assert_eq!(frames.last(), Some(&RunEvent::Ended(RunEnd::Replaced)));
-        started(&mut second).await;
-        server.wait_for_runs(&[FOREVER_DEVELOPMENT]).await;
+        assert_eq!(launched, [LaunchAnswer::Compiling, LaunchAnswer::Launched]);
     }
 
     #[tokio::test]
-    async fn a_component_is_compiled_at_its_install_and_again_at_a_launch_that_finds_no_code_it_loads()
-     {
-        let server = TestServer::start("unchanged");
-        let component = fs::read(waos_test_programs::FOREVER).unwrap();
+    async fn an_uninstall_answers_uninstalled_and_then_not_installed() {
+        let server = TestServer::start("uninstall");
         let id = development(FOREVER);
-        server.install(FOREVER, &component).await;
-        let first = server.launch(&id, Vec::new(), Vec::new()).await;
-        assert_eq!(first, [LaunchAnswer::Launched], "compiled at its install");
-        server
-            .ask::<StopAnswer>(&Request::Stop { id: id.clone() })
-            .await;
-        server.wait_for_runs(&[]).await;
-        // What a compiler change leaves: no code of this engine's.
-        let code = test_installs::installed_version(&server.packages, id.as_str()).code();
-        fs::remove_dir_all(&code).unwrap();
-        let optimized = server.launch(&id, Vec::new(), Vec::new()).await;
-        assert_eq!(optimized, [LaunchAnswer::Compiling, LaunchAnswer::Launched]);
-        server
-            .ask::<StopAnswer>(&Request::Stop { id: id.clone() })
-            .await;
-        server.wait_for_runs(&[]).await;
-        // What a damaged file leaves: code of this engine's that does not load.
-        for file in fs::read_dir(&code).unwrap() {
-            let file = file.unwrap().path();
-            fs::remove_file(&file).unwrap();
-            fs::write(&file, b"not code").unwrap();
-        }
-        let optimized = server.launch(&id, Vec::new(), Vec::new()).await;
-        assert_eq!(optimized, [LaunchAnswer::Compiling, LaunchAnswer::Launched]);
-        server
-            .ask::<StopAnswer>(&Request::Stop { id: id.clone() })
-            .await;
-        server.wait_for_runs(&[]).await;
-        server.install(FOREVER, &component).await;
-        let again = server.launch(&id, Vec::new(), Vec::new()).await;
-        assert_eq!(again, [LaunchAnswer::Launched], "nothing compiled again");
-    }
+        server.install_compiled(FOREVER, waos_test_programs::FOREVER);
+        let uninstall = Request::Uninstall { id: id.clone() };
 
-    #[tokio::test]
-    async fn a_launch_leaves_the_apps_place_as_it_was() {
-        let server = TestServer::start("launch-place");
-        let component = fs::read(waos_test_programs::FOREVER).unwrap();
-        let id = development(FOREVER);
-        server.install(FOREVER, &component).await;
-        server.places.set(&id, ProgramPlace::Tab);
-        let launched = server.launch(&id, Vec::new(), Vec::new()).await;
-        assert_eq!(launched, [LaunchAnswer::Launched]);
-        assert_eq!(server.places.place_of(&id), ProgramPlace::Tab);
-        server
-            .ask::<StopAnswer>(&Request::Stop { id: id.clone() })
-            .await;
-        server.wait_for_runs(&[]).await;
+        let answer = server.ask::<UninstallAnswer>(&uninstall).await;
+
+        assert_eq!(answer, UninstallAnswer::Uninstalled);
+        let UninstallAnswer::Refused(refusal) = server.ask::<UninstallAnswer>(&uninstall).await
+        else {
+            panic!("nothing is installed to uninstall");
+        };
+        assert_eq!(refusal.kind, RefusalKind::NotInstalled);
+        let refused = server.launch(&id, Vec::new(), Vec::new()).await;
+        assert!(
+            matches!(&refused[..], [LaunchAnswer::Refused(refusal)] if refusal.kind == RefusalKind::NotInstalled),
+            "{refused:?}"
+        );
     }
 
     #[tokio::test]
@@ -1222,7 +1244,7 @@ pub(crate) mod tests {
     async fn a_component_the_development_install_holds_is_answered_have_and_nothing_is_sent() {
         let server = TestServer::start("have");
         let component = fs::read(waos_test_programs::FOREVER).unwrap();
-        server.install(FOREVER, &component).await;
+        server.install_compiled(FOREVER, waos_test_programs::FOREVER);
         let mut again = server.client().await;
         again
             .send(&Request::Install(Install {
@@ -1250,44 +1272,14 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
-    async fn a_component_installed_changed_is_compiled_at_its_install_and_keeps_the_programs_data()
-    {
-        let server = TestServer::start("changed");
-        let id = development(FOREVER);
-        let mut first = server
-            .run(FOREVER, Path::new(waos_test_programs::FOREVER))
-            .await;
-        started(&mut first).await;
-        let data = server.storage.folders(&id).unwrap().data;
-        fs::write(data.join("kept.txt"), "kept").unwrap();
-        let changed = fs::read(waos_test_programs::OPENER).unwrap();
-        assert_eq!(
-            server.install(FOREVER, &changed).await,
-            InstallAnswer::Installed { id: id.clone() }
-        );
-        let frames = frames_until(&mut first, |frame| matches!(frame, RunEvent::Ended(_))).await;
-        assert_eq!(
-            frames.last(),
-            Some(&RunEvent::Ended(RunEnd::Replaced)),
-            "the install of a new build ends the run of the one before"
-        );
-        let launched = server.launch(&id, Vec::new(), Vec::new()).await;
-        assert_eq!(launched, [LaunchAnswer::Launched]);
-        assert_eq!(fs::read_to_string(data.join("kept.txt")).unwrap(), "kept");
-    }
-
-    #[tokio::test]
     async fn a_launch_waiting_for_its_compile_holds_back_no_other_programs_tools() {
         let server = TestServer::start("loading");
         let mut running = server
             .run(FOREVER, Path::new(waos_test_programs::FOREVER))
             .await;
         started(&mut running).await;
-        server.install_compiled(OPENER, waos_test_programs::OPENER);
-        // What a compiler change leaves: the launch compiles.
-        let code =
-            test_installs::installed_version(&server.packages, development(OPENER).as_str()).code();
-        fs::remove_dir_all(&code).unwrap();
+        server.install_not_compiled(OPENER, waos_test_programs::OPENER);
+        let held = server.compiler.hold();
         let launching = {
             let (socket, id) = (server.socket.clone(), development(OPENER));
             tokio::spawn(async move {
@@ -1313,14 +1305,16 @@ pub(crate) mod tests {
             window: None,
         };
         let answer = tokio::time::timeout(
-            Duration::from_secs(5),
+            WITHIN,
             server.ask::<waos_dev_protocol::ScreenshotAnswer>(&screenshot),
         )
         .await;
         assert_eq!(
             answer,
-            Ok(waos_dev_protocol::ScreenshotAnswer::Pictures(Vec::new()))
+            Ok(waos_dev_protocol::ScreenshotAnswer::Pictures(Vec::new())),
+            "answered while the launch compiles"
         );
+        drop(held);
         assert_eq!(launching.await.unwrap(), LaunchAnswer::Launched);
     }
 
@@ -1343,92 +1337,9 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
-    async fn a_run_is_its_development_install_with_its_own_folders_beside_the_published_one() {
-        let server = TestServer::start("folders");
-        let packages = server.folder.join("packages");
-        fs::create_dir_all(&packages).unwrap();
-        let component = fs::read(waos_test_programs::FOREVER).unwrap();
-        let key = waos_package::SigningKey::generate();
-        let package = write_package(&packages, FOREVER, "Forever", "1.0.0", &component, &key);
-        crate::logic::test_installs::install_package(&server.packages, &package);
-        let mut client = server
-            .run(FOREVER, Path::new(waos_test_programs::FOREVER))
-            .await;
-        started(&mut client).await;
-        let program = server
-            .folder
-            .join("store/programs")
-            .join(FOREVER_DEVELOPMENT);
-        assert!(program.join("data").is_dir());
-        assert!(program.join("cache").is_dir());
-        let names = server.instances.instances();
-        assert_eq!(names[0].name(), FOREVER_DEVELOPMENT);
-        let development = server
-            .packages
-            .installed_program(&development(FOREVER))
-            .expect("its development install");
-        assert!(development.is_development());
-        assert_eq!(
-            development.manifest.category(),
-            Some(waos_package::Category::Productivity),
-            "filed as its source says"
-        );
-        let published = server.packages.installed_program(&FOREVER.parse().unwrap());
-        assert_eq!(
-            published.and_then(|installed| installed.publisher()),
-            Some(key.publisher()),
-            "the published program keeps its publisher's key"
-        );
-    }
-
-    #[tokio::test]
-    async fn an_uninstall_stops_the_program_and_removes_it_with_its_folders() {
-        let server = TestServer::start("uninstall");
-        let id = development(FOREVER);
-        let mut client = server
-            .run(FOREVER, Path::new(waos_test_programs::FOREVER))
-            .await;
-        started(&mut client).await;
-        assert_eq!(
-            server
-                .ask::<UninstallAnswer>(&Request::Uninstall { id: id.clone() })
-                .await,
-            UninstallAnswer::Uninstalled
-        );
-        let frames = frames_until(&mut client, |frame| matches!(frame, RunEvent::Ended(_))).await;
-        assert_eq!(frames.last(), Some(&RunEvent::Ended(RunEnd::Stopped)));
-        server.wait_for_runs(&[]).await;
-        assert!(server.packages.installed().is_empty());
-        assert!(
-            !server
-                .folder
-                .join("store/programs")
-                .join(FOREVER_DEVELOPMENT)
-                .exists()
-        );
-        let UninstallAnswer::Refused(refusal) = server
-            .ask::<UninstallAnswer>(&Request::Uninstall { id: id.clone() })
-            .await
-        else {
-            panic!("nothing is installed to uninstall");
-        };
-        assert_eq!(refusal.kind, RefusalKind::NotInstalled);
-        let refused = server.launch(&id, Vec::new(), Vec::new()).await;
-        assert!(
-            matches!(&refused[..], [LaunchAnswer::Refused(refusal)] if refusal.kind == RefusalKind::NotInstalled),
-            "{refused:?}"
-        );
-    }
-
-    #[tokio::test]
     async fn an_attach_to_a_program_the_library_opened_hears_its_output_from_then_on() {
         let server = TestServer::start("attach-library");
-        let packages = server.folder.join("packages");
-        fs::create_dir_all(&packages).unwrap();
-        let component = fs::read(waos_test_programs::FOREVER).unwrap();
-        let key = waos_package::SigningKey::generate();
-        let package = write_package(&packages, FOREVER, "Forever", "1.0.0", &component, &key);
-        crate::logic::test_installs::install_package(&server.packages, &package);
+        server.install_built(waos_test_programs::FOREVER, FOREVER, "Forever");
         let id: ProgramId = FOREVER.parse().unwrap();
         let configuration = crate::logic::app_instances::OpenConfiguration::new(
             crate::logic::app_instances::OpenedFor::User,
@@ -1514,12 +1425,7 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn the_settings_of_a_program_installed_from_a_package_are_read_and_set_too() {
         let server = TestServer::start("settings-published");
-        let packages = server.folder.join("packages");
-        fs::create_dir_all(&packages).unwrap();
-        let component = fs::read(waos_test_programs::FOREVER).unwrap();
-        let key = waos_package::SigningKey::generate();
-        let package = write_package(&packages, FOREVER, "Forever", "1.0.0", &component, &key);
-        crate::logic::test_installs::install_package(&server.packages, &package);
+        server.install_built(waos_test_programs::FOREVER, FOREVER, "Forever");
         let id: ProgramId = FOREVER.parse().unwrap();
         let set = Request::Set {
             id: id.clone(),
@@ -1663,55 +1569,6 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
-    async fn settings_set_answers_a_waiting_question_and_drops_its_prompt() {
-        use futures::StreamExt;
-
-        const PERMISSIONS: &str = "dev.waos.examples.permissions";
-        let (server, mut requests) = TestServer::asking_prompts("set-answers-waiting");
-        let mut client = server
-            .run(PERMISSIONS, Path::new(waos_test_programs::PERMISSIONS))
-            .await;
-        started(&mut client).await;
-
-        let frames = frames_until(&mut client, |frame| matches!(frame, RunEvent::Asking(_))).await;
-        assert_eq!(
-            frames.last(),
-            Some(&RunEvent::Asking(Asked::Question(Question::Notifications)))
-        );
-        let pending_question = requests.questions.next().await.expect("waiting question");
-        assert_eq!(
-            server.asking.of(development(PERMISSIONS).as_str()),
-            Some(Asked::Question(Question::Notifications))
-        );
-
-        let set = Request::Set {
-            id: development(PERMISSIONS),
-            row: Row::Question(Question::Notifications, Some(Answer::Allow)),
-        };
-        assert!(matches!(
-            server.ask::<waos_dev_protocol::SettingsAnswer>(&set).await,
-            waos_dev_protocol::SettingsAnswer::Rows(_)
-        ));
-
-        let mut output = String::new();
-        while !output.contains("notifications asked: granted") {
-            let frame: RunEvent = next(&mut client).await;
-            if let RunEvent::Output {
-                stream: OutputStream::Stdout,
-                bytes,
-            } = frame
-            {
-                output.push_str(&String::from_utf8_lossy(&bytes));
-            }
-        }
-        assert!(pending_question.cancelled.await.is_err());
-        assert_ne!(
-            server.asking.of(development(PERMISSIONS).as_str()),
-            Some(Asked::Question(Question::Notifications))
-        );
-    }
-
-    #[tokio::test]
     async fn a_program_that_returns_before_anything_attaches_tells_the_attach_what_it_wrote() {
         let server = TestServer::start("survey");
         let mut client = server
@@ -1775,43 +1632,8 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
-    async fn a_program_that_does_not_listen_agrees_to_end_when_asked() {
-        let server = TestServer::start("asked");
-        let mut client = server
-            .run(FOREVER, Path::new(waos_test_programs::FOREVER))
-            .await;
-        started(&mut client).await;
-        let programs = server.instances.instances();
-        assert_eq!(programs.len(), 1);
-        let asked = programs.iter().map(AppInstance::request_exit);
-        let agreed = tokio::time::timeout(WITHIN, every_program_agrees(asked)).await;
-        assert_eq!(agreed, Ok(true));
-    }
-
-    #[tokio::test]
-    async fn a_component_that_is_not_one_is_refused_at_its_install() {
-        let server = TestServer::start("refused");
-        let nonsense = "dev.waos.examples.nonsense";
-        let installed = server
-            .install_in_parts_of(
-                nonsense,
-                b"not a component",
-                4,
-                component_digest(b"not a component"),
-            )
-            .await;
-        let InstallAnswer::Refused(refusal) = installed else {
-            panic!("refused: {installed:?}");
-        };
-        assert_eq!(refusal.kind, RefusalKind::Failed);
-        assert!(refusal.message.contains("nonsense"), "{refusal:?}");
-        assert!(server.packages.installed().is_empty(), "nothing installed");
-        server.wait_for_runs(&[]).await;
-    }
-
-    #[tokio::test]
     async fn a_component_sent_in_parts_is_assembled_and_runs() {
-        let server = TestServer::start("parts");
+        let server = TestServer::on_files("parts");
         let component = fs::read(waos_test_programs::FOREVER).unwrap();
         // Parts far under a frame's worth, so the component spans many of them.
         let installed = server
@@ -1879,42 +1701,6 @@ pub(crate) mod tests {
         while !stdout_of(&frames).contains(&heard) {
             frames.push(next(&mut client).await);
         }
-    }
-
-    #[tokio::test]
-    async fn files_opened_with_an_installed_program_start_it() {
-        let server = TestServer::start("open-installed");
-        let packages = server.folder.join("packages");
-        fs::create_dir_all(&packages).unwrap();
-        let component = fs::read(waos_test_programs::OPENER).unwrap();
-        let key = waos_package::SigningKey::generate();
-        let package = write_package(&packages, OPENER, "Opener", "1.0.0", &component, &key);
-        crate::logic::test_installs::install_package(&server.packages, &package);
-        let file = file_to_open(&server, "my notes");
-        let id = OPENER.parse().unwrap();
-        let sent = open_command::send_to(&server.socket, &id, vec![file.clone()]).await;
-        assert_eq!(sent.unwrap(), Sent::Opened);
-        server.wait_for_runs(&[OPENER]).await;
-        let deadline = Instant::now() + WITHIN;
-        while fs::read_to_string(&file).unwrap() != "my notes, seen" {
-            assert!(Instant::now() < deadline, "the program never wrote to it");
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-    }
-
-    #[tokio::test]
-    async fn files_opened_with_a_program_neither_installed_nor_running_are_refused() {
-        let server = TestServer::start("open-nothing");
-        let file = file_to_open(&server, "my notes");
-        let id = OPENER.parse().unwrap();
-        let refused = open_command::send_to(&server.socket, &id, vec![file])
-            .await
-            .unwrap_err();
-        assert!(
-            format!("{refused:#}").contains("neither installed nor running"),
-            "{refused:#}"
-        );
-        server.wait_for_runs(&[]).await;
     }
 
     #[tokio::test]
@@ -2142,127 +1928,6 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
-    async fn a_program_writing_while_nobody_reads_keeps_running_and_is_stopped_in_time() {
-        const FLOOD: &str = "dev.waos.examples.flood";
-        let server = TestServer::start("flood");
-        let mut first = server
-            .run(FLOOD, Path::new(waos_test_programs::FLOOD))
-            .await;
-        started(&mut first).await;
-
-        let data = server
-            .folder
-            .join("store/programs")
-            .join(development(FLOOD).as_str())
-            .join("data");
-        let read_u64 = |name: &str| -> u64 {
-            fs::read_to_string(data.join(name))
-                .ok()
-                .and_then(|s| s.trim().parse().ok())
-                .unwrap_or(0)
-        };
-        let deadline = Instant::now() + WITHIN;
-        while read_u64("wrote") < (1 << 20) || read_u64("ticks") == 0 {
-            assert!(Instant::now() < deadline, "flood never filled the queue");
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-        // Stdout waits once the writer stands still while the timer ticks on: a writer free to
-        // write writes every millisecond, so between five of the timer's ticks, 10 ms apart. A
-        // file read while the program rewrites it reads as 0.
-        loop {
-            let wrote = read_u64("wrote");
-            let ticks = read_u64("ticks");
-            while read_u64("ticks") < ticks + 5 {
-                assert!(
-                    Instant::now() < deadline,
-                    "the timer stopped while stdout waited"
-                );
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-            if wrote >= (1 << 20) && read_u64("wrote") == wrote {
-                break;
-            }
-            assert!(
-                Instant::now() < deadline,
-                "stdout never waited for a reader ({wrote} bytes written)"
-            );
-        }
-
-        // The replacing run starts once the blocked one is stopped, before anything reads it.
-        let frames = async {
-            let mut replacing = server
-                .run(FLOOD, Path::new(waos_test_programs::FLOOD))
-                .await;
-            started(&mut replacing).await;
-            let frames =
-                frames_until(&mut first, |frame| matches!(frame, RunEvent::Ended(_))).await;
-            drop(replacing);
-            frames
-        }
-        .await;
-        assert_eq!(frames.last(), Some(&RunEvent::Ended(RunEnd::Replaced)));
-        assert!(stdout_of(&frames).len() >= (1 << 20));
-    }
-
-    #[tokio::test]
-    async fn a_program_flooding_println_while_nobody_reads_is_stopped_in_time() {
-        const FLOOD: &str = "dev.waos.examples.flood";
-        let server = TestServer::start("flood-println");
-        let mut first = server
-            .run_with_args(
-                FLOOD,
-                Path::new(waos_test_programs::FLOOD),
-                vec!["--println".to_owned()],
-            )
-            .await;
-        started(&mut first).await;
-
-        let wrote_file = server
-            .folder
-            .join("store/programs")
-            .join(development(FLOOD).as_str())
-            .join("data/wrote");
-        let read_wrote = || -> u64 {
-            fs::read_to_string(&wrote_file)
-                .ok()
-                .and_then(|s| s.trim().parse().ok())
-                .unwrap_or(0)
-        };
-        let deadline = Instant::now() + WITHIN;
-        while read_wrote() < (1 << 20) {
-            assert!(Instant::now() < deadline, "println never filled the queue");
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-        loop {
-            let wrote_a = read_wrote();
-            tokio::time::sleep(Duration::from_millis(150)).await;
-            let wrote_b = read_wrote();
-            if wrote_b == wrote_a {
-                break;
-            }
-            assert!(
-                Instant::now() < deadline,
-                "println never stalled on full backpressure ({wrote_a} -> {wrote_b})"
-            );
-        }
-
-        // The replacing run starts once the blocked one is stopped, before anything reads it.
-        let frames = async {
-            let mut replacing = server
-                .run(FLOOD, Path::new(waos_test_programs::FLOOD))
-                .await;
-            started(&mut replacing).await;
-            let frames =
-                frames_until(&mut first, |frame| matches!(frame, RunEvent::Ended(_))).await;
-            drop(replacing);
-            frames
-        }
-        .await;
-        assert_eq!(frames.last(), Some(&RunEvent::Ended(RunEnd::Replaced)));
-        assert!(stdout_of(&frames).len() >= (1 << 20));
-    }
-
-    #[tokio::test]
     async fn an_unknown_request_or_inner_variant_is_refused_naming_this_build_and_leaves_the_connection_whole()
      {
         #[derive(serde::Serialize)]
@@ -2424,7 +2089,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn an_install_the_store_cannot_make_is_refused_naming_the_program() {
-        let server = TestServer::start("refuse-install");
+        let server = TestServer::on_files("refuse-install");
         let broken = "dev.waos.examples.broken";
         let blocker = server
             .folder

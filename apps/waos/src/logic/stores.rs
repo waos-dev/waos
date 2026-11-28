@@ -65,13 +65,10 @@ mod in_memory {
 #[cfg(test)]
 mod tests {
     use std::path::{Path, PathBuf};
-    use std::sync::Arc;
 
-    use super::Stores;
     use crate::logic::app_instances::{OpenConfiguration, OpenedFor};
     use crate::logic::startup::Setup;
-    use crate::logic::startup::tests::start_asking_nobody;
-    use crate::logic::test_engine::{self, NoWindows};
+    use crate::logic::startup::tests::start_with_no_windows;
     use crate::logic::test_installs;
 
     const FOREVER: &str = "dev.example.forever";
@@ -97,12 +94,9 @@ mod tests {
         let folder = tempfile::tempdir().unwrap();
         let app = test_installs::built_app(waos_test_programs::FOREVER, FOREVER, "Forever");
         let runtime = tokio::runtime::Handle::current();
-        let setup = Setup::for_tests(folder.path(), Stores::in_memory(vec![app]), runtime);
+        let setup = Setup::in_memory(folder.path(), vec![app], runtime);
         let app_folders = setup.app_folders.clone();
-        let started = start_asking_nobody(setup, |_before| {
-            let shell = test_engine::shell(Arc::new(NoWindows));
-            (shell, test_engine::no_screens())
-        });
+        let started = start_with_no_windows(setup);
 
         let id = FOREVER.parse().unwrap();
         let configuration = OpenConfiguration::new(OpenedFor::User);

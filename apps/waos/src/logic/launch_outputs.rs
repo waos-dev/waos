@@ -301,6 +301,38 @@ mod tests {
         assert_eq!(accepted, 4);
     }
 
+    #[tokio::test]
+    async fn a_run_its_attach_does_not_read_waits_at_the_bound_until_it_ends() {
+        let launch = LaunchOutput::new("dev.example.flood");
+        let frames = launch.attach();
+        let bound = frames::OUTPUT_IN_FLIGHT;
+        assert_eq!(
+            write(&launch, &vec![1; bound]).await,
+            bound,
+            "up to the bound"
+        );
+        let mut more = std::pin::pin!(write(&launch, b"more"));
+        assert_eq!(
+            futures::poll!(more.as_mut()),
+            Poll::Pending,
+            "then it waits"
+        );
+
+        assert!(launch.ended(RunEnd::Replaced));
+
+        assert_eq!(more.await, 4, "its end lets the write go");
+        let heard = drained(&frames).await;
+        assert_eq!(heard.first(), Some(&RunEvent::Started));
+        assert_eq!(heard.last(), Some(&RunEvent::Ended(RunEnd::Replaced)));
+        let written: usize = (heard.iter())
+            .map(|event| match event {
+                RunEvent::Output { bytes, .. } => bytes.len(),
+                _ => 0,
+            })
+            .sum();
+        assert_eq!(written, bound, "what was written before the end");
+    }
+
     /// What `tracing` writes while `work` runs on this thread, as text.
     fn logged(work: impl FnOnce()) -> String {
         #[derive(Clone, Default)]

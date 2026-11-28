@@ -279,6 +279,30 @@ async fn a_removal_takes_the_apps_folder_whole_and_says_so() {
     assert_eq!(manager.installed(), triangle_at("0.1.0"));
 }
 
+#[tokio::test]
+async fn an_update_keeps_the_apps_own_data() {
+    let manager = Manager::new();
+    let key = SigningKey::generate();
+    manager
+        .install(manager.package("1.0.0", &key))
+        .await
+        .unwrap();
+    let data = manager.program_folder(&triangle()).join("data");
+    fs::create_dir_all(&data).unwrap();
+    fs::write(data.join("notes.txt"), "the app's").unwrap();
+
+    manager
+        .install(manager.package("1.1.0", &key))
+        .await
+        .unwrap();
+
+    assert_eq!(manager.installed(), triangle_at("1.1.0"));
+    assert_eq!(
+        fs::read_to_string(data.join("notes.txt")).unwrap(),
+        "the app's"
+    );
+}
+
 // 8. Every change is announced; 9. who asked is recorded.
 
 #[tokio::test]

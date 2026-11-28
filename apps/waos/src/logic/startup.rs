@@ -276,9 +276,11 @@ impl CodeCompiler for EngineCompiler {
 pub(crate) mod tests {
     use std::path::Path;
 
+    use waos_services::packages::AppInMemory;
     use waos_services::permissions::NoPrompts;
 
     use super::*;
+    use crate::logic::test_engine::{self, NoWindows};
     use crate::logic::test_installs;
 
     impl Setup {
@@ -305,10 +307,14 @@ pub(crate) mod tests {
             }
         }
 
-        /// A test's WaOS that keeps everything in memory, with nothing installed, as
+        /// A test's WaOS that keeps everything in memory, with `apps` installed, as
         /// [`Setup::for_tests`] sets it up in `folder`, its tasks on `runtime`.
-        pub(crate) fn in_memory(folder: &Path, runtime: tokio::runtime::Handle) -> Setup {
-            Setup::for_tests(folder, Stores::in_memory(Vec::new()), runtime)
+        pub(crate) fn in_memory(
+            folder: &Path,
+            apps: Vec<AppInMemory>,
+            runtime: tokio::runtime::Handle,
+        ) -> Setup {
+            Setup::for_tests(folder, Stores::in_memory(apps), runtime)
         }
 
         /// A test's WaOS that keeps everything in files in `folder`'s `store`, as
@@ -333,5 +339,14 @@ pub(crate) mod tests {
         })
         .expect("WaOS starts");
         started
+    }
+
+    /// A test's WaOS started as `setup` says, with nobody to ask, its apps running with no
+    /// windows and no screens.
+    pub(crate) fn start_with_no_windows(setup: Setup) -> Started {
+        start_asking_nobody(setup, |_before| {
+            let shell = test_engine::shell(Arc::new(NoWindows));
+            (shell, test_engine::no_screens())
+        })
     }
 }
