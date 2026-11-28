@@ -174,7 +174,8 @@ impl AppStarter {
         }
     }
 
-    /// What each app it started writes, which an attach reads.
+    /// What each app it started writes, which an attach reads; a phone has no dev server yet.
+    #[cfg(desktop)]
     pub(crate) fn outputs(&self) -> &Arc<LaunchOutputs> {
         &self.outputs
     }
