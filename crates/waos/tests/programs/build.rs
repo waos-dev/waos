@@ -8,7 +8,7 @@
 //!   outer build has already brought it up to date.
 //! - That directory and the code folders are in `<target>/test-programs/`, one place whatever build
 //!   runs this script (`cargo test`, `cargo clippy`, another profile), not its `OUT_DIR`, which
-//!   differs between them: so the programs are built once, and CI keeps the folder between runs.
+//!   differs between them: so the programs are built once.
 //!   `waos-cli`'s `tests/new.rs` builds its templates into the same target directory, with the
 //!   same profile settings, so they reuse the SDK and Waft built here.
 //! - A code folder is named by its component's content, so a program built again gets a fresh one

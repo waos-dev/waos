@@ -2,9 +2,8 @@
 #
 # The jobs run side by side, each as short as the slowest piece it holds: on macOS the engine and
 # the command, the app, and the rest of the workspace; on Linux and Windows clippy apart from the
-# tests. Each prepares with `.github/actions/prepare` (files dated by their commits, Rust's cache,
-# the test programs); main's runs save the caches, even when a test fails, and a pull request's
-# only read them.
+# tests. Each prepares with `.github/actions/prepare` (Rust's cache); main's runs save it, even
+# when a test fails, and a pull request's only read it.
 name: CI
 
 on:
@@ -49,32 +48,15 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       - uses: ./.github/actions/prepare
-        id: prepare
-        with:
-          test-programs: "true"
       - name: Tests of the engine and the command
         run: cargo test --no-fail-fast -p waos -p waos-cli
-      # Saved even when a test failed, as actions/cache's "Always save cache" does: the programs
-      # were built all the same.
-      - name: The test programs, for later runs
-        if: always() && github.ref == 'refs/heads/main'
-        uses: actions/cache/save@v4
-        with:
-          path: target/test-programs
-          key: ${{ steps.prepare.outputs.test-programs-key }}
 
   test-app:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       - uses: ./.github/actions/prepare
-        with:
-          test-programs: "true"
       - name: Tests of the app
         run: cargo test --no-fail-fast -p waos-app
 
@@ -82,8 +64,6 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       - uses: ./.github/actions/prepare
       # The examples are programs, built for wasm32-wasip3 by the test programs' build and linted
       # on Linux and Windows; they have no tests, so linking them for macOS here buys nothing.
@@ -110,12 +90,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       - uses: ./.github/actions/linux-packages
       - uses: ./.github/actions/prepare
-        with:
-          test-programs: "true"
       - name: Clippy
         run: cargo clippy --workspace --all-targets
 
@@ -123,13 +99,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       - uses: ./.github/actions/linux-packages
       - uses: ./.github/actions/prepare
-        id: prepare
-        with:
-          test-programs: "true"
       - name: Tests of what runs on Linux today and depends on the system
         run: |
           cargo test --no-fail-fast \
@@ -146,24 +117,12 @@ jobs:
         run: |
           cargo test --no-fail-fast -p waos-app --lib -- \
             headless_entry logic::dev_screenshot logic::dev_resize logic::dev_input logic::command_line
-      # Saved even when a test failed, as actions/cache's "Always save cache" does: the programs
-      # were built all the same.
-      - name: The test programs, for later runs
-        if: always() && github.ref == 'refs/heads/main'
-        uses: actions/cache/save@v4
-        with:
-          path: target/test-programs
-          key: ${{ steps.prepare.outputs.test-programs-key }}
 
   clippy-windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       - uses: ./.github/actions/prepare
-        with:
-          test-programs: "true"
       - name: Clippy
         run: cargo clippy --workspace --all-targets
 
@@ -171,12 +130,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       - uses: ./.github/actions/prepare
-        id: prepare
-        with:
-          test-programs: "true"
       - name: Tests of what runs on Windows today and depends on the system
         shell: bash
         run: |
@@ -189,11 +143,3 @@ jobs:
             -p waos-services \
             -p wasdk \
             -p wasdk-wgpu
-      # Saved even when a test failed, as actions/cache's "Always save cache" does: the programs
-      # were built all the same.
-      - name: The test programs, for later runs
-        if: always() && github.ref == 'refs/heads/main'
-        uses: actions/cache/save@v4
-        with:
-          path: target/test-programs
-          key: ${{ steps.prepare.outputs.test-programs-key }}
