@@ -200,6 +200,8 @@ mod tests {
     use std::future::poll_fn;
     use std::time::Duration;
 
+    use tracing::Level;
+
     use super::*;
 
     async fn write(output: &LaunchOutput, bytes: &[u8]) -> usize {
@@ -333,51 +335,116 @@ mod tests {
         assert_eq!(written, bound, "what was written before the end");
     }
 
-    /// What `tracing` writes while `work` runs on this thread, as text.
-    fn logged(work: impl FnOnce()) -> String {
-        #[derive(Clone, Default)]
-        struct Written(Arc<Mutex<Vec<u8>>>);
-        impl std::io::Write for Written {
-            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-                self.0.lock().unwrap().extend_from_slice(bytes);
-                Ok(bytes.len())
-            }
-            fn flush(&mut self) -> std::io::Result<()> {
-                Ok(())
+    /// The program lines in WaOS's log: this test binary's one `tracing` subscriber, recording
+    /// each event under the engine's `program` target as its level, program and message.
+    ///
+    /// The invariant: it is process-wide, because `tracing` caches whether a line's callsite is
+    /// enabled for every thread, from the first thread to log it; a subscriber of one test's
+    /// thread misses the lines another test logged first. So each test that reads it runs its
+    /// program under a name of its own, and reads only that program's lines.
+    mod program_log {
+        use std::fmt;
+        use std::sync::{Arc, Mutex, OnceLock};
+
+        use tracing::field::{Field, Visit};
+        use tracing::span::{Attributes, Id, Record};
+        use tracing::{Event, Level, Metadata, Subscriber};
+        use waos::targets;
+
+        #[derive(Default)]
+        pub(super) struct ProgramLog {
+            /// Each line's level, program and message, in the order logged.
+            lines: Mutex<Vec<(Level, String, String)>>,
+        }
+
+        /// The log, installed as the global subscriber the first time it is asked for.
+        pub(super) fn program_log() -> &'static ProgramLog {
+            static LOG: OnceLock<Arc<ProgramLog>> = OnceLock::new();
+            LOG.get_or_init(|| {
+                let log = Arc::new(ProgramLog::default());
+                tracing::subscriber::set_global_default(Arc::clone(&log))
+                    .expect("the program log is the first tracing subscriber");
+                log
+            })
+        }
+
+        impl ProgramLog {
+            /// Every line `program` logged so far, with its level, in order.
+            pub(super) fn lines_of(&self, program: &str) -> Vec<(Level, String)> {
+                let lines = self.lines.lock().unwrap();
+                lines
+                    .iter()
+                    .filter(|(_, name, _)| name == program)
+                    .map(|(level, _, message)| (*level, message.clone()))
+                    .collect()
             }
         }
-        let written = Written::default();
-        let kept = written.clone();
-        let subscriber = tracing_subscriber::fmt()
-            .with_writer(move || kept.clone())
-            .with_ansi(false)
-            .finish();
-        tracing::subscriber::with_default(subscriber, work);
-        let bytes = written.0.lock().unwrap().clone();
-        String::from_utf8(bytes).unwrap()
+
+        impl Subscriber for ProgramLog {
+            fn enabled(&self, metadata: &Metadata<'_>) -> bool {
+                metadata.is_event() && metadata.target() == targets::PROGRAM
+            }
+
+            fn new_span(&self, _span: &Attributes<'_>) -> Id {
+                Id::from_u64(1)
+            }
+
+            fn record(&self, _span: &Id, _values: &Record<'_>) {}
+
+            fn record_follows_from(&self, _span: &Id, _follows: &Id) {}
+
+            fn event(&self, event: &Event<'_>) {
+                let mut fields = ProgramLine::default();
+                event.record(&mut fields);
+                if let (Some(program), Some(message)) = (fields.program, fields.message) {
+                    let level = *event.metadata().level();
+                    self.lines.lock().unwrap().push((level, program, message));
+                }
+            }
+
+            fn enter(&self, _span: &Id) {}
+
+            fn exit(&self, _span: &Id) {}
+        }
+
+        /// The two fields of a program's output event.
+        #[derive(Default)]
+        struct ProgramLine {
+            program: Option<String>,
+            message: Option<String>,
+        }
+
+        impl Visit for ProgramLine {
+            fn record_debug(&mut self, field: &Field, value: &dyn fmt::Debug) {
+                match field.name() {
+                    "program" => self.program = Some(format!("{value:?}")),
+                    "message" => self.message = Some(format!("{value:?}")),
+                    _ => {}
+                }
+            }
+        }
     }
 
     #[test]
     fn what_a_program_writes_reaches_the_log_a_line_an_event_attached_or_not() {
-        let log = logged(|| {
-            futures::executor::block_on(async {
-                let launch = LaunchOutput::new("dev.example.notes");
-                write(&launch, b"first li").await;
-                write(&launch, b"ne\nsecond").await;
-                let frames = launch.attach();
-                write(&launch, b" line\n").await;
-                poll_fn(|cx| launch.poll_write(OutputStream::Stderr, cx, b"unended")).await;
-                launch.ended(RunEnd::Stopped);
-                drop(frames);
-            });
+        let log = program_log::program_log();
+        let program = "dev.example.logged-lines";
+        futures::executor::block_on(async {
+            let launch = LaunchOutput::new(program);
+            write(&launch, b"first li").await;
+            write(&launch, b"ne\nsecond").await;
+            let frames = launch.attach();
+            write(&launch, b" line\n").await;
+            poll_fn(|cx| launch.poll_write(OutputStream::Stderr, cx, b"unended")).await;
+            launch.ended(RunEnd::Stopped);
+            drop(frames);
         });
-        let lines: Vec<&str> = log.lines().collect();
-        assert_eq!(lines.len(), 3, "{log}");
-        assert!(lines[0].contains("INFO program: first line "), "{log}");
-        assert!(lines[1].contains("INFO program: second line "), "{log}");
-        assert!(lines[2].contains("WARN program: unended "), "{log}");
-        let named = |line: &&str| line.contains("program=dev.example.notes");
-        assert!(lines.iter().all(named), "{log}");
+        let expected = [
+            (Level::INFO, "first line".to_owned()),
+            (Level::INFO, "second line".to_owned()),
+            (Level::WARN, "unended".to_owned()),
+        ];
+        assert_eq!(log.lines_of(program), expected);
     }
 
     #[test]

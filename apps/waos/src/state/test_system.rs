@@ -6,10 +6,11 @@
 //! on time that stands still, with no windows and nobody to ask. The test plays the host: it
 //! runs the app's tasks, and reports through Waft's client what the system does.
 
-use crate::state::test_turns::{Turn, turn_until, wake_at_end};
+use crate::state::test_turns::{Turn, turn_until, wake_once};
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex, OnceLock};
 use waft::ui::Dispatcher;
 
@@ -250,6 +251,12 @@ impl TestSystem {
             if done() { Turn::Done } else { Turn::Idle }
         });
     }
+
+    /// Runs the app's tasks until the engine says `running` is frozen.
+    pub(crate) fn run_tasks_until_frozen(&self, running: &AppInstance) {
+        let frozen = wake_once(running.frozen(), self.platform.dispatcher());
+        self.run_tasks_until("the app is frozen", || frozen.load(Ordering::Acquire));
+    }
 }
 
 impl Drop for TestSystem {
@@ -292,7 +299,7 @@ pub(crate) fn run_heard(
             }
         }
     });
-    wake_at_end(&running, host);
+    wake_once(running.ended(), host);
     running
 }
 
