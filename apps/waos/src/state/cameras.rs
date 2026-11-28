@@ -498,8 +498,8 @@ mod tests {
         system.install(waos_test_programs::CAMERAS, CAMERAS, "Cameras");
         let id: ProgramId = CAMERAS.parse().unwrap();
         system
-            .store
-            .grants(&id)
+            .permissions
+            .of(&id)
             .set_answer(Question::Camera, Answer::Granted);
         let lines = Arc::new(Lines::default());
         let running = system.run_as(waos_test_programs::CAMERAS, CAMERAS, &lines);
@@ -588,8 +588,8 @@ mod tests {
         system.install(waos_test_programs::CAMERAS, CAMERAS, "Cameras");
         let id: ProgramId = CAMERAS.parse().unwrap();
         system
-            .store
-            .grants(&id)
+            .permissions
+            .of(&id)
             .set_answer(Question::Camera, Answer::Simulated);
         let lines = Arc::new(Lines::default());
         let running = system.run_as(waos_test_programs::CAMERAS, CAMERAS, &lines);

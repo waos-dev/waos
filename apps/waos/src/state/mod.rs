@@ -83,9 +83,9 @@ use waos_local::LocalCapabilities;
 use waos_package::ProgramId;
 use waos_package_manager::PackageManager;
 use waos_program_window::WaftCompositor;
-use waos_store::{SourceProxy, Store};
+use waos_store::SourceProxy;
 
-use crate::logic::app_services::{AppServices, EngineCompiler, open_packages};
+use crate::logic::app_services::{AppServices, Domains, EngineCompiler, open_domains};
 use crate::logic::asking_now::AskingNow;
 use crate::logic::command_line::LibraryPlace;
 #[cfg(desktop)]
@@ -212,11 +212,6 @@ pub(crate) fn start(
     let facts = platform_state(app.platform().as_ref());
     let programs_open = programs_open(place);
     let preferences = own_preferences(place, &folders);
-    let store = Store::open(&folders.store, SourceProxy::System)
-        .with_context(|| format!("opening the store at {}", folders.store.display()))?;
-    if let Err(error) = store.start_sources_with(&library::first_sources()) {
-        tracing::warn!("the sources WaOS comes with are not added: {error}");
-    }
     let package_copies =
         PackageCopies::clear(folders.package_copies.clone()).with_context(|| {
             format!(
@@ -230,12 +225,19 @@ pub(crate) fn start(
     }
     let compiler = Compiler::new(native_unwind_info).context("starting the compiler")?;
     let runs = Arc::new(RunningApps::default());
-    let packages = open_packages(
+    let Domains {
+        packages,
+        permissions,
+        store,
+    } = open_domains(
         &folders.store,
         Arc::new(EngineCompiler(compiler.clone())),
         &runs,
-        store.clone(),
+        SourceProxy::System,
     )?;
+    if let Err(error) = store.start_sources_with(&library::first_sources()) {
+        tracing::warn!("the sources WaOS comes with are not added: {error}");
+    }
     let faces = program_faces(&packages, &folders);
     let (own_windows, requests) = WindowsOnRequest::new(faces.clone());
     let program_apps = program_apps::start(&folders, &packages);
@@ -324,6 +326,7 @@ pub(crate) fn start(
     };
     let inspected = Arc::new(ProgramsOnThisComputer::new(
         store.clone(),
+        permissions.clone(),
         Arc::clone(&packages),
         Arc::clone(&runs),
     ));
@@ -356,12 +359,13 @@ pub(crate) fn start(
         .as_ref()
         .map(|phone_files| phone_files.read(app).home());
     let capabilities = local_capabilities(home);
-    let environments = ProgramEnvironments::new(capabilities, store.clone());
+    let environments = ProgramEnvironments::new(capabilities, permissions.clone(), store.clone());
     // What a tab closed on a phone stops its program among.
     let tabs_runs = Arc::clone(&runs);
     let services = AppServices::new(
         runs,
         Arc::clone(&packages),
+        permissions,
         Arc::clone(&engine),
         environments,
         places,
@@ -373,13 +377,7 @@ pub(crate) fn start(
     #[cfg(desktop)]
     let developer_access = DeveloperAccess::at(folders.developer_access.clone());
     #[cfg(desktop)]
-    listen_for_the_command(
-        app,
-        services.clone(),
-        &store,
-        asking,
-        developer_access.clone(),
-    )?;
+    listen_for_the_command(app, services.clone(), asking, developer_access.clone())?;
     let starts = HeldStarts {
         starter: Arc::clone(&services.starter),
         packages: Arc::clone(&packages),
@@ -498,8 +496,8 @@ pub(crate) fn start(
     Ok(())
 }
 
-/// Listens for `waos` on the socket `waos-dev-protocol` names, installing what it sends into
-/// `store` and launching it on `installed`'s engine with its environments, counted in its runs,
+/// Listens for `waos` on the socket `waos-dev-protocol` names, installing what it sends and
+/// launching it on `installed`'s engine with its environments, counted in its runs,
 /// its code compiled as an install's, and opening files with an installed program as `installed`
 /// opens it, and from computers on the network too while `access` is on; and makes a quit ask
 /// every program in its runs first, stopping the server and keeping the engine's days once they
@@ -509,14 +507,13 @@ pub(crate) fn start(
 fn listen_for_the_command(
     app: &mut App,
     installed: AppServices,
-    store: &Store,
     asking: Arc<AskingNow>,
     access: DeveloperAccess,
 ) -> Result<()> {
     let socket = waos_dev_protocol::listener_path();
     let runs = Arc::clone(&installed.running);
     let engine = Arc::clone(&installed.engine);
-    let server = DevServer::start(installed, store.clone(), asking, &socket, access)
+    let server = DevServer::start(installed, asking, &socket, access)
         .with_context(|| format!("listening for waos at {}", socket.display()))?;
     tracing::info!(socket = %socket.display(), "WaOS listens for waos");
     quitting::ask_programs_before_quitting(app, runs, server, engine);

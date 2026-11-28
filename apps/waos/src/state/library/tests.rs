@@ -21,7 +21,6 @@ use std::time::{Duration, Instant};
 use tempfile::TempDir;
 use waft::{AppCell, Subscription};
 use waos_package::{Manifest, ProgramKind, SigningKey};
-use waos_store::SourceProxy;
 
 use super::test_server::Server;
 use super::*;
@@ -68,13 +67,21 @@ impl TestLibrary {
         let preferences = preferences(folder.path());
         let copies = PackageCopies::clear(folder.path().join("package-copies")).unwrap();
         let runs = Arc::new(RunningApps::default());
-        let store = Store::open(&folder.path().join("store"), SourceProxy::None).unwrap();
-        let packages = test_installs::packages(&folder.path().join("store"), &store, &runs);
+        let crate::logic::app_services::Domains {
+            packages,
+            permissions,
+            store,
+        } = test_installs::domains(&folder.path().join("store"), &runs);
         let services = AppServices::new(
             Arc::clone(&runs),
             packages,
+            permissions.clone(),
             Arc::new(test_engine::engine(Arc::new(NoWindows))),
-            ProgramEnvironments::new(waos_local::LocalCapabilities::new(), store.clone()),
+            ProgramEnvironments::new(
+                waos_local::LocalCapabilities::new(),
+                permissions.clone(),
+                store.clone(),
+            ),
             ProgramPlaces::new(ProgramPlace::Windows),
         );
         let cell = AppCell::new();

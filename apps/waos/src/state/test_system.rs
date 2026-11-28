@@ -25,7 +25,7 @@ use waos::{
 };
 use waos_package::{ProgramId, SigningKey};
 use waos_program_window::WaftCompositor;
-use waos_store::{SourceProxy, Store};
+use waos_store::Store;
 
 use super::cameras::Cameras;
 use super::image_codecs::ImageCodecs;
@@ -60,6 +60,7 @@ pub(crate) struct TestSystem {
     /// The app's notifications as the engine reaches them, for a test to call as the engine does.
     pub(crate) notifications: Option<Arc<dyn ShellNotifications>>,
     pub(crate) store: Store,
+    pub(crate) permissions: waos_permissions::Permissions,
     packages: Arc<waos_package_manager::PackageManager>,
     pub(crate) runs: Arc<RunningApps>,
     pub(crate) library: Entity<Library>,
@@ -81,7 +82,6 @@ impl TestSystem {
     pub(crate) fn new(platform: TestPlatform) -> TestSystem {
         let folder = tempfile::tempdir().unwrap();
         let copies = PackageCopies::clear(folder.path().join("package-copies")).unwrap();
-        let store = Store::open(&folder.path().join("store"), SourceProxy::None).expect("a store");
         let opener = Opener::of(&platform);
         let notifications = Notifications::of(&platform);
         let shell_notifications = notifications.as_ref().map(Notifications::shell);
@@ -114,12 +114,21 @@ impl TestSystem {
             EngineTime::Manual(time.clone()),
         ));
         let runs = Arc::new(RunningApps::default());
-        let packages = test_installs::packages(&folder.path().join("store"), &store, &runs);
+        let crate::logic::app_services::Domains {
+            packages,
+            permissions,
+            store,
+        } = test_installs::domains(&folder.path().join("store"), &runs);
         let services = AppServices::new(
             Arc::clone(&runs),
             Arc::clone(&packages),
+            permissions.clone(),
             Arc::clone(&engine),
-            ProgramEnvironments::new(waos_local::LocalCapabilities::new(), store.clone()),
+            ProgramEnvironments::new(
+                waos_local::LocalCapabilities::new(),
+                permissions.clone(),
+                store.clone(),
+            ),
             ProgramPlaces::new(ProgramPlace::Windows),
         );
         let (served_store, started) = (store.clone(), Rc::new(RefCell::new(None)));
@@ -173,6 +182,7 @@ impl TestSystem {
             engine,
             notifications: shell_notifications,
             store,
+            permissions,
             packages,
             runs,
             library,
@@ -210,7 +220,7 @@ impl TestSystem {
             .named(id.as_str());
         let environment = ProgramEnvironment {
             output: Some(Arc::clone(output) as Arc<dyn ProgramOutput>),
-            grants: Some(self.store.grants(&id)),
+            grants: Some(self.permissions.of(&id)),
             folders: Some(self.store.folders(&id).expect("its folders")),
             ..ProgramEnvironment::default()
         };

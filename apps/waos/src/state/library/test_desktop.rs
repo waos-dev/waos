@@ -39,7 +39,7 @@ use waft_test::{
 };
 use waft_winui::install_icon_font;
 use waos_package::{Category, Manifest, SigningKey};
-use waos_store::{SourceProxy, Store};
+use waos_store::Store;
 
 use super::{Library, ProgramsOpen, open_library, open_settings_when_asked, show_phone_files};
 use crate::logic::app_services::AppServices;
@@ -85,6 +85,8 @@ pub(crate) struct LibraryDesktop {
     platform: Rc<LibraryPlatform>,
     pub(crate) library: Entity<Library>,
     pub(crate) store: Store,
+    /// What the user lets each app use.
+    pub(crate) permissions: waos_permissions::Permissions,
     pub(crate) runs: Arc<RunningApps>,
     /// What the engine asks the user through, for a test to ask as a program does.
     pub(crate) prompts: Arc<PromptsOnRequest>,
@@ -163,9 +165,11 @@ impl LibraryDesktop {
             .then(|| PreferencesFile::at(folder.path().join("preferences.toml")));
         let copies = PackageCopies::clear(folder.path().join("package-copies")).unwrap();
         let runs = Arc::new(RunningApps::default());
-        let store = Store::open(&folder.path().join("store"), SourceProxy::None).expect("a store");
-        let packages =
-            crate::logic::test_installs::packages(&folder.path().join("store"), &store, &runs);
+        let crate::logic::app_services::Domains {
+            packages,
+            permissions,
+            store,
+        } = crate::logic::test_installs::domains(&folder.path().join("store"), &runs);
         let (placement, requests) =
             WindowsOnRequest::new(ProgramFaces::new(Arc::clone(&packages), None));
         let (prompts, prompted) = PromptsOnRequest::new(crate::logic::asking_now::AskingNow::new());
@@ -184,10 +188,12 @@ impl LibraryDesktop {
         let services = AppServices::new(
             Arc::clone(&runs),
             Arc::clone(&packages),
+            permissions.clone(),
             Arc::new(engine),
             ProgramEnvironments::with_audio(
                 waos_local::LocalCapabilities::new(),
                 Some(Arc::new(StatedOutputs)),
+                permissions.clone(),
                 store.clone(),
             ),
             ProgramPlaces::new(ProgramPlace::Windows),
@@ -243,6 +249,7 @@ impl LibraryDesktop {
             platform,
             library,
             store: kept_store,
+            permissions,
             runs,
             prompts,
             output_picker,

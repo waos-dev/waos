@@ -1,12 +1,13 @@
-//! What the user lets programs use: the global settings, which every program follows until the
-//! user sets its own, and one program's own settings, each a [`Setting`] that is the global
-//! default or its own value.
+//! What the user lets apps use: the global settings, which every app follows until the user sets
+//! its own, and one app's own settings, each a [`Setting`] that is the global default or its own
+//! value.
 //!
 //! The global settings start as the design's defaults: the network on for any domain, the local
-//! network off, the clipboard on both ways, nothing mounted, and every question to be asked. A
-//! program's answers to opening links of a scheme of its own are its own alone, with no global
-//! default: each scheme is asked of its user once; and so are the machines its user picked for it,
-//! and the answers its user set for its pickers and file dialogs, given in place of asking.
+//! network off, the clipboard on both ways, nothing mounted, and every question to be asked. An
+//! app's answers to opening links of a scheme of its own are its own alone, with no global
+//! default: each scheme is asked of its user once; and so are its roles, the machines its user
+//! picked for it, and the answers its user set for its pickers and file dialogs, given in place of
+//! asking.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -16,7 +17,7 @@ use waos_capabilities::{
     SimulatedSound,
 };
 
-/// What every program follows until the user sets its own.
+/// What every app follows until the user sets its own.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GlobalSettings {
     pub network: NetworkGrant,
@@ -52,9 +53,9 @@ impl Default for GlobalSettings {
     }
 }
 
-/// One program's own settings, each the global default until the user sets it.
+/// One app's own settings, each the global default until the user sets it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct ProgramSettings {
+pub struct AppSettings {
     pub network: Setting<NetworkGrant>,
     pub local_network: Setting<bool>,
     pub clipboard_read: Setting<bool>,
@@ -146,10 +147,10 @@ impl<T> PerQuestion<T> {
     }
 }
 
-/// What holds for a program whose own settings are `own`, under `global`.
+/// What holds for an app whose own settings are `own`, under `global`.
 pub(crate) struct Holding<'a> {
     pub(crate) global: &'a GlobalSettings,
-    pub(crate) own: &'a ProgramSettings,
+    pub(crate) own: &'a AppSettings,
 }
 
 impl Holding<'_> {
@@ -215,7 +216,7 @@ mod tests {
     #[test]
     fn a_program_follows_the_global_settings_until_it_has_its_own() {
         let global = GlobalSettings::default();
-        let mut own = ProgramSettings::default();
+        let mut own = AppSettings::default();
         let holding = Holding {
             global: &global,
             own: &own,
@@ -242,8 +243,8 @@ mod tests {
     #[test]
     fn a_simulated_microphone_plays_the_tone_unless_silence_is_chosen_for_it_or_every_program() {
         let mut global = GlobalSettings::default();
-        let mut own = ProgramSettings::default();
-        fn holding(global: &GlobalSettings, own: &ProgramSettings) -> SimulatedSound {
+        let mut own = AppSettings::default();
+        fn holding(global: &GlobalSettings, own: &AppSettings) -> SimulatedSound {
             Holding { global, own }.simulated_microphone()
         }
         assert_eq!(holding(&global, &own), SimulatedSound::Tone);
@@ -260,7 +261,7 @@ mod tests {
     #[test]
     fn a_link_scheme_is_asked_until_the_program_has_its_answer() {
         let global = GlobalSettings::default();
-        let mut own = ProgramSettings::default();
+        let mut own = AppSettings::default();
         own.link_schemes
             .insert("zoommtg".to_owned(), Answer::Granted);
         let holding = Holding {
@@ -294,7 +295,7 @@ mod tests {
         global
             .answers
             .set(Question::Notifications, Some(Answer::Granted));
-        let own = ProgramSettings::default();
+        let own = AppSettings::default();
         let holding = Holding {
             global: &global,
             own: &own,

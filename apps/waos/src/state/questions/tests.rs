@@ -23,7 +23,7 @@ use waos::{
     SystemPermission, SystemPermissionState,
 };
 use waos_package::ProgramId;
-use waos_store::Setting;
+use waos_permissions::Setting;
 
 use crate::logic::phone_files::TestPhone;
 use crate::state::library::test_desktop::{DesktopKind, LibraryDesktop};
@@ -108,12 +108,12 @@ fn a_programs_question_is_put_over_its_window_and_the_answer_is_kept() {
         "no window of the question's own"
     );
     desktop.tap(view_of(&window), "Allow");
-    let (store, id) = (
-        desktop.store.clone(),
+    let (permissions, id) = (
+        desktop.permissions.clone(),
         PERMISSIONS.parse::<ProgramId>().unwrap(),
     );
     desktop.settle_until("the answer kept", move |_| {
-        let settings = store.program_settings(&id).unwrap();
+        let settings = permissions.app_settings(&id).unwrap();
         *settings.answers.get(Question::Notifications) == Setting::Own(Answer::Granted)
     });
     assert!(!desktop.shows(asked));
@@ -227,8 +227,8 @@ fn a_waiting_question_is_answered_and_its_panel_closes_when_its_setting_changes(
 
     let id: ProgramId = PERMISSIONS.parse().unwrap();
     desktop
-        .store
-        .change_program_settings(&id, |own| {
+        .permissions
+        .change_app_settings(&id, |own| {
             own.answers
                 .set(Question::Notifications, Setting::Own(Answer::Granted));
         })

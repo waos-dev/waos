@@ -282,7 +282,7 @@ mod tests {
             "Notifications",
         );
         let id: ProgramId = NOTIFICATIONS.parse().unwrap();
-        let grants = system.store.grants(&id);
+        let grants = system.permissions.of(&id);
         grants.set_answer(Question::Notifications, Answer::Granted);
         system
     }

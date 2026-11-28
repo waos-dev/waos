@@ -23,9 +23,9 @@ use waos_package_manager::{
     Caller, CodeCompiler, DevelopmentBuild, InstalledProgram, InstalledVersion, PackageContent,
     PackageManager,
 };
-use waos_store::Store;
+use waos_store::SourceProxy;
 
-use super::app_services;
+use super::app_services::{self, Domains};
 use super::running_apps::RunningApps;
 
 /// The smallest component, as text, which the engine compiles as it does a binary: what a test
@@ -99,26 +99,28 @@ impl CodeCompiler for MarkerCompiler {
     }
 }
 
-/// A test's package manager over the store `store` in `folder`, for apps it never runs.
-pub(crate) fn packages_never_run(folder: &Path, store: &Store) -> Arc<PackageManager> {
+/// A test's domains over `folder`, the store's directory, as WaOS opens them, for apps it never
+/// runs.
+pub(crate) fn domains_never_run(folder: &Path) -> Domains {
     let running = Arc::new(RunningApps::default());
-    app_services::open_packages(folder, Arc::new(MarkerCompiler), &running, store.clone())
-        .expect("the package manager opens")
+    app_services::open_domains(
+        folder,
+        Arc::new(MarkerCompiler),
+        &running,
+        SourceProxy::None,
+    )
+    .expect("the domains open")
 }
 
-/// A test's package manager over the store `store` in `folder`, compiling once per content with
-/// a compiler set up as the tests' engines are, so they map its code, stopping apps among
-/// `running`.
-pub(crate) fn packages(
-    folder: &Path,
-    store: &Store,
-    running: &Arc<RunningApps>,
-) -> Arc<PackageManager> {
+/// A test's domains over `folder`, the store's directory, as WaOS opens them, its package manager
+/// compiling once per content with a compiler set up as the tests' engines are, so they map its
+/// code, stopping apps among `running`.
+pub(crate) fn domains(folder: &Path, running: &Arc<RunningApps>) -> Domains {
     static COMPILER: OnceLock<Compiler> = OnceLock::new();
     let compiler = COMPILER.get_or_init(|| Compiler::new(false).expect("a compiler"));
     let compiler = Arc::new(TestCompiler(compiler.clone()));
-    app_services::open_packages(folder, compiler, running, store.clone())
-        .expect("the package manager opens")
+    app_services::open_domains(folder, compiler, running, SourceProxy::None)
+        .expect("the domains open")
 }
 
 /// Installs the package at `file` with `packages`, for the user, and waits until it is installed,

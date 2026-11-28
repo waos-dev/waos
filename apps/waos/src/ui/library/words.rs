@@ -196,9 +196,9 @@ pub(crate) fn permission_value(permission: Permission, shown: &ShownSettings) ->
             let network = &shown.network.value;
             match (network.on, &network.domains) {
                 (false, _) => DONT_ALLOW,
-                (true, waos_store::DomainRule::Any) => ALLOW,
-                (true, waos_store::DomainRule::Only(_)) => "Only some domains",
-                (true, waos_store::DomainRule::AnyBut(_)) => "All but some domains",
+                (true, waos_permissions::DomainRule::Any) => ALLOW,
+                (true, waos_permissions::DomainRule::Only(_)) => "Only some domains",
+                (true, waos_permissions::DomainRule::AnyBut(_)) => "All but some domains",
             }
         }
         Permission::LocalNetwork => allowed(shown.local_network.value),
@@ -230,12 +230,12 @@ pub(crate) fn permission_value(permission: Permission, shown: &ShownSettings) ->
 }
 
 /// A question's answer, in a word: Ask where there is none.
-pub(crate) fn answer_said(answer: Option<waos_store::Answer>) -> &'static str {
+pub(crate) fn answer_said(answer: Option<waos_permissions::Answer>) -> &'static str {
     match answer {
         None => ASK,
-        Some(waos_store::Answer::Granted) => ALLOW,
-        Some(waos_store::Answer::Denied) => DONT_ALLOW,
-        Some(waos_store::Answer::Simulated) => SIMULATED,
+        Some(waos_permissions::Answer::Granted) => ALLOW,
+        Some(waos_permissions::Answer::Denied) => DONT_ALLOW,
+        Some(waos_permissions::Answer::Simulated) => SIMULATED,
     }
 }
 pub(crate) const GLOBAL_SETTINGS: &str = "Every app's settings";
@@ -413,11 +413,11 @@ pub(crate) fn how_many(count: usize, one: &str, many: &str) -> String {
 }
 
 /// What a program's question to its user is about, as its setting names it.
-pub(crate) fn question_name(question: waos_store::Question) -> &'static str {
+pub(crate) fn question_name(question: waos_permissions::Question) -> &'static str {
     match question {
-        waos_store::Question::Notifications => "Notifications",
-        waos_store::Question::Camera => "Camera",
-        waos_store::Question::Microphone => "Microphone",
+        waos_permissions::Question::Notifications => "Notifications",
+        waos_permissions::Question::Camera => "Camera",
+        waos_permissions::Question::Microphone => "Microphone",
     }
 }
 
@@ -465,23 +465,23 @@ pub(crate) fn not_offered(name: &str) -> String {
 }
 
 /// The answer a program was given to opening links of `scheme`.
-pub(crate) fn link_scheme(scheme: &str, answer: waos_store::Answer) -> String {
+pub(crate) fn link_scheme(scheme: &str, answer: waos_permissions::Answer) -> String {
     let given = match answer {
-        waos_store::Answer::Granted => ALLOW,
-        waos_store::Answer::Denied => DONT_ALLOW,
-        waos_store::Answer::Simulated => SIMULATED,
+        waos_permissions::Answer::Granted => ALLOW,
+        waos_permissions::Answer::Denied => DONT_ALLOW,
+        waos_permissions::Answer::Simulated => SIMULATED,
     };
     format!("{scheme} links: {given}")
 }
 
 /// The answer a program was given to holding `role`.
-pub(crate) fn role(role: waos_store::Role, answer: waos_store::Answer) -> String {
+pub(crate) fn role(role: waos_permissions::Role, answer: waos_permissions::Answer) -> String {
     let what = match role {
-        waos_store::Role::Inspector => "See what other apps do",
+        waos_permissions::Role::Inspector => "See what other apps do",
     };
     let given = match answer {
-        waos_store::Answer::Granted => ALLOW,
-        waos_store::Answer::Denied | waos_store::Answer::Simulated => DONT_ALLOW,
+        waos_permissions::Answer::Granted => ALLOW,
+        waos_permissions::Answer::Denied | waos_permissions::Answer::Simulated => DONT_ALLOW,
     };
     format!("{what}: {given}")
 }

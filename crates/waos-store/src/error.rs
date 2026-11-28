@@ -19,8 +19,6 @@ pub enum StoreError {
     Io { path: PathBuf, error: io::Error },
     /// The file at `path` is not as the store writes it: changed by hand, or damaged.
     Unreadable { path: PathBuf, reason: String },
-    /// No app of this id is installed, or run in development.
-    NotInstalled(ProgramId),
     /// The source is not among the sources added.
     NotAdded(Source),
     /// The HTTP client the store reads sources with could not start, in its words.
@@ -53,7 +51,6 @@ impl fmt::Display for StoreError {
             StoreError::Unreadable { path, reason } => {
                 write!(f, "{} is not as WaOS wrote it: {reason}", path.display())
             }
-            StoreError::NotInstalled(id) => write!(f, "no program {id} is installed"),
             StoreError::NotAdded(source) => write!(f, "{source} is not one of the sources"),
             StoreError::Http(error) => {
                 write!(f, "the HTTP client could not start: {}", with_causes(error))

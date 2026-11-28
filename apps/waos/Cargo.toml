@@ -20,6 +20,8 @@ waos.workspace = true
 waos-local.workspace = true
 waos-store.workspace = true
 waos-package-manager.workspace = true
+# What the user lets each app use, and the questions asked of the user now.
+waos-permissions.workspace = true
 # What a program did over the days kept of it, in the words its settings page says it in.
 waos-activity.workspace = true
 # The packages a source lists and the system opens with WaOS, as the store reads them.

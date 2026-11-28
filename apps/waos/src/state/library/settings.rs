@@ -201,16 +201,15 @@ impl Library {
 
     /// The settings `of` shows; why not, when they cannot be read.
     pub(crate) fn settings(&self, of: &SettingsOf) -> Result<ShownSettings, String> {
-        let global = self
-            .store
+        let permissions = &self.services.permissions;
+        let global = permissions
             .global_settings()
             .map_err(|error| format!("{error}"))?;
         match of {
             SettingsOf::Global => Ok(global_page(&global)),
             SettingsOf::Program(id) => {
-                let own = self
-                    .store
-                    .program_settings(id)
+                let own = permissions
+                    .app_settings(id)
                     .map_err(|error| format!("{error}"))?;
                 Ok(program_page(&global, &own, &self.offered))
             }
@@ -235,12 +234,13 @@ impl Library {
         cx: &mut Context<Library>,
     ) {
         let mut refused = None;
+        let permissions = &self.services.permissions;
         let changed = match of {
-            SettingsOf::Global => self.store.change_global_settings(|global| {
+            SettingsOf::Global => permissions.change_global_settings(|global| {
                 refused = change_global(global, change).err();
             }),
-            SettingsOf::Program(id) => match self.store.global_settings() {
-                Ok(global) => self.store.change_program_settings(id, |own| {
+            SettingsOf::Program(id) => match permissions.global_settings() {
+                Ok(global) => permissions.change_app_settings(id, |own| {
                     refused = change_program(own, &global, change).err();
                 }),
                 Err(error) => Err(error),
@@ -402,10 +402,11 @@ fn take_settings_requests(
 
 /// The library notifies at each change of the settings, so a page shows the change.
 fn notify_settings_changes(app: &mut App, library: &Entity<Library>) {
-    let (watched, store) = (library.downgrade(), library.read(app).store.clone());
+    let watched = library.downgrade();
+    let permissions = library.read(app).services.permissions.clone();
     app.spawn(async move |cx| {
         loop {
-            store.settings_changed().await;
+            permissions.changed().await;
             let Some(library) = watched.upgrade() else {
                 break;
             };

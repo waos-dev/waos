@@ -39,6 +39,7 @@ waos-cli = { version = "0.8.1", path = "crates/waos-cli" }
 waos-wit-serialize = { version = "0.8.1", path = "crates/waos-wit-serialize" }
 waos-activity = { version = "0.8.1", path = "crates/waos-activity" }
 waos-package-manager = { path = "crates/waos-package-manager" }
+waos-permissions = { path = "crates/waos-permissions" }
 waos-store = { path = "crates/waos-store" }
 waos-program-window = { path = "crates/waos-program-window" }
 waos-headless = { path = "crates/waos-headless" }

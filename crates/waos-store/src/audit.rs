@@ -3,7 +3,7 @@
 //! [`DAYS_KEPT`] removed as a new one is kept, and all of a program's with the program.
 //!
 //! A program whose record is off, by its own setting or the global one, has none kept, and what was
-//! kept of it is removed as the setting changes.
+//! kept of it is removed as the setting changes, which the store follows on a thread of its own.
 //!
 //! The invariant: a day is kept only for a program the store has a folder of and keeps a record
 //! of, under the store's lock, so a program removed, or turned off, is never kept again by a run of
@@ -16,8 +16,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tracing::warn;
 use waos_capabilities::{AuditDay, AuditLog, DAYS_KEPT};
 
+use crate::StoreError;
 use crate::files::write_whole;
-use crate::settings::Holding;
 use crate::store::Store;
 
 /// The folder of the audit summaries, in the store's directory.
@@ -82,30 +82,47 @@ impl Store {
     }
 
     /// Whether a record is kept of `program`, by its own setting or the global one; by the global
-    /// one for a name that is no program's the store keeps settings for.
+    /// one for a name that is no app's id.
     fn keeps_record_of(&self, program: &str) -> bool {
-        let global = match self.global_settings() {
-            Ok(global) => global,
-            Err(error) => {
-                warn!(%error, "no record is kept while the settings cannot be read");
-                return false;
-            }
-        };
-        let own = program
-            .parse()
-            .ok()
-            .and_then(|id| self.program_settings(&id).ok())
-            .unwrap_or_default();
-        Holding {
-            global: &global,
-            own: &own,
+        match program.parse() {
+            Ok(id) => self.permissions().of(&id).keeps_record(),
+            Err(_) => match self.permissions().global_settings() {
+                Ok(global) => global.record,
+                Err(error) => {
+                    warn!(%error, "no record is kept while the settings cannot be read");
+                    false
+                }
+            },
         }
-        .keeps_record()
     }
 
-    /// Removes what was kept of every program whose record is off now: after a change of the
-    /// settings, under the store's lock.
-    pub(crate) fn forget_unrecorded_days(&self) {
+    /// Removes what was kept of each app whose record the user turns off, as the settings change,
+    /// on a thread that ends with the store.
+    pub(crate) fn follow_settings(&self) -> Result<(), StoreError> {
+        let (followed, changes) = (self.downgrade(), self.permissions().clone());
+        let started = std::thread::Builder::new()
+            .name("activity-settings".to_owned())
+            .spawn(move || {
+                loop {
+                    // Asked for before the sweep, so a change during it is heard.
+                    let changed = changes.changed();
+                    let Some(store) = Store::upgrade(&followed) else {
+                        return;
+                    };
+                    let _changing = store.lock_changes();
+                    store.forget_unrecorded_days();
+                    drop(_changing);
+                    drop(store);
+                    futures::executor::block_on(changed);
+                }
+            });
+        started
+            .map(drop)
+            .map_err(StoreError::io_at(self.directory()))
+    }
+
+    /// Removes what was kept of every program whose record is off now, under the store's lock.
+    fn forget_unrecorded_days(&self) {
         let Ok(kept) = fs::read_dir(self.directory().join(AUDIT)) else {
             return;
         };
@@ -234,9 +251,37 @@ fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
 mod tests {
     use waos_capabilities::Uses;
 
+    use waos_capabilities::Setting;
+    use waos_permissions::{NothingInstalled, Permissions, SettingsFiles};
+
     use super::*;
     use crate::SourceProxy;
-    use waos_capabilities::Setting;
+
+    /// The store in `directory`, recording as the settings files there say.
+    fn open_store(directory: &Path) -> Store {
+        open_with_permissions(directory).0
+    }
+
+    /// The store in `directory`, and the permissions it records as.
+    fn open_with_permissions(directory: &Path) -> (Store, Permissions) {
+        let settings = std::sync::Arc::new(SettingsFiles::new(directory));
+        let permissions = Permissions::open(settings, &NothingInstalled);
+        let store = Store::open(directory, SourceProxy::None, permissions.clone()).unwrap();
+        (store, permissions)
+    }
+
+    /// Whether `done` holds within a moment: what the store's thread follows lands after the
+    /// change that it follows.
+    fn soon(done: impl Fn() -> bool) -> bool {
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while !done() {
+            if std::time::Instant::now() > deadline {
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        true
+    }
 
     fn day(days_since_epoch: u64) -> AuditDay {
         let mut day = AuditDay::starting(UNIX_EPOCH + Duration::from_secs(days_since_epoch * DAY));
@@ -259,7 +304,7 @@ mod tests {
     #[test]
     fn a_programs_last_seven_days_are_kept_newest_first_and_go_with_it() {
         let directory = tempfile::tempdir().unwrap();
-        let store = Store::open(directory.path(), SourceProxy::None).unwrap();
+        let store = open_store(directory.path());
         let id = "dev.waos.notes".parse().unwrap();
         store.folders(&id).unwrap();
 
@@ -298,7 +343,7 @@ mod tests {
     #[test]
     fn a_program_whose_record_is_off_has_nothing_kept_and_what_was_is_removed() {
         let directory = tempfile::tempdir().unwrap();
-        let store = Store::open(directory.path(), SourceProxy::None).unwrap();
+        let (store, permissions) = open_with_permissions(directory.path());
         let (notes, camera) = (
             "dev.waos.notes".parse().unwrap(),
             "dev.waos.camera".parse().unwrap(),
@@ -307,11 +352,11 @@ mod tests {
         store.folders(&camera).unwrap();
         store.keep("dev.waos.notes", &day(20_400));
         store.keep("dev.waos.camera", &day(20_400));
-        store
-            .change_program_settings(&notes, |own| own.record = Setting::Own(false))
+        permissions
+            .change_app_settings(&notes, |own| own.record = Setting::Own(false))
             .unwrap();
         assert!(
-            store.days("dev.waos.notes").is_empty(),
+            soon(|| store.days("dev.waos.notes").is_empty()),
             "removed as it is turned off"
         );
         store.keep("dev.waos.notes", &day(20_401));
@@ -321,14 +366,14 @@ mod tests {
         );
         assert_eq!(store.days("dev.waos.camera").len(), 1, "another's stays");
 
-        store
-            .change_program_settings(&notes, |own| own.record = Setting::Own(true))
+        permissions
+            .change_app_settings(&notes, |own| own.record = Setting::Own(true))
             .unwrap();
-        store
+        permissions
             .change_global_settings(|global| global.record = false)
             .unwrap();
         assert!(
-            store.days("dev.waos.camera").is_empty(),
+            soon(|| store.days("dev.waos.camera").is_empty()),
             "off for every program that follows"
         );
         store.keep("dev.waos.notes", &day(20_402));
@@ -342,7 +387,7 @@ mod tests {
     #[test]
     fn a_name_that_is_no_one_folders_keeps_nothing() {
         let directory = tempfile::tempdir().unwrap();
-        let store = Store::open(directory.path(), SourceProxy::None).unwrap();
+        let store = open_store(directory.path());
         store.keep("../elsewhere", &day(20_400));
         assert!(!directory.path().join("elsewhere").exists());
         assert!(store.days("../elsewhere").is_empty());

@@ -10,10 +10,10 @@ use waos::{
     Question, ShellSystemPermissions, SystemPermissionState,
 };
 use waos_package::ProgramId;
-use waos_store::{SourceProxy, Store};
 use waos_window_messages::{FromWindow, LaunchReason, PermissionRequestId, PostId, ToWindow};
 
 use super::*;
+use crate::logic::app_services::Domains;
 use crate::logic::notification_permissions::NotificationPermissionReading;
 use crate::logic::program_apps::app_reach::LaunchAttempt;
 use crate::logic::program_apps::app_reach::tests::Launches;
@@ -23,6 +23,7 @@ use crate::logic::program_apps::window_process::tests::{
     Printed, Served, next, next_wanted, window_process_keeping,
 };
 use crate::logic::test_engine::{self, NoWindows, WITHIN};
+use crate::logic::test_installs;
 
 /// The id notifications runs under, as an installed program's.
 const NOTIFICATIONS: &str = "dev.example.notifications";
@@ -38,7 +39,7 @@ fn notifications_id() -> ProgramId {
 fn notifications_through(
     reach: &Arc<AppReach>,
     permissions: &NotificationPermissions,
-    store: &Store,
+    store: &Domains,
     printed: &Arc<Printed>,
 ) -> RunningProgram {
     let mut shell = test_engine::shell(Arc::new(NoWindows), Arc::new(NoPrompts));
@@ -57,9 +58,10 @@ fn notifications_through(
         .expect("notifications loads")
         .named(NOTIFICATIONS);
     store
+        .store
         .folders(&notifications_id())
         .expect("its folders, as at its first run");
-    let grants = store.grants(&notifications_id());
+    let grants = store.permissions.of(&notifications_id());
     grants.set_answer(Question::Notifications, Answer::Granted);
     let environment = ProgramEnvironment {
         output: Some(Arc::clone(printed) as Arc<dyn ProgramOutput>),
@@ -82,11 +84,11 @@ async fn next_said(
         .expect("what it said")
 }
 
-/// A store in a folder of the test's own, kept as long as the folder.
-fn store() -> (tempfile::TempDir, Store) {
+/// The store and the permissions in a folder of the test's own, kept as long as the folder.
+fn store() -> (tempfile::TempDir, Domains) {
     let folder = tempfile::tempdir().unwrap();
-    let store = Store::open(&folder.path().join("store"), SourceProxy::None).expect("a store");
-    (folder, store)
+    let domains = test_installs::domains_never_run(&folder.path().join("store"));
+    (folder, domains)
 }
 
 /// The notification the app is asked to post next: the id its answer names, the notification, and
@@ -298,7 +300,8 @@ async fn what_macos_says_reads_as_the_programs_permission_and_its_page_hears_it(
     );
     assert_eq!(
         store
-            .grants(&notifications_id())
+            .permissions
+            .of(&notifications_id())
             .answer(Question::Notifications),
         Some(Answer::Granted),
         "WaOS's own answer is kept"

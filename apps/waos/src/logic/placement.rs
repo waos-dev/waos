@@ -67,19 +67,13 @@ pub(crate) mod tests {
 
     use futures::StreamExt;
     use waos::{ProgramEnd, ProgramEnvironment, WaOS};
-    use waos_store::Store;
 
     use super::*;
     use crate::logic::test_engine::{self, WITHIN};
 
-    /// A store with nothing installed, in `folder`.
-    pub(crate) fn store_in(folder: &Path) -> Store {
-        Store::open(&folder.join("store"), waos_store::SourceProxy::None).expect("a store")
-    }
-
     /// The package manager of a store with nothing installed, in `folder`, for apps never run.
     pub(crate) fn packages_in(folder: &Path) -> Arc<waos_package_manager::PackageManager> {
-        crate::logic::test_installs::packages_never_run(&folder.join("store"), &store_in(folder))
+        crate::logic::test_installs::domains_never_run(&folder.join("store")).packages
     }
 
     /// Runs survey, which asks for a view as it starts, on `engine`.

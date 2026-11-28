@@ -46,7 +46,6 @@ use waft_winui::install_icon_font;
 use waos::{ProgramEnd, ProgramView, ViewPlacement};
 use waos_package::{ProgramId, SigningKey};
 use waos_program_window::{ProgramCanvas, WindowRestoration};
-use waos_store::{SourceProxy, Store};
 
 use super::tabs::{TabContent, TabStage, Tabs};
 use crate::logic::app_services::AppServices;
@@ -250,9 +249,11 @@ impl TestPhone {
         let folder = tempfile::tempdir().unwrap();
         let copies = PackageCopies::clear(folder.path().join("package-copies")).unwrap();
         let runs = Arc::new(RunningApps::default());
-        let store = Store::open(&folder.path().join("store"), SourceProxy::None).expect("a store");
-        let packages =
-            crate::logic::test_installs::packages(&folder.path().join("store"), &store, &runs);
+        let crate::logic::app_services::Domains {
+            packages,
+            permissions,
+            store,
+        } = crate::logic::test_installs::domains(&folder.path().join("store"), &runs);
         let (own_windows, requests) =
             WindowsOnRequest::new(ProgramFaces::new(Arc::clone(&packages), None));
         let (usual, windows, programs_open): (_, Arc<dyn ViewPlacement>, _) = match kind {
@@ -280,8 +281,13 @@ impl TestPhone {
         let services = AppServices::new(
             Arc::clone(&runs),
             Arc::clone(&packages),
+            permissions.clone(),
             Arc::clone(&engine),
-            ProgramEnvironments::new(waos_local::LocalCapabilities::new(), store.clone()),
+            ProgramEnvironments::new(
+                waos_local::LocalCapabilities::new(),
+                permissions.clone(),
+                store.clone(),
+            ),
             places,
         );
         let screen = Rc::new(PhoneScreen::new());

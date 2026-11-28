@@ -17,9 +17,9 @@ use std::path::{Component, Path, PathBuf};
 use waos::SimulatedSound;
 use waos::{AudioOutput, FileDialog, MachineChoice, file_dialog_answer_refusal, machine_paths};
 use waos_package::ProgramId;
-use waos_store::{
-    Answer, AnswerWith, Domain, DomainRule, FileSystemGrant, GlobalSettings, Mount, NetworkGrant,
-    PerQuestion, ProgramSettings, Question, Role, Setting,
+use waos_permissions::{
+    Answer, AnswerWith, AppSettings, Domain, DomainRule, FileSystemGrant, GlobalSettings, Mount,
+    NetworkGrant, PerQuestion, Question, Role, Setting,
 };
 
 /// Whose settings a page shows.
@@ -188,7 +188,7 @@ impl<T> Shown<T> {
 /// `offered` names them, by their ids where nothing offers them now.
 pub(crate) fn program_page(
     global: &GlobalSettings,
-    own: &ProgramSettings,
+    own: &AppSettings,
     offered: &Offered,
 ) -> ShownSettings {
     let answer = |question: Question| match own.answers.get(question) {
@@ -316,7 +316,7 @@ pub(crate) fn change_global(
 /// Makes `change` to a program's own settings `own`, a setting that follows `global` starting
 /// from the global value; text that names nothing is refused with why.
 pub(crate) fn change_program(
-    own: &mut ProgramSettings,
+    own: &mut AppSettings,
     global: &GlobalSettings,
     change: SettingChange,
 ) -> Result<(), String> {
@@ -392,7 +392,7 @@ pub(crate) fn change_program(
 
 /// The program's answer to opening links of `scheme` set to `answer`, or forgotten, to be asked
 /// again.
-fn set_link_scheme(own: &mut ProgramSettings, scheme: String, answer: Option<Answer>) {
+fn set_link_scheme(own: &mut AppSettings, scheme: String, answer: Option<Answer>) {
     let scheme = scheme.trim().to_ascii_lowercase();
     match answer {
         Some(answer) => {
@@ -452,7 +452,7 @@ fn own_changed<T: Clone>(
     Ok(Setting::Own(value))
 }
 
-fn follow_global(own: &mut ProgramSettings, which: Which) {
+fn follow_global(own: &mut AppSettings, which: Which) {
     match which {
         Which::Network => own.network = Setting::Global,
         Which::LocalNetwork => own.local_network = Setting::Global,
@@ -588,7 +588,7 @@ mod tests {
     fn a_programs_setting_follows_the_global_one_until_changed_and_then_starts_from_it() {
         let mut global = GlobalSettings::default();
         global.network.domains = DomainRule::Only(vec![domain("example.com")]);
-        let mut own = ProgramSettings::default();
+        let mut own = AppSettings::default();
         let page = program_page(&global, &own, &Offered::default());
         assert!(page.network.follows_global);
         assert_eq!(page.network.value, global.network);
@@ -622,7 +622,7 @@ mod tests {
     #[test]
     fn the_local_network_is_off_until_turned_on_and_a_program_follows_the_global_switch() {
         let mut global = GlobalSettings::default();
-        let mut own = ProgramSettings::default();
+        let mut own = AppSettings::default();
         assert!(!global_page(&global).local_network.value, "off by default");
         change_global(&mut global, SettingChange::LocalNetwork(true)).unwrap();
         let page = program_page(&global, &own, &Offered::default());
@@ -702,9 +702,9 @@ mod tests {
     #[test]
     fn a_programs_machines_are_shown_by_their_names_and_removed_by_their_ids() {
         let global = GlobalSettings::default();
-        let mut own = ProgramSettings {
+        let mut own = AppSettings {
             machines: vec!["this-computer".to_owned(), "gone.example.com".to_owned()],
-            ..ProgramSettings::default()
+            ..AppSettings::default()
         };
         let offered = Offered {
             machines: vec![MachineChoice {
@@ -729,7 +729,7 @@ mod tests {
     #[test]
     fn a_programs_pickers_answer_what_its_page_set_named_as_offered_and_by_id_when_not() {
         let global = GlobalSettings::default();
-        let mut own = ProgramSettings::default();
+        let mut own = AppSettings::default();
         let offered = Offered {
             machines: vec![MachineChoice {
                 id: "this-computer".to_owned(),
@@ -784,7 +784,7 @@ mod tests {
         std::fs::write(&model, "glTF").unwrap();
         let typed = |path: &Path| path.display().to_string();
         let global = GlobalSettings::default();
-        let mut own = ProgramSettings::default();
+        let mut own = AppSettings::default();
         let open = SettingChange::FileDialogAnswer(FileDialog::OpenFile, vec![typed(&model)]);
         change_program(&mut own, &global, open).unwrap();
         assert_eq!(own.answer_with.open_file.as_deref(), Some(model.as_path()));
@@ -831,7 +831,7 @@ mod tests {
         std::fs::write(&a, "a").unwrap();
         std::fs::write(&b, "b").unwrap();
         let global = GlobalSettings::default();
-        let mut own = ProgramSettings::default();
+        let mut own = AppSettings::default();
         for path in [&a, &b, &a] {
             let add = SettingChange::AddFileToOpen(path.display().to_string());
             change_program(&mut own, &global, add).unwrap();
@@ -849,7 +849,7 @@ mod tests {
     #[test]
     fn a_link_scheme_answered_is_shown_and_forgotten_to_be_asked_again() {
         let global = GlobalSettings::default();
-        let mut own = ProgramSettings::default();
+        let mut own = AppSettings::default();
         let allow = SettingChange::LinkScheme("ZoomMtg".to_owned(), Some(Answer::Granted));
         change_program(&mut own, &global, allow).unwrap();
         let page = program_page(&global, &own, &Offered::default());
@@ -862,7 +862,7 @@ mod tests {
     #[test]
     fn a_role_answered_is_shown_and_forgotten_to_be_asked_again_never_simulated() {
         let global = GlobalSettings::default();
-        let mut own = ProgramSettings::default();
+        let mut own = AppSettings::default();
         let allow = SettingChange::Role(Role::Inspector, Some(Answer::Granted));
         change_program(&mut own, &global, allow).unwrap();
         let page = program_page(&global, &own, &Offered::default());
@@ -883,7 +883,7 @@ mod tests {
         assert!(why.contains("only the camera and the microphone"), "{why}");
         assert_eq!(global.answers.notifications, None, "unchanged");
 
-        let mut own = ProgramSettings::default();
+        let mut own = AppSettings::default();
         change_program(&mut own, &global, simulate(Question::Microphone)).unwrap();
         let silent = SettingChange::SimulatedMicrophone(SimulatedSound::Silence);
         change_program(&mut own, &global, silent).unwrap();
@@ -930,7 +930,7 @@ mod tests {
             SettingChange::Answer(Question::Camera, Some(Answer::Denied)),
         )
         .unwrap();
-        let mut own = ProgramSettings::default();
+        let mut own = AppSettings::default();
         let page = program_page(&global, &own, &Offered::default());
         assert_eq!(page.answers.camera.value, Some(Answer::Denied));
         assert!(page.answers.camera.follows_global);

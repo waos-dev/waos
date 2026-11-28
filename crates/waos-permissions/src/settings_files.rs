@@ -1,12 +1,12 @@
-//! The settings kept as TOML: the global ones in `settings.toml` at the store's top, and each
-//! program's own in `settings.toml` in its folder, beside its install. Both have the same keys;
-//! a key missing from the global file is the default, and one missing from a program's file
-//! follows the global setting:
+//! The settings kept as TOML files in a directory ([`SettingsFiles`]): the global ones in
+//! `settings.toml` at its top, and each app's own in `programs/<id>/settings.toml`, in the app's
+//! folder, beside its install. Both have the same keys; a key missing from the global file is the
+//! default, and one missing from an app's file follows the global setting:
 //!
 //! ```toml
 //! clipboard-read = true
 //! clipboard-write = false
-//! record = true                             # a record of what the program does, its audit summary
+//! record = true                             # a record of what the app does, its audit summary
 //!
 //! [network]
 //! on = true
@@ -24,13 +24,13 @@
 //! [simulated]
 //! microphone = "tone"                       # or "silence": what a simulated microphone records
 //!
-//! [link-schemes]                            # a program's own alone
+//! [link-schemes]                            # an app's own alone
 //! zoommtg = "granted"                       # or "denied"; missing to ask
 //!
-//! [roles]                                   # a program's own alone
+//! [roles]                                   # an app's own alone
 //! inspector = "granted"                     # or "denied"; missing to ask at its next start
 //!
-//! [answer-with]                             # a program's own alone; each missing to ask
+//! [answer-with]                             # an app's own alone; each missing to ask
 //! machine = "this-computer"                 # a machine's id
 //! audio-output = "BuiltInSpeakerDevice"     # a sound output's id
 //! open-file = "/Users/me/model.glb"
@@ -39,26 +39,114 @@
 //! save-file = "/tmp/out.pdf"
 //! ```
 //!
-//! A program's `mounts = []` is its own list, empty: no folder, whatever the global ones are. The
-//! global file has no `link-schemes`: a program's user answers each scheme for it; nor `roles`,
-//! which its user grants each program by name; nor
-//! `machines = ["this-computer"]`, a program's own list of the machines its user picked for it;
-//! nor `answer-with`, the answers its user set for its pickers and file dialogs.
+//! An app's `mounts = []` is its own list, empty: no folder, whatever the global ones are. The
+//! global file has no `link-schemes`: an app's user answers each scheme for it; nor `roles`,
+//! which its user grants each app by name; nor `machines = ["this-computer"]`, an app's own list
+//! of the machines its user picked for it; nor `answer-with`, the answers its user set for its
+//! pickers and file dialogs.
+//!
+//! The invariant a later editor will break: these are the files and the places WaOS has always
+//! kept the settings in, which people have; a change of a key or a place loses what they set.
 
 use std::collections::BTreeMap;
+use std::fmt;
 use std::fs;
-use std::io::ErrorKind;
+use std::io::{self, ErrorKind, Write};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+use tempfile::NamedTempFile;
 use waos_capabilities::{
     Answer, Domain, DomainRule, FileSystemGrant, Mount, NetworkGrant, Question, Role, Setting,
     SimulatedSound,
 };
+use waos_package::ProgramId;
 
-use crate::StoreError;
-use crate::files::write_whole;
-use crate::settings::{AnswerWith, GlobalSettings, PerQuestion, ProgramSettings};
+use crate::SettingsStore;
+use crate::settings::{AnswerWith, AppSettings, GlobalSettings, PerQuestion};
+
+/// The file of settings, at the directory's top for the global ones and in an app's folder for
+/// its own.
+const SETTINGS: &str = "settings.toml";
+
+/// The folder of the apps' folders, in the directory.
+const PROGRAMS: &str = "programs";
+
+/// The settings as files in a directory, WaOS's own: the one the package manager keeps the apps
+/// in, each app's settings in its folder.
+pub struct SettingsFiles {
+    directory: PathBuf,
+}
+
+impl SettingsFiles {
+    /// The settings in `directory`.
+    pub fn new(directory: &Path) -> SettingsFiles {
+        SettingsFiles {
+            directory: directory.to_path_buf(),
+        }
+    }
+
+    fn global_path(&self) -> PathBuf {
+        self.directory.join(SETTINGS)
+    }
+
+    fn app_folder(&self, app: &ProgramId) -> PathBuf {
+        self.directory.join(PROGRAMS).join(app.as_str())
+    }
+}
+
+impl SettingsStore for SettingsFiles {
+    /// None where the app has no folder: neither installed nor run, nor set before either.
+    fn load(&self, app: &ProgramId) -> io::Result<Option<AppSettings>> {
+        let folder = self.app_folder(app);
+        if !folder.is_dir() {
+            return Ok(None);
+        }
+        read_app(&folder.join(SETTINGS)).map(Some)
+    }
+
+    /// Makes the app's folder where it has none, so a setting is kept before its install or its
+    /// first run.
+    fn save(&self, app: &ProgramId, settings: &AppSettings) -> io::Result<()> {
+        let folder = self.app_folder(app);
+        fs::create_dir_all(&folder).map_err(at(&folder))?;
+        write_app(&folder.join(SETTINGS), settings)
+    }
+
+    /// Removes the app's file alone: its folder is the package manager's.
+    fn forget(&self, app: &ProgramId) -> io::Result<()> {
+        let path = self.app_folder(app).join(SETTINGS);
+        match fs::remove_file(&path) {
+            Err(error) if error.kind() != ErrorKind::NotFound => Err(at(&path)(error)),
+            _ => Ok(()),
+        }
+    }
+
+    fn apps(&self) -> io::Result<Vec<ProgramId>> {
+        let folder = self.directory.join(PROGRAMS);
+        let folders = match fs::read_dir(&folder) {
+            Ok(folders) => folders,
+            Err(error) if error.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => return Err(at(&folder)(error)),
+        };
+        let mut apps: Vec<ProgramId> = folders
+            .flatten()
+            .filter(|folder| folder.path().join(SETTINGS).is_file())
+            .filter_map(|folder| folder.file_name().to_str()?.parse().ok())
+            .collect();
+        apps.sort();
+        Ok(apps)
+    }
+
+    fn load_global(&self) -> io::Result<GlobalSettings> {
+        read_global(&self.global_path())
+    }
+
+    fn save_global(&self, settings: &GlobalSettings) -> io::Result<()> {
+        fs::create_dir_all(&self.directory).map_err(at(&self.directory))?;
+        write_global(&self.global_path(), settings)
+    }
+}
 
 /// Either file as TOML spells it: a key that is missing is not set.
 #[derive(Default, Serialize, Deserialize)]
@@ -68,7 +156,7 @@ struct SettingsFile {
     clipboard_read: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     clipboard_write: Option<bool>,
-    /// Whether a record is kept of what the program does.
+    /// Whether a record is kept of what the app does.
     #[serde(skip_serializing_if = "Option::is_none")]
     record: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -190,10 +278,10 @@ enum AnswerFile {
 
 /// The global settings in the file at `path`: the defaults where there is no file, and for each
 /// key it is missing.
-pub(crate) fn read_global(path: &Path) -> Result<GlobalSettings, StoreError> {
+fn read_global(path: &Path) -> io::Result<GlobalSettings> {
     let file = read(path)?;
     let defaults = GlobalSettings::default();
-    let unreadable = StoreError::unreadable_at(path);
+    let unreadable = unreadable_at(path);
     Ok(GlobalSettings {
         network: match file.network {
             Some(network) => network_of(network).map_err(unreadable)?,
@@ -213,7 +301,7 @@ pub(crate) fn read_global(path: &Path) -> Result<GlobalSettings, StoreError> {
 }
 
 /// Writes `settings`, the global ones, to the file at `path`, whole.
-pub(crate) fn write_global(path: &Path, settings: &GlobalSettings) -> Result<(), StoreError> {
+fn write_global(path: &Path, settings: &GlobalSettings) -> io::Result<()> {
     let file = SettingsFile {
         clipboard_read: Some(settings.clipboard_read),
         clipboard_write: Some(settings.clipboard_write),
@@ -233,12 +321,12 @@ pub(crate) fn write_global(path: &Path, settings: &GlobalSettings) -> Result<(),
     write(path, &file)
 }
 
-/// A program's own settings in the file at `path`: each the global one where there is no file,
+/// An app's own settings in the file at `path`: each the global one where there is no file,
 /// and for each key it is missing.
-pub(crate) fn read_program(path: &Path) -> Result<ProgramSettings, StoreError> {
+fn read_app(path: &Path) -> io::Result<AppSettings> {
     let file = read(path)?;
-    let unreadable = StoreError::unreadable_at(path);
-    Ok(ProgramSettings {
+    let unreadable = unreadable_at(path);
+    Ok(AppSettings {
         network: match file.network {
             Some(network) => Setting::Own(network_of(network).map_err(unreadable)?),
             None => Setting::Global,
@@ -265,9 +353,9 @@ pub(crate) fn read_program(path: &Path) -> Result<ProgramSettings, StoreError> {
     })
 }
 
-/// Writes `settings`, a program's own, to the file at `path`, whole: a setting that follows the
+/// Writes `settings`, an app's own, to the file at `path`, whole: a setting that follows the
 /// global one is left out.
-pub(crate) fn write_program(path: &Path, settings: &ProgramSettings) -> Result<(), StoreError> {
+fn write_app(path: &Path, settings: &AppSettings) -> io::Result<()> {
     let file = SettingsFile {
         clipboard_read: own_value(&settings.clipboard_read).copied(),
         clipboard_write: own_value(&settings.clipboard_write).copied(),
@@ -297,18 +385,45 @@ pub(crate) fn write_program(path: &Path, settings: &ProgramSettings) -> Result<(
     write(path, &file)
 }
 
-fn read(path: &Path) -> Result<SettingsFile, StoreError> {
+fn read(path: &Path) -> io::Result<SettingsFile> {
     let text = match fs::read_to_string(path) {
         Ok(text) => text,
         Err(error) if error.kind() == ErrorKind::NotFound => return Ok(SettingsFile::default()),
-        Err(error) => return Err(StoreError::io_at(path)(error)),
+        Err(error) => return Err(at(path)(error)),
     };
-    toml::from_str(&text).map_err(StoreError::unreadable_at(path))
+    toml::from_str(&text).map_err(unreadable_at(path))
 }
 
-fn write(path: &Path, file: &SettingsFile) -> Result<(), StoreError> {
+fn write(path: &Path, file: &SettingsFile) -> io::Result<()> {
     let text = toml::to_string(file).expect("the settings are TOML");
-    write_whole(path, text.as_bytes()).map_err(StoreError::io_at(path))
+    write_whole(path, text.as_bytes()).map_err(at(path))
+}
+
+/// Writes `contents` to `path` whole: to a new file beside it, on disk, then renamed over it, so a
+/// reader, or a crash, finds the old contents or the new, never part of either.
+fn write_whole(path: &Path, contents: &[u8]) -> io::Result<()> {
+    let folder = path.parent().expect("a settings file is in a folder");
+    let mut file = NamedTempFile::new_in(folder)?;
+    file.write_all(contents)?;
+    file.as_file().sync_all()?;
+    file.persist(path).map_err(|error| error.error)?;
+    Ok(())
+}
+
+/// For `map_err`: an IO error at `path`, said with it.
+fn at(path: &Path) -> impl FnOnce(io::Error) -> io::Error + '_ {
+    move |error| io::Error::new(error.kind(), format!("{}: {error}", path.display()))
+}
+
+/// For `map_err`: the file at `path` is not as WaOS writes it, changed by hand or damaged, for the
+/// reason `error` gives.
+fn unreadable_at<E: fmt::Display>(path: &Path) -> impl FnOnce(E) -> io::Error + '_ {
+    move |error| {
+        io::Error::new(
+            ErrorKind::InvalidData,
+            format!("{} is not as WaOS wrote it: {error}", path.display()),
+        )
+    }
 }
 
 /// A role's name in the file.
@@ -477,8 +592,8 @@ fn sound_file(sound: SimulatedSound) -> SoundFile {
 mod tests {
     use super::*;
 
-    fn every_kind_set() -> ProgramSettings {
-        let mut settings = ProgramSettings {
+    fn every_kind_set() -> AppSettings {
+        let mut settings = AppSettings {
             record: Setting::Own(false),
             network: Setting::Own(NetworkGrant {
                 on: true,
@@ -522,13 +637,13 @@ mod tests {
     }
 
     #[test]
-    fn a_programs_settings_read_back_as_written() {
+    fn an_apps_settings_read_back_as_written() {
         let scratch = tempfile::tempdir().unwrap();
         let path = scratch.path().join("settings.toml");
-        assert_eq!(read_program(&path).unwrap(), ProgramSettings::default());
+        assert_eq!(read_app(&path).unwrap(), AppSettings::default());
         let settings = every_kind_set();
-        write_program(&path, &settings).unwrap();
-        assert_eq!(read_program(&path).unwrap(), settings);
+        write_app(&path, &settings).unwrap();
+        assert_eq!(read_app(&path).unwrap(), settings);
     }
 
     #[test]
@@ -547,14 +662,14 @@ mod tests {
     }
 
     #[test]
-    fn a_program_that_set_no_answer_writes_no_table_of_them() {
+    fn an_app_that_set_no_answer_writes_no_table_of_them() {
         let scratch = tempfile::tempdir().unwrap();
         let path = scratch.path().join("settings.toml");
-        write_program(&path, &ProgramSettings::default()).unwrap();
+        write_app(&path, &AppSettings::default()).unwrap();
         assert!(!fs::read_to_string(&path).unwrap().contains("answer-with"));
         fs::write(&path, "[answer-with]\nsave-file = \"/tmp/out.pdf\"\n").unwrap();
         assert_eq!(
-            read_program(&path).unwrap().answer_with.save_file,
+            read_app(&path).unwrap().answer_with.save_file,
             Some("/tmp/out.pdf".into())
         );
     }
@@ -573,16 +688,16 @@ mod tests {
         );
         fs::write(&path, "[answers]\nnotifications = \"simulated\"\n").unwrap();
         let error = read_global(&path).unwrap_err();
-        assert!(matches!(error, StoreError::Unreadable { .. }), "{error}");
+        assert!(error.kind() == ErrorKind::InvalidData, "{error}");
     }
 
     #[test]
-    fn a_program_with_an_empty_list_of_mounts_has_its_own() {
+    fn an_app_with_an_empty_list_of_mounts_has_its_own() {
         let scratch = tempfile::tempdir().unwrap();
         let path = scratch.path().join("settings.toml");
         fs::write(&path, "mounts = []\n").unwrap();
         assert_eq!(
-            read_program(&path).unwrap().file_system,
+            read_app(&path).unwrap().file_system,
             Setting::Own(FileSystemGrant::default())
         );
     }
@@ -596,9 +711,9 @@ mod tests {
             "local-network = true\n\n[processes]\non = true\ncommands = \"any\"\n",
         )
         .unwrap();
-        let settings = read_program(&path).unwrap();
+        let settings = read_app(&path).unwrap();
         assert_eq!(settings.local_network, Setting::Own(true));
-        write_program(&path, &settings).unwrap();
+        write_app(&path, &settings).unwrap();
         assert!(!fs::read_to_string(&path).unwrap().contains("processes"));
     }
 
@@ -611,7 +726,7 @@ mod tests {
             "[network]\non = true\ndomains = { only = [\"not a domain\"] }\n",
         )
         .unwrap();
-        let error = read_program(&path).unwrap_err();
-        assert!(matches!(error, StoreError::Unreadable { .. }), "{error}");
+        let error = read_app(&path).unwrap_err();
+        assert!(error.kind() == ErrorKind::InvalidData, "{error}");
     }
 }
