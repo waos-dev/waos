@@ -11,8 +11,9 @@
 //! enum, so the engine converts at the boundary, with `From` both ways ([`CONVERSIONS`]), which the
 //! orphan rule allows there.
 //!
-//! Every interface the engine's world ([`WORLD`]) imports is generated, but those whose Rust types
-//! the engine's `bindgen!` takes from another crate ([`TAKEN_ELSEWHERE`]): the orphan rule forbids
+//! Every interface the engine's worlds ([`WORLDS`]) import is generated, each converting to the
+//! types of the engine's `bindgen!` for its world, but those whose Rust types the engine's `bindgen!`
+//! takes from another crate ([`TAKEN_ELSEWHERE`]): the orphan rule forbids
 //! the engine a conversion between two other crates' types. A type that holds a resource, a stream
 //! or a future cannot be plain, and one that holds a record, a variant, an enum or flags of those
 //! interfaces cannot be converted: each is left out, and named in the types' module docs. An alias
@@ -28,7 +29,7 @@
 #[cfg(test)]
 mod tests;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::fs;
 use std::io::Write as _;
@@ -41,8 +42,25 @@ use wit_parser::{
     Docs, InterfaceId, Resolve, Type, TypeDefKind, TypeId, TypeOwner, WorldId, WorldItem,
 };
 
-/// The world whose imports are generated: the one the engine's `bindgen!` runs.
-pub const WORLD: &str = "wasdk:program/program";
+/// A world whose imports are generated, and where the engine's `bindgen!` of it puts its types.
+pub struct World {
+    pub name: &'static str,
+    pub engine: &'static str,
+}
+
+/// The worlds whose imports are generated, in order: the program's, the engine's own `bindgen!`,
+/// then the inspector's, which the engine's `wasdk:inspect` host runs; an interface the first
+/// generates is not generated again.
+pub const WORLDS: &[World] = &[
+    World {
+        name: "wasdk:program/program",
+        engine: "crate::bindings",
+    },
+    World {
+        name: "wasdk:inspect/inspection",
+        engine: "crate::inspection::bindings",
+    },
+];
 
 /// The plain types, from the workspace's root: `waos_capabilities::wit`.
 pub const TYPES: &str = "crates/waos-capabilities/src/wit.rs";
@@ -54,8 +72,6 @@ pub const CONVERSIONS: &str = "crates/waos/src/wit_conversions.rs";
 /// engine.
 const PLAIN_IN_ITS_CRATE: &str = "crate::wit";
 const PLAIN_FROM_THE_ENGINE: &str = "waos_capabilities::wit";
-/// Where `bindgen!`'s types are, in the engine.
-const ENGINE: &str = "crate::bindings";
 
 /// The two files' Rust, before it is formatted.
 pub struct Generated {
@@ -66,33 +82,41 @@ pub struct Generated {
 /// Generates the files from the workspace's `wit/` and writes them, formatted as `cargo fmt`
 /// formats the workspace.
 pub fn sync(root: &Path) -> anyhow::Result<()> {
-    let generated = generate(&root.join("wit"), WORLD)?;
+    let generated = generate(&root.join("wit"), WORLDS)?;
     write_formatted(root, TYPES, &generated.types)?;
     write_formatted(root, CONVERSIONS, &generated.conversions)
 }
 
-/// The plain types and their conversions of every interface `world` imports, from the WIT in
-/// `wit`.
-pub fn generate(wit: &Path, world: &str) -> anyhow::Result<Generated> {
+/// The plain types and their conversions of every interface `worlds` import, from the WIT in
+/// `wit`, each interface once, converting to the engine's types of the first world that imports
+/// it.
+pub fn generate(wit: &Path, worlds: &[World]) -> anyhow::Result<Generated> {
     let mut resolve = Resolve::default();
     let (package, _) = resolve.push_dir(wit)?;
-    let world = resolve.select_world(&[package], Some(world))?;
     let mut modules = BTreeMap::<Vec<String>, String>::new();
     let mut conversions = String::new();
     let mut left_out = Vec::new();
-    for ty in imported_types(&resolve, world) {
-        match value_type(&resolve, ty) {
-            Some(Value::Plain) => {
-                let definition = definition(&resolve, ty);
-                modules
-                    .entry(module_path(&resolve, ty))
-                    .or_default()
-                    .push_str(&definition);
-                conversions += &conversion(&resolve, ty, PLAIN_FROM_THE_ENGINE, ENGINE);
-                conversions += &conversion(&resolve, ty, ENGINE, PLAIN_FROM_THE_ENGINE);
+    let mut generated = BTreeSet::new();
+    for world in worlds {
+        let id = resolve.select_world(&[package], Some(world.name))?;
+        for ty in imported_types(&resolve, id) {
+            if !generated.insert(ty) {
+                continue;
             }
-            Some(Value::LeftOut(reason)) => left_out.push((reason, wit_name(&resolve, ty))),
-            None => {}
+            match value_type(&resolve, ty) {
+                Some(Value::Plain) => {
+                    let definition = definition(&resolve, ty);
+                    modules
+                        .entry(module_path(&resolve, ty))
+                        .or_default()
+                        .push_str(&definition);
+                    let engine = world.engine;
+                    conversions += &conversion(&resolve, ty, PLAIN_FROM_THE_ENGINE, engine);
+                    conversions += &conversion(&resolve, ty, engine, PLAIN_FROM_THE_ENGINE);
+                }
+                Some(Value::LeftOut(reason)) => left_out.push((reason, wit_name(&resolve, ty))),
+                None => {}
+            }
         }
     }
     Ok(Generated {
@@ -375,7 +399,7 @@ fn conversion(resolve: &Resolve, ty: TypeId, from: &str, to: &str) -> String {
                 .collect();
             format!("{target} {{ {fields} }}")
         }
-        TypeDefKind::Flags(flags) if from == ENGINE => {
+        TypeDefKind::Flags(flags) if from != PLAIN_FROM_THE_ENGINE => {
             let fields: String = flags
                 .flags
                 .iter()
@@ -604,7 +628,7 @@ fn types_file(left_out: &[(LeftOut, String)], modules: &str) -> String {
         "//! The WIT's value types as plain Rust, with no dependency on the engine or wasmtime: each at\n\
          //! the path the engine's `bindgen!` gives it, `<namespace>::<package>::<interface>::<Name>`,\n\
          //! flags a struct of `bool`s, and the engine converts each to its own with `From`. Of the\n\
-         //! interfaces the engine's world imports, those whose Rust types the engine takes from another\n\
+         //! interfaces the engine's worlds import, the program's and the inspector's, those whose Rust types the engine takes from another\n\
          //! crate, `wasdk:gpu`'s and WASI's, are not here.\n\
          //!\n\
          {GENERATED}\
@@ -625,7 +649,8 @@ fn types_file(left_out: &[(LeftOut, String)], modules: &str) -> String {
 fn conversions_file(conversions: &str) -> String {
     format!(
         "//! `From` both ways between each of the WIT's plain types, `waos_capabilities::wit`, and\n\
-         //! `bindgen!`'s of the same WIT type, `crate::bindings`: a call into the contract converts\n\
+         //! `bindgen!`'s of the same WIT type, `crate::bindings` or, for `wasdk:inspect`,\n\
+         //! `crate::inspection::bindings`: a call into the contract converts\n\
          //! at the boundary, field by field.\n\
          //!\n\
          {GENERATED}\n\

@@ -1,6 +1,6 @@
 use std::fs;
 
-use super::{Generated, generate};
+use super::{Generated, World, generate};
 
 /// A package's WIT, with a world importing its one interface, and what is generated from it.
 fn generated_from(interface: &str) -> Generated {
@@ -9,7 +9,15 @@ fn generated_from(interface: &str) -> Generated {
         "package a:shapes;\n\ninterface things {{\n{interface}\n}}\n\nworld w {{ import things; }}\n"
     );
     fs::write(wit.path().join("shapes.wit"), package).unwrap();
-    generate(wit.path(), "a:shapes/w").unwrap()
+    generate(wit.path(), &[program_world()]).unwrap()
+}
+
+/// The world `w`, whose types the engine's `crate::bindings` has.
+fn program_world() -> World {
+    World {
+        name: "a:shapes/w",
+        engine: "crate::bindings",
+    }
 }
 
 #[test]
@@ -137,7 +145,7 @@ fn of_a_package_bindgen_takes_from_another_crate_an_alias_is_what_it_names_and_a
     fs::write(wit.path().join("deps/clocks/clocks.wit"), clocks).unwrap();
     let shapes = "package a:shapes;\n\ninterface things {\nuse wasi:clocks/types.{duration, instant};\nrecord wait { %for: duration }\nrecord alarm { at: instant }\n}\n\nworld w { import things; }\n";
     fs::write(wit.path().join("shapes.wit"), shapes).unwrap();
-    let generated = generate(wit.path(), "a:shapes/w").unwrap();
+    let generated = generate(wit.path(), &[program_world()]).unwrap();
     assert!(
         generated.types.contains("pub type Duration = u64;"),
         "{}",
@@ -164,5 +172,42 @@ fn of_a_package_bindgen_takes_from_another_crate_an_alias_is_what_it_names_and_a
         generated.types.contains("//! - `a:shapes/things.alarm`\n"),
         "{}",
         generated.types
+    );
+}
+
+#[test]
+fn a_second_worlds_types_convert_to_its_own_bindings_and_one_imported_by_both_is_generated_once() {
+    let wit = tempfile::tempdir().unwrap();
+    let package = "package a:shapes;\n\ninterface things {\n  record point { x: f64 }\n}\n\n\
+                   interface looks {\n  record view { at: f64 }\n}\n\n\
+                   world w { import things; }\n\nworld v { import things; import looks; }\n";
+    fs::write(wit.path().join("shapes.wit"), package).unwrap();
+    let worlds = [
+        program_world(),
+        World {
+            name: "a:shapes/v",
+            engine: "crate::looking::bindings",
+        },
+    ];
+    let generated = generate(wit.path(), &worlds).unwrap();
+    assert_eq!(
+        generated.types.matches("pub struct Point").count(),
+        1,
+        "{}",
+        generated.types
+    );
+    assert!(
+        generated.conversions.contains(
+            "impl From<waos_capabilities::wit::a::shapes::looks::View> for crate::looking::bindings::a::shapes::looks::View"
+        ),
+        "{}",
+        generated.conversions
+    );
+    assert!(
+        generated.conversions.contains(
+            "impl From<waos_capabilities::wit::a::shapes::things::Point> for crate::bindings::a::shapes::things::Point"
+        ),
+        "{}",
+        generated.conversions
     );
 }

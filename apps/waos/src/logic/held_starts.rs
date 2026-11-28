@@ -9,8 +9,8 @@
 use std::sync::Arc;
 
 use anyhow::Context as _;
-use waos::HeldProgram;
-use waos::inspection::bindings::wasdk::inspect::devices::StartError;
+use waos_capabilities::AppHold;
+use waos_capabilities::wit::wasdk::inspect::devices::StartError;
 use waos_package::ProgramId;
 use waos_services::packages::PackageManager;
 
@@ -18,14 +18,16 @@ use super::app_starter::{AppStarter, Opening, StartRequest};
 use super::running_apps::IfRunning;
 
 /// What starting a program held needs of the app.
+#[derive(Clone)]
 pub(crate) struct HeldStarts {
     pub(crate) starter: Arc<AppStarter>,
     pub(crate) packages: Arc<PackageManager>,
 }
 
 impl HeldStarts {
-    /// Starts the program `id` held, in place of the one running, and answers it once linked.
-    pub(crate) async fn start(&self, id: &str) -> Result<HeldProgram, StartError> {
+    /// Starts the program `id` held, in place of the one running, and answers what holds it once
+    /// it is linked.
+    pub(crate) async fn start(&self, id: &str) -> Result<AppHold, StartError> {
         let id: ProgramId = id.parse().map_err(|_| StartError::Unknown)?;
         tracing::info!(%id, "an inspector asks to start it held");
         if self.packages.installed_program(&id).is_none() {
@@ -43,7 +45,7 @@ impl HeldStarts {
             StartError::Failed(format!("{error:#}"))
         })?;
         held.linked().await;
-        Ok(held)
+        Ok(AppHold::new(held))
     }
 }
 
@@ -53,7 +55,7 @@ mod tests {
     use waos::TraceKind;
 
     use super::*;
-    use waos::inspection::InspectedPrograms;
+    use waos_capabilities::InspectedApps;
 
     use crate::logic::inspected_programs::ProgramsOnThisComputer;
     use crate::logic::startup::{self, Setup};
@@ -64,19 +66,12 @@ mod tests {
     async fn an_inspector_starts_a_development_install_held_in_place_of_the_one_running_and_ends_it()
      {
         let folder = tempfile::tempdir().unwrap();
-        let setup = Setup::for_tests(folder.path(), tokio::runtime::Handle::current());
+        let setup = Setup::for_tests(folder.path());
         let started = startup::tests::start_asking_nobody(setup, |_before| {
             let shell = test_engine::shell(Arc::new(NoWindows));
             (shell, test_engine::no_screens())
         });
         let (runs, packages) = (Arc::clone(&started.running), Arc::clone(&started.packages));
-        // What an inspector sees, as the engine is handed it.
-        let programs = ProgramsOnThisComputer::new(
-            started.storage,
-            started.permissions,
-            Arc::clone(&packages),
-            Arc::clone(&runs),
-        );
         let manifest = waos_package::Manifest::new(
             "dev.example.forever".parse().unwrap(),
             "Forever",
@@ -89,7 +84,14 @@ mod tests {
             starter: started.starter,
             packages,
         };
-        programs.serve_starts(starts, tokio::runtime::Handle::current());
+        // What an inspector sees, as its run is handed it.
+        let programs = ProgramsOnThisComputer::new(
+            started.storage,
+            started.permissions,
+            Arc::clone(&runs),
+            starts,
+            tokio::runtime::Handle::current(),
+        );
 
         let held = programs.start_held(id.as_str()).await.unwrap();
         let program = runs.running(&id).expect("among the runs");

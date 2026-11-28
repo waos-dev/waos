@@ -10,12 +10,9 @@ use std::sync::Arc;
 use futures::future::{self, BoxFuture};
 use futures::stream::{self, BoxStream};
 use futures::{FutureExt, StreamExt};
-use waos::inspection::bindings::wasdk::inspect::devices::{Program, ProgramChange, StartError};
-use waos::inspection::{InspectedPrograms, ProgramStorage};
-use waos::{
-    Answer, HeldProgram, ProgramEnd, ProgramEnvironment, Role, RoleNotGranted, TraceKind, WaOS,
-    WaOSConfig,
-};
+use waos::{Answer, ProgramEnd, ProgramEnvironment, Role, RoleNotGranted, TraceKind, WaOS};
+use waos_capabilities::wit::wasdk::inspect::devices::{Program, ProgramChange, StartError};
+use waos_capabilities::{AppFiles, AppHold, InspectedApps};
 use waos_services::permissions::{Permissions, ProgramId};
 
 use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, wait_until, within};
@@ -127,11 +124,7 @@ fn a_program_with_no_grants_holds_no_role() {
 #[test]
 fn a_program_granted_its_role_sees_the_programs_and_traces_one() {
     let shell = TestShell::new();
-    let config = WaOSConfig {
-        inspected_programs: Some(Arc::new(TwoPrograms)),
-        ..config()
-    };
-    let engine = WaOS::new(config, shell.shell(), shell.platform()).unwrap();
+    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let forever = engine
         .load(
             Path::new(waos_test_programs::FOREVER),
@@ -154,6 +147,7 @@ fn a_program_granted_its_role_sees_the_programs_and_traces_one() {
     let output = Arc::new(RecordedOutput::default());
     let environment = ProgramEnvironment {
         grants: Some(permissions.of(&app())),
+        inspected: Some(Arc::new(TwoPrograms)),
         ..printing_to(&output)
     };
     let inspecting = engine.run(&inspect, environment).unwrap();
@@ -177,12 +171,12 @@ fn a_program_granted_its_role_sees_the_programs_and_traces_one() {
 /// an icon of four bytes.
 struct TwoPrograms;
 
-impl InspectedPrograms for TwoPrograms {
+impl InspectedApps for TwoPrograms {
     fn device_name(&self) -> String {
         "Test device".to_owned()
     }
 
-    fn programs(&self) -> BoxFuture<'static, Vec<Program>> {
+    fn apps(&self) -> BoxFuture<'static, Vec<Program>> {
         let program = |id: &str, name: &str| Program {
             id: id.to_owned(),
             name: name.to_owned(),
@@ -196,7 +190,7 @@ impl InspectedPrograms for TwoPrograms {
         .boxed()
     }
 
-    fn program_changes(&self) -> BoxStream<'static, ProgramChange> {
+    fn app_changes(&self) -> BoxStream<'static, ProgramChange> {
         stream::pending().boxed()
     }
 
@@ -204,7 +198,7 @@ impl InspectedPrograms for TwoPrograms {
         future::ready((id == "forever").then(|| vec![0x89, b'P', b'N', b'G'])).boxed()
     }
 
-    fn start_held(&self, _id: &str) -> BoxFuture<'static, Result<HeldProgram, StartError>> {
+    fn start_held(&self, _id: &str) -> BoxFuture<'static, Result<AppHold, StartError>> {
         future::ready(Err(StartError::Unknown)).boxed()
     }
 
@@ -212,7 +206,7 @@ impl InspectedPrograms for TwoPrograms {
         future::ready(()).boxed()
     }
 
-    fn storage(&self, _id: &str) -> Option<ProgramStorage> {
+    fn files(&self, _id: &str) -> Option<AppFiles> {
         None
     }
 }
