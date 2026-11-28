@@ -40,7 +40,7 @@ WaOS asks its user before a program uses a camera, the microphone or notificatio
 - **`waos settings`** lists the rows, with the machines and outputs they can be set to.
 - **`waos settings set <row> <value>`** sets one: `camera allow`, `camera simulated` (a test pattern from WaOS, on macOS and Android), `microphone simulated` (a quiet beep), `notifications allow`, `network off`, `save-file /tmp/out.pdf`, `open-file /path/to/notes.md`, `machine this-computer`, and `ask` to ask again. `waos settings set --help` lists every row and its values.
 
-> Set an answer before the app asks. While WaOS is asking, the input commands are refused, saying WaOS is asking over the app's windows, and a screenshot does not show the question; a `set` then changes the row without answering the question already open, so stop the run, set the row, and run again.
+> Set an answer before the app asks. While WaOS is asking, the input commands are refused, saying WaOS is asking over the app's windows, and a screenshot does not show the question; a `set` then answers it.
 
 > A path is made whole against this folder, and WaOS resolves any `..` in it before keeping it. A file to open must exist, and a file to save must be in a folder that exists.
 
