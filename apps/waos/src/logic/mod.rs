@@ -10,8 +10,8 @@
 //! (`noted_file_dialogs`); what each program
 //! runs with (`environments`): this computer's capabilities and the grants of the store's settings;
 //! the library's side of the store: a package opened with WaOS, what a source's listing offers
-//! against what is installed, an installed app started however it is asked (`app_starter`), the
-//! apps running (`running_apps`), and WaOS's one startup, which puts the domains together over where
+//! against what is installed, what runs, at most one instance of each app, and every way of
+//! opening one (`app_instances`), and WaOS's one startup, which puts the domains together over where
 //! each keeps what it owns (`stores`) for the desktop app, the headless entry and the tests
 //! (`startup`), each installed program's shortcut on Android's home screen and WaOS's
 //! icon's menu, made to match what is installed (`program_shortcuts`), and a settings
@@ -41,7 +41,7 @@
 //! application is `state`'s.
 
 pub(crate) mod activity;
-pub(crate) mod app_starter;
+pub(crate) mod app_instances;
 pub(crate) mod app_store;
 pub(crate) mod asking_now;
 pub(crate) mod camera_values;
@@ -146,7 +146,6 @@ pub(crate) mod prompts;
 #[cfg(desktop)]
 pub(crate) mod quit_question;
 pub(crate) mod recording_indicator;
-pub(crate) mod running_apps;
 pub(crate) mod setting_changes;
 #[cfg(any(target_os = "macos", target_os = "android"))]
 pub(crate) mod simulated_cameras;

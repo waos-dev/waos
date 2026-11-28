@@ -3,8 +3,8 @@
 //! ([`packages`]), what the user lets each app use ([`permissions`]), the places that list apps
 //! ([`sources`]), what each app did ([`activity`]), and each app's own folders
 //! ([`app_storage`]). Each domain owns one resource, is handed what it needs from outside when it
-//! is made, and the WaOS app's startup puts them together; the running apps and the app starter
-//! stay in the app, since they need the engine.
+//! is made, and the WaOS app's startup puts them together; the app instances, what runs, stay in
+//! the app, since they need the engine.
 //!
 //! Each domain keeps its files in WaOS's store directory, where they always were, which people
 //! have; nothing on disk moves or changes format:

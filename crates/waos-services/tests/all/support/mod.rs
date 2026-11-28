@@ -1,6 +1,6 @@
 //! What the sources' and app storage's tests install and read from: signed packages written to a
 //! folder, their listings, and a local HTTP server; and the package manager over a store
-//! directory, with instant stand-ins for its compiler and the running apps, installing as the app
+//! directory, with instant stand-ins for its compiler and the app instances, installing as the app
 //! does.
 
 use std::collections::HashMap;

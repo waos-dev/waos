@@ -1,13 +1,13 @@
 //! WaOS's one startup, which the desktop app, the headless entry and the tests share: the domains
 //! put together in the order each needs the others, each handed what it needs as it is made. The
-//! apps running (`running_apps`) first, which the package manager stops an app among; the domains
-//! over the store ([`open_domains`]): the package manager, compiling installs and stopping apps
-//! among the running ones, Permissions, asking through the prompts and following the package
-//! manager's record, the sources, app storage and the activity record; then the engine, over the
-//! shell made from those, keeping its days in the activity record; what each app runs with
-//! (`environments`); and the one way to start an installed app (`app_starter`), where its views go
-//! (`program_places`), which hands an inspector the apps on this computer with its run
-//! (`inspected_programs`).
+//! mailbox the package manager stops an app's instance through first (`app_instances`), so
+//! neither end needs the other; the domains over the store ([`open_domains`]): the package
+//! manager, compiling installs and putting its stops in the mailbox, Permissions, asking through
+//! the prompts and following the package manager's record, the sources, app storage and the
+//! activity record; then the engine, over the shell made from those, keeping its days in the
+//! activity record; what each app runs with (`environments`); and the one owner of what runs,
+//! reading the mailbox (`app_instances`), with where an app's views go (`program_places`), which
+//! hands an inspector the apps on this computer with its instance (`inspected_programs`).
 //!
 //! What differs between one WaOS and another is passed in: where each domain keeps what it owns
 //! (`stores`), where the apps' own folders are, and how it compiles and reaches the network
@@ -16,9 +16,10 @@
 //! ([`BeforeTheEngine`]). Tests pass the tests' compiler, their prompts and their shells.
 //!
 //! The invariant: each domain is made once, here, from the others it needs, so no domain is handed
-//! another after it is made; the running apps and the package manager are made before the engine,
-//! since the package manager stops apps among the running ones and the shell's parts read what it
-//! installs, and so the compiler the package manager is handed is made before the engine.
+//! another after it is made; the package manager is made before the engine, since the shell's
+//! parts read what it installs, and so the compiler the package manager is handed is made before
+//! the engine; and the app instances are made last, from the package manager, Permissions and the
+//! engine.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -31,14 +32,13 @@ use waos::{
 use waos_local::LocalCapabilities;
 use waos_services::activity::ActivityRecord;
 use waos_services::app_storage::AppStorage;
-use waos_services::packages::{CodeCompiler, InstalledApps, PackageManager, StopApp};
+use waos_services::packages::{CodeCompiler, InstalledApps, PackageManager};
 use waos_services::permissions::{Permissions, Prompts};
 use waos_services::sources::{SourceProxy, Sources};
 
-use super::app_starter::AppStarter;
+use super::app_instances::{AppInstances, StopMailbox, stop_mailbox};
 use super::environments::ProgramEnvironments;
 use super::program_places::{ProgramPlace, ProgramPlaces};
-use super::running_apps::RunningApps;
 use super::stores::Stores;
 
 /// Where a WaOS keeps what it owns, and how it compiles, reaches the network and keeps time.
@@ -64,6 +64,9 @@ pub(crate) struct Setup {
     pub(crate) time: EngineTime,
     /// Where an app's views go unless it was opened somewhere else.
     pub(crate) usual_place: ProgramPlace,
+    /// Where WaOS's own tasks run: the app instances' answers to the package manager's stops, and
+    /// their waits for each instance's end.
+    pub(crate) runtime: tokio::runtime::Handle,
 }
 
 /// What the engine's shell is made from: the domains opened before the engine.
@@ -107,7 +110,7 @@ impl<S> Outside<S> {
 /// WaOS's domains, put together: destructured by whoever started WaOS, which hands each part to
 /// what uses it, never this whole.
 pub(crate) struct Started {
-    pub(crate) running: Arc<RunningApps>,
+    pub(crate) instances: Arc<AppInstances>,
     pub(crate) packages: Arc<PackageManager>,
     pub(crate) permissions: Permissions,
     pub(crate) sources: Sources,
@@ -121,38 +124,30 @@ pub(crate) struct Started {
     pub(crate) engine: Arc<WaOS>,
     pub(crate) environments: Arc<ProgramEnvironments>,
     pub(crate) places: ProgramPlaces,
-    pub(crate) starter: Arc<AppStarter>,
 }
 
-/// Starts WaOS as `setup` says: the running apps; the prompts `prompts` makes, with what the
-/// caller keeps of them; the domains over the store; the
-/// engine over what `outside` makes of those; and the app starter. Answers the domains, and what
-/// `outside` kept.
+/// Starts WaOS as `setup` says: the mailbox of the package manager's stops; the prompts `prompts`
+/// makes, with what the caller keeps of them; the domains over the store; the engine over what
+/// `outside` makes of those; and the app instances. Answers the domains, and what `outside` kept.
 pub(crate) fn start<P, S>(
     setup: Setup,
     prompts: impl FnOnce() -> (Arc<dyn Prompts>, P),
     outside: impl FnOnce(BeforeTheEngine<'_>, P) -> Result<Outside<S>>,
 ) -> Result<(Started, S)> {
-    let running = Arc::new(RunningApps::default());
+    let (stops, stop_requests) = stop_mailbox();
     let (prompts, prompted) = prompts();
-    let Domains {
-        packages,
-        permissions,
-        sources,
-        storage,
-        activity,
-    } = open_domains(
+    let domains = open_domains(
         setup.stores,
         &setup.app_folders,
         setup.install_compiler,
-        &running,
+        stops,
         setup.source_proxy,
         prompts,
     )?;
     let places = ProgramPlaces::new(setup.usual_place);
     let before = BeforeTheEngine {
-        packages: &packages,
-        permissions: &permissions,
+        packages: &domains.packages,
+        permissions: &domains.permissions,
         places: &places,
     };
     let outside = outside(before, prompted)?;
@@ -162,7 +157,7 @@ pub(crate) fn start<P, S>(
         http_proxy: setup.http_proxy,
         time: setup.time,
         temporary_folders: setup.temporary_folders,
-        audit: Some(Arc::new(activity.clone())),
+        audit: Some(Arc::new(domains.activity.clone())),
     };
     let engine =
         WaOS::new(config, outside.shell, outside.platform).context("starting the engine")?;
@@ -170,20 +165,26 @@ pub(crate) fn start<P, S>(
     let environments = ProgramEnvironments::new(
         outside.capabilities,
         outside.audio,
-        permissions.clone(),
-        storage.clone(),
+        domains.permissions.clone(),
+        domains.storage.clone(),
     );
-    let starter = Arc::new(AppStarter::new(
-        Arc::clone(&running),
-        Arc::clone(&packages),
-        permissions.clone(),
-        storage.clone(),
+    let instances = AppInstances::new(
+        &domains,
         Arc::clone(&engine),
         Arc::clone(&environments),
         places.clone(),
-    ));
+        stop_requests,
+        setup.runtime,
+    );
+    let Domains {
+        packages,
+        permissions,
+        sources,
+        storage,
+        activity,
+    } = domains;
     let started = Started {
-        running,
+        instances,
         packages,
         permissions,
         sources,
@@ -192,7 +193,6 @@ pub(crate) fn start<P, S>(
         engine,
         environments,
         places,
-        starter,
     };
     Ok((started, outside.own))
 }
@@ -209,7 +209,7 @@ pub(crate) struct Domains {
 }
 
 /// The domains over `stores`, opened in the order each needs the other: the package manager,
-/// compiling with `compiler` and stopping apps among `running`; Permissions, asking the user
+/// compiling with `compiler` and stopping an app's instance through `stops`; Permissions, asking the user
 /// through `prompts` and following the package manager's record; the sources, read through
 /// `proxy`; app storage, making the apps' own folders in `app_folders`; and the activity record,
 /// recording as Permissions say, of the apps the package manager holds. The first steps of
@@ -218,14 +218,14 @@ pub(crate) fn open_domains(
     stores: Stores,
     app_folders: &Path,
     compiler: Arc<dyn CodeCompiler>,
-    running: &Arc<RunningApps>,
+    stops: StopMailbox,
     proxy: SourceProxy,
     prompts: Arc<dyn Prompts>,
 ) -> Result<Domains> {
     let packages = Arc::new(PackageManager::new(
         stores.installed_apps,
         compiler,
-        Arc::clone(running) as Arc<dyn StopApp>,
+        Arc::new(stops),
     ));
     let permissions = Permissions::open(
         stores.settings,
@@ -275,8 +275,12 @@ pub(crate) mod tests {
     impl Setup {
         /// A test's WaOS over `stores`, the apps' own folders and their `/tmp` in `folder`: the
         /// tests' compiler, compiling each component once in a test run (`test_installs`), no
-        /// proxy, the real time, and its apps in windows.
-        pub(crate) fn for_tests(folder: &Path, stores: Stores) -> Setup {
+        /// proxy, the real time, its apps in windows, and its tasks on `runtime`.
+        pub(crate) fn for_tests(
+            folder: &Path,
+            stores: Stores,
+            runtime: tokio::runtime::Handle,
+        ) -> Setup {
             Setup {
                 stores,
                 app_folders: folder.join("store"),
@@ -288,20 +292,21 @@ pub(crate) mod tests {
                 freeze: FreezePolicy::default(),
                 time: EngineTime::Real,
                 usual_place: ProgramPlace::Windows,
+                runtime,
             }
         }
 
         /// A test's WaOS that keeps everything in memory, with nothing installed, as
-        /// [`Setup::for_tests`] sets it up in `folder`.
-        pub(crate) fn in_memory(folder: &Path) -> Setup {
-            Setup::for_tests(folder, Stores::in_memory(Vec::new()))
+        /// [`Setup::for_tests`] sets it up in `folder`, its tasks on `runtime`.
+        pub(crate) fn in_memory(folder: &Path, runtime: tokio::runtime::Handle) -> Setup {
+            Setup::for_tests(folder, Stores::in_memory(Vec::new()), runtime)
         }
 
         /// A test's WaOS that keeps everything in files in `folder`'s `store`, as
-        /// [`Setup::for_tests`] sets it up there.
-        pub(crate) fn on_files(folder: &Path) -> Setup {
+        /// [`Setup::for_tests`] sets it up there, its tasks on `runtime`.
+        pub(crate) fn on_files(folder: &Path, runtime: tokio::runtime::Handle) -> Setup {
             let stores = Stores::files(&folder.join("store")).expect("the stores open");
-            Setup::for_tests(folder, stores)
+            Setup::for_tests(folder, stores, runtime)
         }
     }
 

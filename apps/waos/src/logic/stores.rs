@@ -68,7 +68,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::Stores;
-    use crate::logic::app_starter::{Opening, StartRequest};
+    use crate::logic::app_instances::{OpenConfiguration, OpenedFor};
     use crate::logic::startup::Setup;
     use crate::logic::startup::tests::start_asking_nobody;
     use crate::logic::test_engine::{self, NoWindows};
@@ -96,7 +96,8 @@ mod tests {
     async fn an_app_kept_in_memory_starts_from_its_build_with_no_file_in_the_store() {
         let folder = tempfile::tempdir().unwrap();
         let app = test_installs::built_app(waos_test_programs::FOREVER, FOREVER, "Forever");
-        let setup = Setup::for_tests(folder.path(), Stores::in_memory(vec![app]));
+        let runtime = tokio::runtime::Handle::current();
+        let setup = Setup::for_tests(folder.path(), Stores::in_memory(vec![app]), runtime);
         let app_folders = setup.app_folders.clone();
         let started = start_asking_nobody(setup, |_before| {
             let shell = test_engine::shell(Arc::new(NoWindows));
@@ -104,10 +105,14 @@ mod tests {
         });
 
         let id = FOREVER.parse().unwrap();
-        let request = StartRequest::open(FOREVER.parse().unwrap(), Opening::ByTheUser);
-        started.starter.start(request).await.expect("it starts");
+        let configuration = OpenConfiguration::new(OpenedFor::User);
+        started
+            .instances
+            .open(&id, configuration)
+            .await
+            .expect("it opens");
 
-        assert!(started.running.running(&id).is_some(), "it runs");
+        assert!(started.instances.instance(&id).is_some(), "it runs");
         assert_eq!(files_under(&app_folders), Vec::<PathBuf>::new());
     }
 }

@@ -48,10 +48,8 @@ fn open_forever(desktop: &mut LibraryDesktop) -> RunningProgram {
     let id: ProgramId = FOREVER.parse().unwrap();
     desktop.update(|library, cx| library.open(&id, cx));
     let runs = Arc::clone(&desktop.runs);
-    desktop.settle_until("the program runs", move |_| {
-        !futures::executor::block_on(runs.programs()).is_empty()
-    });
-    let programs = futures::executor::block_on(desktop.runs.programs());
+    desktop.settle_until("the program runs", move |_| !runs.instances().is_empty());
+    let programs = desktop.runs.instances();
     programs.into_iter().next().expect("Forever runs")
 }
 

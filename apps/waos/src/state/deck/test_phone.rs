@@ -39,6 +39,7 @@ use waos_package::{ProgramId, SigningKey};
 use waos_program_window::WindowRestoration;
 
 use super::tabs::{TabContent, TabStage, Tabs};
+use crate::logic::app_instances::AppInstances;
 use crate::logic::opened_package::tests::write_package;
 use crate::logic::package_copies::PackageCopies;
 use crate::logic::placement::WindowsOnRequest;
@@ -47,7 +48,6 @@ use crate::logic::program_faces::ProgramFaces;
 use crate::logic::program_places::{PlacedWhereOpened, ProgramPlace, TabsOnRequest};
 use crate::logic::prompts::PromptsOnRequest;
 use crate::logic::recording_indicator::RecordingIndicatorOnRequest;
-use crate::logic::running_apps::RunningApps;
 use crate::logic::startup::{self, Outside, Setup};
 use crate::logic::test_engine::{self, NoWindows};
 use crate::state::ViewWindows;
@@ -194,7 +194,7 @@ pub(crate) struct TestPhone {
     pub(crate) tabs: Entity<Tabs>,
     /// The programs' windows, on a phone of tasks.
     pub(crate) view_windows: Entity<ViewWindows>,
-    pub(crate) runs: Arc<RunningApps>,
+    pub(crate) runs: Arc<AppInstances>,
     /// What installs the library's apps.
     packages: Arc<waos_services::packages::PackageManager>,
     /// Where the programs' questions to their user are put.
@@ -223,7 +223,7 @@ impl TestPhone {
         let work = work().unwrap();
         let setup = Setup {
             usual_place: usual,
-            ..Setup::on_files(folder.path())
+            ..Setup::on_files(folder.path(), work.handle().clone())
         };
         let ((started, (prompts, prompted, requests)), tab_requests) = {
             let (tabs_on_request, tab_requests) = TabsOnRequest::new();
@@ -261,7 +261,7 @@ impl TestPhone {
         };
         let domains = LibraryDomains::of(&started);
         let startup::Started {
-            running: runs,
+            instances: runs,
             packages,
             ..
         } = started;
@@ -473,7 +473,7 @@ impl TestPhone {
     /// The program `id` running, and its one view.
     pub(crate) fn program_view(&self, id: &str) -> ProgramView {
         let id: ProgramId = id.parse().unwrap();
-        let program = self.runs.running(&id).expect("it runs");
+        let program = self.runs.instance(&id).expect("it runs");
         let views = program.views();
         assert_eq!(views.len(), 1, "the tab's view, and no other");
         views.into_iter().next().unwrap()
@@ -547,7 +547,7 @@ impl TestPhone {
     /// Every view of the program `id` running, in the order they arrived.
     pub(crate) fn program_views(&self, id: &str) -> Vec<ProgramView> {
         let id: ProgramId = id.parse().unwrap();
-        let program = self.runs.running(&id).expect("it runs");
+        let program = self.runs.instance(&id).expect("it runs");
         program.views()
     }
 
@@ -562,14 +562,14 @@ impl TestPhone {
     pub(crate) fn wait_until_running_still(&mut self, id: &str) {
         self.pump_for(Duration::from_millis(500));
         let program_id: ProgramId = id.parse().unwrap();
-        let program = self.runs.running(&program_id).expect("it runs");
+        let program = self.runs.instance(&program_id).expect("it runs");
         futures::executor::block_on(program.idle());
     }
 
     /// Whether the program `id` runs.
     pub(crate) fn runs(&self, id: &str) -> bool {
         let id: ProgramId = id.parse().unwrap();
-        self.runs.running(&id).is_some()
+        self.runs.instance(&id).is_some()
     }
 
     /// The windows made at the program `id`'s requests and still open, on a phone of tasks, in

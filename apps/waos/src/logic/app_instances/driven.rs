@@ -1,14 +1,14 @@
-//! Every program running, however it was installed or started, as the user reads and drives it
-//! through the dev socket, its input given through the program's own mouse and the keyboard. Not on
-//! a phone, which `waos` reaches not yet.
+//! Every app's instance running, however it was installed or opened, as the user reads and drives
+//! it through the dev socket, its input given through its own mouse and the keyboard. Not on a
+//! phone, which `waos` reaches not yet.
 //!
-//! The invariant: a program is reached by the id it runs as, the one the running apps list it under.
+//! The invariant: an instance is reached by its app's id, the one the app instances list it under.
 
 use waos::{ProgramView, RunningProgram};
 use waos_dev_protocol::{Refusal, WindowId};
 use waos_package::ProgramId;
 
-use super::RunningApps;
+use super::AppInstances;
 use crate::logic::dev_refusal;
 
 /// A program running in WaOS, however it was installed or started, as `waos`'s screenshots,
@@ -51,12 +51,12 @@ impl DrivenProgram {
     }
 }
 
-impl RunningApps {
-    /// The program `id` running now, however it was started, as the dev tools reach it.
+impl AppInstances {
+    /// The instance of the app `id` running now, however it was opened, as the dev tools reach it.
     pub(crate) fn driven(&self, id: &ProgramId) -> Option<DrivenProgram> {
         Some(DrivenProgram {
             id: id.clone(),
-            program: self.running(id)?,
+            program: self.instance(id)?,
         })
     }
 }

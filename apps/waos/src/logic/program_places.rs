@@ -5,8 +5,8 @@
 //! without saying where, as `waos` runs one, goes where this WaOS puts programs unless told
 //! otherwise.
 //!
-//! The invariant: a program's place is set before its run starts (`app_starter`), so its
-//! first request already goes where its run is shown; and a request taken for a tab is on its way
+//! The invariant: a program's place is set before its instance starts (`app_instances`), so its
+//! first request already goes where its instance is shown; and a request taken for a tab is on its way
 //! to the main thread, which answers it once, so every `Ok` is followed by one answer.
 
 use std::collections::HashMap;

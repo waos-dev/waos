@@ -87,7 +87,7 @@ fn view_of(window: &TestWindow) -> ViewId {
 
 /// The one program running.
 fn the_program(desktop: &LibraryDesktop) -> RunningProgram {
-    let programs = futures::executor::block_on(desktop.runs.programs());
+    let programs = desktop.runs.instances();
     assert_eq!(programs.len(), 1);
     programs.into_iter().next().unwrap()
 }

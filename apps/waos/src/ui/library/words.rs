@@ -4,7 +4,7 @@ use waft::ui::TargetPlatform;
 use waos::{RecordingDevice, Switch};
 use waos_package::Category;
 
-use crate::logic::app_starter::StartStage;
+use crate::logic::app_instances::OpenStage;
 use crate::logic::permissions::Permission;
 use crate::logic::setting_changes::{SettingsOf, ShownSettings};
 use crate::state::library::AppDetail;
@@ -577,7 +577,7 @@ pub(crate) fn category(category: Category) -> &'static str {
 /// only starts it, which takes a moment.
 pub(crate) fn status(
     operation: Option<PackageOperation>,
-    stage: Option<StartStage>,
+    stage: Option<OpenStage>,
 ) -> Option<String> {
     let said = match (operation, stage) {
         (
@@ -590,8 +590,8 @@ pub(crate) fn status(
         (Some(PackageOperation::Downloading { .. }), _) => DOWNLOADING,
         (Some(PackageOperation::Installing), _) => INSTALLING,
         (Some(PackageOperation::Removing), _) => REMOVING,
-        (None, Some(StartStage::Optimizing)) => OPTIMIZING,
-        (None, Some(StartStage::Starting) | None) => return None,
+        (None, Some(OpenStage::Optimizing)) => OPTIMIZING,
+        (None, Some(OpenStage::Starting) | None) => return None,
     };
     Some(said.to_owned())
 }

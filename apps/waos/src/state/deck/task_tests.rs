@@ -99,7 +99,7 @@ fn a_question_of_an_app_before_its_first_window_is_put_over_the_window_held_for_
         "no window of the question's own: it is over the app's"
     );
     let held = phone.windows_of(FOREVER)[0].test_view().id();
-    let program = phone.runs.running(&app.id).expect("it runs");
+    let program = phone.runs.instance(&app.id).expect("it runs");
     let screen = phone
         .view_windows
         .read(&phone.shell.app())

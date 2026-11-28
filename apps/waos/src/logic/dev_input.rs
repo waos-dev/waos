@@ -14,16 +14,16 @@ use waos::{DragPath, Keyboard, ProgramView};
 use waos_dev_protocol::{Input, InputAnswer, InputDone, Refusal, ServerConnection, WindowId};
 use waos_package::ProgramId;
 
+use super::app_instances::{AppInstances, DrivenProgram};
 use super::asking_now::AskingNow;
 use super::dev_refusal;
 use super::dev_server::BUILD;
-use super::running_apps::{DrivenProgram, RunningApps};
 
 /// Answers a connection's `Input`: `input` given to the window `window` of the program `id`, then
 /// `InputDone` with whether the window was in sight, or why it reached none.
 pub(crate) async fn answer(
     mut connection: ServerConnection,
-    runs: &RunningApps,
+    runs: &AppInstances,
     asking: &AskingNow,
     id: &ProgramId,
     window: Option<WindowId>,
@@ -43,7 +43,7 @@ pub(crate) async fn answer(
 /// Gives `input` to the window `window` (or the program's first open window) of the program `id`;
 /// answers whether the window was in sight as it was given.
 async fn give(
-    runs: &RunningApps,
+    runs: &AppInstances,
     asking: &AskingNow,
     id: &ProgramId,
     window: Option<WindowId>,

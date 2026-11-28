@@ -1,8 +1,8 @@
 //! The package manager: the apps installed on a WaOS device, and every change to them, as one unit
 //! (Android's `PackageManagerService`). It is handed what it needs when it is made: where the apps
 //! are kept ([`InstalledAppsStore`]: [`InstalledAppsFiles`] on disk, [`InstalledAppsInMemory`] for
-//! tests), a compiler ([`CodeCompiler`], the engine's) and a way to stop an app ([`StopApp`], the
-//! running apps'); it knows nothing of sources, UI or the engine. Installs in flight are sessions
+//! tests), a compiler ([`CodeCompiler`], the engine's) and a way to stop an app's instance
+//! ([`StopApp`], the WaOS app's mailbox to its app instances); it knows nothing of sources, UI or the engine. Installs in flight are sessions
 //! ([`InstallSession`], Android's `PackageInstaller.Session`), fed a package's bytes from its first
 //! byte.
 //!

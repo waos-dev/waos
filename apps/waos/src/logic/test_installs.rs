@@ -32,7 +32,7 @@ use waos_services::packages::{
 use waos_services::permissions::NoPrompts;
 use waos_services::sources::SourceProxy;
 
-use super::running_apps::RunningApps;
+use super::app_instances::stop_mailbox;
 use super::startup::{self, Domains};
 use super::stores::Stores;
 
@@ -137,20 +137,14 @@ impl CodeCompiler for MarkerCompiler {
 }
 
 /// A test's domains, kept in memory, as WaOS opens them, for apps it never runs, with nobody to
-/// ask: each app's own folders in `folder`.
+/// ask: each app's own folders in `folder`, and the package manager's stops put in a mailbox
+/// nobody reads, which answers each at once.
 pub(crate) fn domains_never_run(folder: &Path) -> Domains {
     let stores = Stores::in_memory(Vec::new());
-    let running = Arc::new(RunningApps::default());
+    let (stops, _nobody_reads) = stop_mailbox();
     let (compiler, prompts) = (Arc::new(MarkerCompiler), Arc::new(NoPrompts));
-    startup::open_domains(
-        stores,
-        folder,
-        compiler,
-        &running,
-        SourceProxy::None,
-        prompts,
-    )
-    .expect("the domains open")
+    startup::open_domains(stores, folder, compiler, stops, SourceProxy::None, prompts)
+        .expect("the domains open")
 }
 
 /// The test program at `component` as an app kept in memory, `id` named `name`, published with a

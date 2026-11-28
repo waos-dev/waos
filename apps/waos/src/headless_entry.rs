@@ -24,13 +24,13 @@ use waos_local::LocalCapabilities;
 use waos_services::permissions::Prompts;
 use waos_services::sources::SourceProxy;
 
+use crate::logic::app_instances::AppInstances;
 use crate::logic::asking_now::AskingNow;
 use crate::logic::dev_server::{DevServer, ServedDomains};
 use crate::logic::developer_access::DeveloperAccess;
 use crate::logic::folders::{self, AppFolders};
 use crate::logic::program_places::ProgramPlace;
 use crate::logic::prompts::{PromptRequests, PromptsOnRequest};
-use crate::logic::running_apps::RunningApps;
 use crate::logic::startup::{self, BeforeTheEngine, EngineCompiler, Outside, Setup};
 use crate::logic::stores::Stores;
 use crate::logic::video_decoder_thread;
@@ -102,7 +102,7 @@ async fn serve_until_shutdown(config: HeadlessConfig) -> Result<()> {
 /// A running headless WaOS daemon: engine, store, prompt waiter, and dev server. Dropping it stops
 /// the dev server (stopping every run and removing the socket file) and closes prompt tasks.
 struct HeadlessDaemon {
-    runs: Arc<RunningApps>,
+    runs: Arc<AppInstances>,
     server: DevServer,
     stop_prompts: Option<oneshot::Sender<()>>,
     _engine: Arc<WaOS>,
@@ -123,6 +123,7 @@ impl HeadlessDaemon {
             freeze: FreezePolicy::default(),
             time: EngineTime::Real,
             usual_place: ProgramPlace::Windows,
+            runtime: runtime.clone(),
         };
         let display = config.display;
         let (started, (prompted, asking)) = startup::start(
@@ -138,18 +139,16 @@ impl HeadlessDaemon {
             |before, (prompts, prompted)| Ok(headless_outside(display, before, &prompts, prompted)),
         )?;
         let startup::Started {
-            running,
+            instances,
             packages,
             permissions,
             engine,
             environments,
-            starter,
             ..
         } = started;
         let served = ServedDomains {
-            running: Arc::clone(&running),
+            instances: Arc::clone(&instances),
             packages,
-            starter,
             permissions,
             environments,
             engine: Arc::clone(&engine),
@@ -167,7 +166,7 @@ impl HeadlessDaemon {
         tracing::info!(socket = %config.socket.display(), "headless WaOS listening");
 
         Ok(HeadlessDaemon {
-            runs: running,
+            runs: instances,
             server,
             stop_prompts: Some(stop_prompts),
             _engine: engine,
@@ -242,7 +241,7 @@ async fn hold_prompts(mut prompted: PromptRequests, mut stop: oneshot::Receiver<
 /// Resolves once `idle_timeout` elapses with no running programs and no active dev-server
 /// connections; pends forever when `idle_timeout` is `None`.
 async fn wait_until_idle(
-    runs: &RunningApps,
+    runs: &AppInstances,
     mut connections: watch::Receiver<usize>,
     idle_timeout: Option<Duration>,
 ) {
@@ -250,7 +249,7 @@ async fn wait_until_idle(
         std::future::pending::<()>().await;
         return;
     };
-    let mut running_ids = runs.running_ids();
+    let mut running_ids = runs.running();
     loop {
         let busy =
             !running_ids.borrow_and_update().is_empty() || *connections.borrow_and_update() > 0;

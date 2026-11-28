@@ -18,14 +18,14 @@ use waos_dev_protocol::{
 };
 use waos_package::ProgramId;
 
+use super::app_instances::AppInstances;
 use super::asking_now::{AskingNow, Told};
 use super::dev_refusal;
 use super::launch_outputs::{Frames, LaunchOutput, LaunchOutputs};
-use super::running_apps::RunningApps;
 
 /// What an attach needs of the app.
 pub(crate) struct AttachContext<'a> {
-    pub(crate) runs: &'a RunningApps,
+    pub(crate) runs: &'a AppInstances,
     pub(crate) outputs: &'a LaunchOutputs,
     pub(crate) asking: &'a AskingNow,
 }
@@ -73,7 +73,7 @@ fn attached_to(
     context: &AttachContext<'_>,
 ) -> Result<(Arc<LaunchOutput>, Option<Watching>), Refusal> {
     let kept = context.outputs.of(id);
-    match (context.runs.running(id), kept) {
+    match (context.runs.instance(id), kept) {
         (Some(program), Some(output)) if !output.has_ended() => {
             // Before the queue fills, so no window counts as covered while it is attached.
             Ok((output, Some(program.watch())))

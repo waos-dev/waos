@@ -1,8 +1,8 @@
 //! Handing a program what its user does to it from outside it: files opened with it, as `waos open
 //! <file> --program <id>` asks until programs register what opens them, and a click on one of its
-//! notifications. Each goes to the program the id names (`program_named`), the one running under
-//! it, whether `waos launch` started it or the library opened it, or else the installed program,
-//! opened as the library opens it; the program hears it once it listens
+//! notifications. Each goes to the app the id names (`program_named`), its instance running,
+//! whether `waos launch` started it or the library opened it, or else the installed app, opened as
+//! the library opens it; the program hears it once it listens
 //! (`RunningProgram::open_requested`, `RunningProgram::notification_activated`). And opening each
 //! app the user opened through the system (`open_each`), as the library opens one the user opens
 //! there.
@@ -21,24 +21,22 @@ use waos_package::ProgramId;
 use waos_services::packages::PackageManager;
 
 #[cfg(target_os = "macos")]
-use super::app_starter::StartPlace;
-use super::app_starter::{AppStarter, Opening, StartRequest};
+use super::app_instances::OpenPlace;
+use super::app_instances::{AppInstances, OpenConfiguration, OpenedFor};
 #[cfg(target_os = "macos")]
 use super::program_places::ProgramPlace;
-use super::running_apps::RunningApps;
 #[cfg(target_os = "macos")]
 use crate::system_shell::UserOpen;
 
-/// Hands `request` to the program `id`: the one running under it, or else the installed one,
-/// opened first; fails for an id neither installed nor running.
+/// Hands `request` to the app `id`: its instance running, or else the installed app, opened
+/// first; fails for an id neither installed nor running.
 pub(crate) async fn open_with(
-    starter: &Arc<AppStarter>,
-    running: &RunningApps,
+    instances: &Arc<AppInstances>,
     packages: &PackageManager,
     id: &ProgramId,
     request: OpenRequest,
 ) -> Result<()> {
-    let program = program_named(starter, running, packages, id)
+    let program = program_named(instances, packages, id)
         .await?
         .with_context(|| format!("{id} is neither installed nor running"))?;
     tracing::info!(%id, ?request, "files opened with the program");
@@ -50,13 +48,12 @@ pub(crate) async fn open_with(
 /// running under it, or else the installed one, opened first; fails, saying so, for an id neither
 /// installed nor running, as a removed program leaves its notifications as they are.
 pub(crate) async fn notification_activated(
-    starter: &Arc<AppStarter>,
-    running: &RunningApps,
+    instances: &Arc<AppInstances>,
     packages: &PackageManager,
     id: &ProgramId,
     activation: Activation,
 ) -> Result<()> {
-    let program = program_named(starter, running, packages, id)
+    let program = program_named(instances, packages, id)
         .await?
         .with_context(|| {
             format!("{id} is no longer installed, so its notification has nothing to open")
@@ -66,39 +63,37 @@ pub(crate) async fn notification_activated(
     Ok(())
 }
 
-/// The program `id` names: the installed one, opened unless it runs already, or else the one
-/// running under it, as `waos` runs one; none for an id neither installed nor running.
+/// The instance of the app `id` names: the installed app's, opened unless it runs already, or else
+/// the one running under it, as `waos` runs one; none for an id neither installed nor running.
 pub(crate) async fn program_named(
-    starter: &Arc<AppStarter>,
-    running: &RunningApps,
+    instances: &Arc<AppInstances>,
     packages: &PackageManager,
     id: &ProgramId,
 ) -> Result<Option<RunningProgram>> {
     if packages.installed_program(id).is_none() {
-        return Ok(running.running(id));
+        return Ok(instances.instance(id));
     }
-    let opened = starter
-        .start(StartRequest::open(id.clone(), Opening::ToHandOver))
-        .await?;
-    Ok(Some(opened.program().clone()))
+    let configuration = OpenConfiguration::new(OpenedFor::HandOver);
+    let opened = instances.open(id, configuration).await?;
+    Ok(Some(opened.instance().clone()))
 }
 
-/// Opens each app the user opened through the system with `starter`, as the library opens one the
-/// user opens there, in a window, the one running left as it is; answers each open with the run,
-/// or why there is none. Ends with `opens`.
+/// Opens each app the user opened through the system among `instances`, as the library opens one
+/// the user opens there, in a window, the one running left as it is; answers each open with the
+/// instance, or why there is none. Ends with `opens`.
 #[cfg(target_os = "macos")]
 pub(crate) async fn open_each(
-    starter: Arc<AppStarter>,
+    instances: Arc<AppInstances>,
     mut opens: futures::stream::BoxStream<'static, UserOpen>,
 ) {
     use futures::StreamExt;
     while let Some(UserOpen { app, opened }) = opens.next().await {
-        let request = StartRequest {
-            place: StartPlace::Named(ProgramPlace::Windows),
-            ..StartRequest::open(app, Opening::ByTheUser)
+        let configuration = OpenConfiguration {
+            place: OpenPlace::Named(ProgramPlace::Windows),
+            ..OpenConfiguration::new(OpenedFor::User)
         };
-        let answer = (starter.start(request).await)
-            .map(|answer| answer.program().clone())
+        let answer = (instances.open(&app, configuration).await)
+            .map(|opened| opened.instance().clone())
             .map_err(|error| format!("{error:#}"));
         let _ = opened.send(answer);
     }
@@ -109,13 +104,12 @@ pub(crate) async fn open_each(
 #[cfg(desktop)]
 pub(crate) async fn answer(
     mut connection: ServerConnection,
-    starter: &Arc<AppStarter>,
-    running: &RunningApps,
+    instances: &Arc<AppInstances>,
     packages: &PackageManager,
     id: &ProgramId,
     request: OpenRequest,
 ) {
-    let answer = match open_with(starter, running, packages, id, request).await {
+    let answer = match open_with(instances, packages, id, request).await {
         Ok(()) => OpenAnswer::Opened,
         Err(why) => {
             tracing::info!("an opening refused: {why:#}");

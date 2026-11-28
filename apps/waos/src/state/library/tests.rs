@@ -24,13 +24,13 @@ use waos_package::{Manifest, ProgramKind, SigningKey};
 
 use super::test_server::Server;
 use super::*;
-use crate::logic::app_starter::StartStage;
+use crate::logic::app_instances::AppInstances;
+use crate::logic::app_instances::OpenStage;
 use crate::logic::opened_package::tests::{write_package, write_package_of};
 use crate::logic::package_copies::PackageCopies;
 use crate::logic::program_shortcuts::{
     KeptShortcut, ProgramShortcut, ShortcutOpens, SystemShortcuts,
 };
-use crate::logic::running_apps::RunningApps;
 use crate::logic::startup::Setup;
 use crate::logic::startup::tests::start_asking_nobody;
 use crate::logic::test_engine::{self, NoWindows};
@@ -48,7 +48,7 @@ struct TestLibrary {
     /// The platform the app runs on, which tells the test when a task wakes the app.
     platform: Rc<TestPlatform>,
     library: Entity<Library>,
-    runs: Arc<RunningApps>,
+    runs: Arc<AppInstances>,
     /// The package manager's compiler, which a test holds to see what happens while it compiles.
     compiler: Arc<HeldCompiler>,
     folder: TempDir,
@@ -77,13 +77,13 @@ impl TestLibrary {
         let setup = Setup {
             install_compiler: Arc::clone(&compiler)
                 as Arc<dyn waos_services::packages::CodeCompiler>,
-            ..Setup::on_files(folder.path())
+            ..Setup::on_files(folder.path(), work.handle().clone())
         };
         let started = start_asking_nobody(setup, |_before| {
             let shell = test_engine::shell(Arc::new(NoWindows));
             (shell, test_engine::no_screens())
         });
-        let runs = Arc::clone(&started.running);
+        let runs = Arc::clone(&started.instances);
         let platform = Rc::new(TestPlatform::new());
         let cell = AppCell::with_platform(Rc::clone(&platform) as PlatformRef);
         let library = open_library(
@@ -675,10 +675,7 @@ fn an_installed_program_opens_in_waos_once_however_often_it_is_opened() {
         library.problem().is_none()
     });
     library.wait_until("the second open's work", |library| library.is_idle());
-    assert_eq!(
-        futures::executor::block_on(library.runs.programs()).len(),
-        1
-    );
+    assert_eq!(library.runs.instances().len(), 1);
     futures::executor::block_on(library.runs.stop_all());
     wait_for_runs(&library, &[]);
 }
@@ -699,7 +696,7 @@ fn a_tool_opened_from_the_library_is_refused_and_never_runs() {
              of its own, and WaOS cannot show its terminal yet"
         )
     );
-    assert!(futures::executor::block_on(library.runs.programs()).is_empty());
+    assert!(library.runs.instances().is_empty());
 }
 
 #[test]
@@ -716,10 +713,7 @@ fn a_launch_for_an_installed_program_opens_it_once() {
     library.wait_until("the second launch's answer", |library| {
         library.problem().is_none()
     });
-    assert_eq!(
-        futures::executor::block_on(library.runs.programs()).len(),
-        1
-    );
+    assert_eq!(library.runs.instances().len(), 1);
     assert_eq!(library.asked_to_be_seen(), seen_before, "nothing to say");
     futures::executor::block_on(library.runs.stop_all());
     wait_for_runs(&library, &[]);
@@ -785,7 +779,7 @@ fn the_first_open_after_a_compiler_change_optimizes_the_program() {
     let held = library.compiler.hold();
     library.update(|library, cx| library.open(&triangle, cx));
     library.wait_until("the open's compile", |library| {
-        library.start_stage(&triangle) == Some(StartStage::Optimizing)
+        library.start_stage(&triangle) == Some(OpenStage::Optimizing)
     });
     drop(held);
     wait_for_runs(&library, &[TRIANGLE]);
@@ -884,7 +878,7 @@ fn removing_a_running_program_ends_it_first_and_a_reinstall_starts_it_afresh() {
     let triangle: ProgramId = TRIANGLE.parse().unwrap();
     library.update(|library, cx| library.open(&triangle, cx));
     wait_for_runs(&library, &[TRIANGLE]);
-    let first_run = futures::executor::block_on(library.runs.programs());
+    let first_run = library.runs.instances();
     library.update(|library, cx| library.ask_to_remove(&triangle, cx));
     library.answers_yes();
     library.wait_until("the removal", |library| library.installed().is_empty());
@@ -902,7 +896,7 @@ fn removing_a_running_program_ends_it_first_and_a_reinstall_starts_it_afresh() {
     library.installs_forever();
     library.update(|library, cx| library.open(&triangle, cx));
     wait_for_runs(&library, &[TRIANGLE]);
-    let second_run = futures::executor::block_on(library.runs.programs());
+    let second_run = library.runs.instances();
     assert!(
         second_run[0] != first_run[0],
         "a run of its own, not the old one"
