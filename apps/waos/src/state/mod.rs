@@ -20,7 +20,7 @@
 //! calls (`logic::menu_calls`), the notifications' calls
 //! (`logic::notification_calls`), each view's calls (`waos-program-window`'s), on macOS what
 //! the programs' apps send (`logic::program_apps`), the presence of each of their windows among
-//! it, what the package manager is doing (`waos-package-manager`), and the calls posted to a value
+//! it, what the package manager is doing (`waos_services::packages`), and the calls posted to a value
 //! on the main thread that serves them (`app_thread_bound`): the players' (`media_players`), the media
 //! assets' (`media_assets`), the image codecs' (`image_codecs`), the cameras' (`cameras`) and the openings (`opener`).
 
@@ -81,10 +81,10 @@ use waos::{
 };
 use waos_local::LocalCapabilities;
 use waos_package::ProgramId;
-use waos_package_manager::PackageManager;
-use waos_permissions::Prompts;
 use waos_program_window::WaftCompositor;
-use waos_store::SourceProxy;
+use waos_services::packages::PackageManager;
+use waos_services::permissions::Prompts;
+use waos_services::store::SourceProxy;
 
 use crate::logic::app_services::{AppServices, Domains, EngineCompiler, open_domains};
 use crate::logic::asking_now::AskingNow;

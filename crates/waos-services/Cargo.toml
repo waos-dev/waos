@@ -1,0 +1,47 @@
+[package]
+name = "waos-services"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "WaOS's system services that need no engine, a module each: the apps installed, what the user lets each use, the package sources, each app's activity and its own folders."
+
+[dependencies]
+waos-package.workspace = true
+# What the user lets an app use, which Permissions answers to the engine as `ProgramGrants`; an
+# app's own folders, and what it did, as the engine names them.
+waos-capabilities.workspace = true
+# The compiler's errors, which the engine says as anyhow's.
+anyhow.workspace = true
+# Reading a source's index and downloading its packages, through the system's proxy, an HTTP
+# proxy or a SOCKS one; and the URL a source is.
+reqwest = { workspace = true, features = ["system-proxy", "socks"] }
+url.workspace = true
+# A package's and a download's SHA-256, and a download's said in hex when it differs from its
+# listing's; a picture kept by its address's.
+sha2.workspace = true
+hex.workspace = true
+# The settings and the list of sources, kept as TOML; the apps' days, kept as postcard.
+serde.workspace = true
+toml.workspace = true
+postcard.workspace = true
+# A file written whole; what a package is received into, and unpacked into, before it is
+# installed.
+tempfile.workspace = true
+# What is installed, the installs in flight and the questions asked now, watched; each app's
+# lock; a session's work on the runtime it was asked on, and its blocking steps off it; the
+# package manager's removals, heard.
+tokio.workspace = true
+# A package's or a download's bytes, as a stream; what stops an app, as a future; a question asked
+# once, its answer shared by every wait.
+futures.workspace = true
+# What could not be read, kept or removed, for whoever subscribes.
+tracing.workspace = true
+
+[dev-dependencies]
+# The package manager's sessions on a runtime of several threads; and a local HTTP server, which
+# the sources' tests read from.
+tokio = { workspace = true, features = ["rt-multi-thread", "net", "io-util"] }
+
+[lints]
+workspace = true

@@ -1,6 +1,6 @@
 //! The services that keep WaOS's apps, put together once, at WaOS's start or a test's: the apps
-//! running (`running_apps`), the package manager (`waos-package-manager`), handed the engine's
-//! compiler and the running apps, Permissions (`waos-permissions`), following the package
+//! running (`running_apps`), the package manager (`waos_services::packages`), handed the engine's
+//! compiler and the running apps, Permissions (`waos_services::permissions`), following the package
 //! manager's record, the store, and the one way to start an installed app (`app_starter`), with
 //! the engine they run on, what each runs with (`environments`), where its views go
 //! (`program_places`) and what it writes (`launch_outputs`). Whoever shows or drives apps (the
@@ -20,9 +20,9 @@ use anyhow::{Context as _, Result};
 use tokio::sync::{mpsc, watch};
 use waos::{Compiler, WaOS};
 use waos_package::ProgramId;
-use waos_package_manager::{CodeCompiler, PackageManager, StopApp};
-use waos_permissions::{InstalledApps, Permissions, Prompts, SettingsFiles};
-use waos_store::{SourceProxy, Store};
+use waos_services::packages::{CodeCompiler, PackageManager, StopApp};
+use waos_services::permissions::{InstalledApps, Permissions, Prompts, SettingsFiles};
+use waos_services::store::{SourceProxy, Store};
 
 use super::app_starter::AppStarter;
 use super::environments::ProgramEnvironments;

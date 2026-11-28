@@ -14,7 +14,7 @@ use waos_dev_protocol::{
     ServingProgramsAnswer,
 };
 use waos_package::ProgramId;
-use waos_package_manager::PackageManager;
+use waos_services::packages::PackageManager;
 
 use super::dev_refusal;
 use super::running_apps::RunningApps;

@@ -25,7 +25,7 @@ use waos::{
 };
 use waos_package::{ProgramId, SigningKey};
 use waos_program_window::WaftCompositor;
-use waos_store::Store;
+use waos_services::store::Store;
 
 use super::cameras::Cameras;
 use super::image_codecs::ImageCodecs;
@@ -60,8 +60,8 @@ pub(crate) struct TestSystem {
     /// The app's notifications as the engine reaches them, for a test to call as the engine does.
     pub(crate) notifications: Option<Arc<dyn ShellNotifications>>,
     pub(crate) store: Store,
-    pub(crate) permissions: waos_permissions::Permissions,
-    packages: Arc<waos_package_manager::PackageManager>,
+    pub(crate) permissions: waos_services::permissions::Permissions,
+    packages: Arc<waos_services::packages::PackageManager>,
     pub(crate) runs: Arc<RunningApps>,
     pub(crate) library: Entity<Library>,
     /// How many times the library asked to be seen.
@@ -121,7 +121,7 @@ impl TestSystem {
         } = test_installs::domains(
             &folder.path().join("store"),
             &runs,
-            Arc::new(waos_permissions::NoPrompts),
+            Arc::new(waos_services::permissions::NoPrompts),
         );
         let services = AppServices::new(
             Arc::clone(&runs),

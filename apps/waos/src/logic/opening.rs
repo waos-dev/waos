@@ -14,7 +14,7 @@ use waos::{OpenRequest, RunningProgram};
 #[cfg(desktop)]
 use waos_dev_protocol::{OpenAnswer, Refusal, RefusalKind, ServerConnection};
 use waos_package::ProgramId;
-use waos_package_manager::PackageManager;
+use waos_services::packages::PackageManager;
 
 use super::app_starter::{AppStarter, Opening, StartRequest};
 use super::running_apps::RunningApps;

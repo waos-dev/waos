@@ -11,7 +11,7 @@ use futures::channel::mpsc::UnboundedReceiver;
 use std::sync::Arc;
 use waft::{App, Context, Entity, WeakEntity};
 use waos::{RecordingDevice, RunningProgram};
-use waos_package_manager::PackageManager;
+use waos_services::packages::PackageManager;
 
 use crate::logic::program_name::program_name;
 use crate::logic::recording_indicator::RecordingChanged;

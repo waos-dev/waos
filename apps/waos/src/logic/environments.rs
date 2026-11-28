@@ -9,8 +9,8 @@ use std::sync::Arc;
 use waos::{AudioDevices, AudioOutput, MachineChoice, ProgramEnvironment};
 use waos_local::LocalCapabilities;
 use waos_package::ProgramId;
-use waos_permissions::Permissions;
-use waos_store::{Store, StoreError};
+use waos_services::permissions::Permissions;
+use waos_services::store::{Store, StoreError};
 
 use super::setting_changes::Offered;
 

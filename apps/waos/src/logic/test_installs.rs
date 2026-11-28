@@ -23,12 +23,12 @@ use futures::StreamExt as _;
 use sha2::{Digest, Sha256};
 use waos::Compiler;
 use waos_package::Manifest;
-use waos_package_manager::{
+use waos_services::packages::{
     Caller, CodeCompiler, DevelopmentBuild, InstalledProgram, InstalledVersion, PackageContent,
     PackageManager,
 };
-use waos_permissions::{NoPrompts, Prompts};
-use waos_store::SourceProxy;
+use waos_services::permissions::{NoPrompts, Prompts};
+use waos_services::store::SourceProxy;
 
 use super::app_services::{self, Domains};
 use super::running_apps::RunningApps;

@@ -13,8 +13,8 @@ use std::sync::Arc;
 
 use waft::ui::IconImage;
 use waos_package::ProgramId;
-use waos_package_manager::PackageManager;
 use waos_program_window::{ProgramFace, ProgramIdentity};
+use waos_services::packages::PackageManager;
 
 use super::program_identities::{Identities, installed_app_id};
 use super::program_name::name_of;

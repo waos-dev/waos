@@ -13,7 +13,7 @@ use waos_package::ProgramId;
 use waos_window_messages::{FromWindow, LaunchReason, PermissionRequestId, PostId, ToWindow};
 
 use super::*;
-use waos_permissions::Setting;
+use waos_services::permissions::Setting;
 
 use crate::logic::app_services::Domains;
 use crate::logic::notification_permissions::NotificationPermissionReading;

@@ -17,7 +17,7 @@
 //! What reads the network or the disk at length, a source's index, a download, a program's load,
 //! runs on the library's own tokio runtime, and its answer comes back to the main thread, where
 //! the library changes and notifies. A program is installed, updated and removed by the package
-//! manager (`waos-package-manager`), as Android's launcher asks its package manager: an install
+//! manager (`waos_services::packages`), as Android's launcher asks its package manager: an install
 //! is done once its code is compiled, and a program removed or updated while it runs ends first,
 //! its tab closing and its windows with it, as a system ends an app it uninstalls or updates, and
 //! opened by the app starter (`logic::app_starter`). What the package manager is doing to an app,
@@ -64,10 +64,10 @@ use waft_single_instance::{LaterLaunches, Launch};
 use waos::OpenRequest;
 use waos::bindings::wasdk::platform::notifications::Activation;
 use waos_package::{Category, ListedProgram, ProgramId, ProgramKind};
-use waos_package_manager::{
+use waos_services::packages::{
     Caller, InstallProgress, InstallSessionInfo, InstalledProgram, PackageContent, PackageManager,
 };
-use waos_store::{Source, Store, Url};
+use waos_services::store::{Source, Store, Url};
 
 use crate::logic::app_services::AppServices;
 use crate::logic::app_starter::{Opening, StartPlace, StartRequest, StartStage};

@@ -37,7 +37,7 @@ use crate::ui::library::home::fluent::MARGIN;
 use crate::ui::library::program_icon::ProgramIcon;
 use crate::ui::library::search_field::{search_token, takes_back_a_token, with_no_box};
 use crate::ui::library::words;
-use waos_store::Source;
+use waos_services::store::Source;
 
 const GAP: f64 = 8.0;
 

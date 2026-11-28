@@ -26,7 +26,7 @@ use crate::state::library::test_server::Server;
 use crate::state::library::{AppDetail, LibraryPage, SettingsPage};
 use waos::FileDialog;
 use waos_package::{Category, Index, ListedProgram};
-use waos_permissions::{Answer, Question};
+use waos_services::permissions::{Answer, Question};
 
 use crate::ui::library::test_steps::{
     adds_source, in_launcher_of, installs, installs_showing, on_phone, started_yesterday,

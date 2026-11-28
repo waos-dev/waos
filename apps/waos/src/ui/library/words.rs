@@ -196,9 +196,9 @@ pub(crate) fn permission_value(permission: Permission, shown: &ShownSettings) ->
             let network = &shown.network.value;
             match (network.on, &network.domains) {
                 (false, _) => DONT_ALLOW,
-                (true, waos_permissions::DomainRule::Any) => ALLOW,
-                (true, waos_permissions::DomainRule::Only(_)) => "Only some domains",
-                (true, waos_permissions::DomainRule::AnyBut(_)) => "All but some domains",
+                (true, waos_services::permissions::DomainRule::Any) => ALLOW,
+                (true, waos_services::permissions::DomainRule::Only(_)) => "Only some domains",
+                (true, waos_services::permissions::DomainRule::AnyBut(_)) => "All but some domains",
             }
         }
         Permission::LocalNetwork => allowed(shown.local_network.value),
@@ -230,12 +230,12 @@ pub(crate) fn permission_value(permission: Permission, shown: &ShownSettings) ->
 }
 
 /// A question's answer, in a word: Ask where there is none.
-pub(crate) fn answer_said(answer: Option<waos_permissions::Answer>) -> &'static str {
+pub(crate) fn answer_said(answer: Option<waos_services::permissions::Answer>) -> &'static str {
     match answer {
         None => ASK,
-        Some(waos_permissions::Answer::Granted) => ALLOW,
-        Some(waos_permissions::Answer::Denied) => DONT_ALLOW,
-        Some(waos_permissions::Answer::Simulated) => SIMULATED,
+        Some(waos_services::permissions::Answer::Granted) => ALLOW,
+        Some(waos_services::permissions::Answer::Denied) => DONT_ALLOW,
+        Some(waos_services::permissions::Answer::Simulated) => SIMULATED,
     }
 }
 pub(crate) const GLOBAL_SETTINGS: &str = "Every app's settings";
@@ -413,11 +413,11 @@ pub(crate) fn how_many(count: usize, one: &str, many: &str) -> String {
 }
 
 /// What a program's question to its user is about, as its setting names it.
-pub(crate) fn question_name(question: waos_permissions::Question) -> &'static str {
+pub(crate) fn question_name(question: waos_services::permissions::Question) -> &'static str {
     match question {
-        waos_permissions::Question::Notifications => "Notifications",
-        waos_permissions::Question::Camera => "Camera",
-        waos_permissions::Question::Microphone => "Microphone",
+        waos_services::permissions::Question::Notifications => "Notifications",
+        waos_services::permissions::Question::Camera => "Camera",
+        waos_services::permissions::Question::Microphone => "Microphone",
     }
 }
 
@@ -465,23 +465,27 @@ pub(crate) fn not_offered(name: &str) -> String {
 }
 
 /// The answer a program was given to opening links of `scheme`.
-pub(crate) fn link_scheme(scheme: &str, answer: waos_permissions::Answer) -> String {
+pub(crate) fn link_scheme(scheme: &str, answer: waos_services::permissions::Answer) -> String {
     let given = match answer {
-        waos_permissions::Answer::Granted => ALLOW,
-        waos_permissions::Answer::Denied => DONT_ALLOW,
-        waos_permissions::Answer::Simulated => SIMULATED,
+        waos_services::permissions::Answer::Granted => ALLOW,
+        waos_services::permissions::Answer::Denied => DONT_ALLOW,
+        waos_services::permissions::Answer::Simulated => SIMULATED,
     };
     format!("{scheme} links: {given}")
 }
 
 /// The answer a program was given to holding `role`.
-pub(crate) fn role(role: waos_permissions::Role, answer: waos_permissions::Answer) -> String {
+pub(crate) fn role(
+    role: waos_services::permissions::Role,
+    answer: waos_services::permissions::Answer,
+) -> String {
     let what = match role {
-        waos_permissions::Role::Inspector => "See what other apps do",
+        waos_services::permissions::Role::Inspector => "See what other apps do",
     };
     let given = match answer {
-        waos_permissions::Answer::Granted => ALLOW,
-        waos_permissions::Answer::Denied | waos_permissions::Answer::Simulated => DONT_ALLOW,
+        waos_services::permissions::Answer::Granted => ALLOW,
+        waos_services::permissions::Answer::Denied
+        | waos_services::permissions::Answer::Simulated => DONT_ALLOW,
     };
     format!("{what}: {given}")
 }

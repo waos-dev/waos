@@ -498,8 +498,8 @@ pub(crate) mod tests {
         pub(crate) folder: PathBuf,
         pub(crate) socket: PathBuf,
         runs: Arc<RunningApps>,
-        pub(crate) store: waos_store::Store,
-        pub(crate) permissions: waos_permissions::Permissions,
+        pub(crate) store: waos_services::store::Store,
+        pub(crate) permissions: waos_services::permissions::Permissions,
         /// What the server's programs' users are asked, which a test notes as the prompts do.
         pub(crate) asking: Arc<AskingNow>,
         pub(crate) services: AppServices,
@@ -541,7 +541,12 @@ pub(crate) mod tests {
         /// A server of the test's own over the engine `engine` makes, with nobody to ask.
         fn over(test: &str, engine: impl FnOnce() -> Arc<WaOS>) -> TestServer {
             let runs = Arc::new(RunningApps::default());
-            Self::over_with(test, runs, Arc::new(waos_permissions::NoPrompts), engine)
+            Self::over_with(
+                test,
+                runs,
+                Arc::new(waos_services::permissions::NoPrompts),
+                engine,
+            )
         }
 
         /// A server over the engine `engine` makes, its apps running among `runs` and their
@@ -549,7 +554,7 @@ pub(crate) mod tests {
         fn over_with(
             test: &str,
             runs: Arc<RunningApps>,
-            prompts: Arc<dyn waos_permissions::Prompts>,
+            prompts: Arc<dyn waos_services::permissions::Prompts>,
             engine: impl FnOnce() -> Arc<WaOS>,
         ) -> TestServer {
             let folder =
@@ -1418,8 +1423,9 @@ pub(crate) mod tests {
         );
         let own = server.permissions.app_settings(&id).unwrap();
         assert_eq!(
-            own.answers.get(waos_permissions::Question::Camera),
-            &waos_permissions::Setting::Own(waos_permissions::Answer::Granted),
+            own.answers
+                .get(waos_services::permissions::Question::Camera),
+            &waos_services::permissions::Setting::Own(waos_services::permissions::Answer::Granted),
             "kept as its page keeps it"
         );
         let machine = rows.iter().find(|row| row.key == "machine").unwrap();
@@ -1455,8 +1461,9 @@ pub(crate) mod tests {
         assert_eq!(camera.values, ["deny"]);
         let own = server.permissions.app_settings(&id).unwrap();
         assert_eq!(
-            own.answers.get(waos_permissions::Question::Camera),
-            &waos_permissions::Setting::Own(waos_permissions::Answer::Denied),
+            own.answers
+                .get(waos_services::permissions::Question::Camera),
+            &waos_services::permissions::Setting::Own(waos_services::permissions::Answer::Denied),
             "kept as its page keeps it"
         );
         let summary = Request::Inspect {
@@ -1510,12 +1517,15 @@ pub(crate) mod tests {
         assert_eq!(value("simulated-microphone"), ["silence"]);
         let own = server.permissions.app_settings(&id).unwrap();
         assert_eq!(
-            own.answers.get(waos_permissions::Question::Camera),
-            &waos_permissions::Setting::Own(waos_permissions::Answer::Simulated)
+            own.answers
+                .get(waos_services::permissions::Question::Camera),
+            &waos_services::permissions::Setting::Own(
+                waos_services::permissions::Answer::Simulated
+            )
         );
         assert_eq!(
             own.simulated_microphone,
-            waos_permissions::Setting::Own(waos::SimulatedSound::Silence)
+            waos_services::permissions::Setting::Own(waos::SimulatedSound::Silence)
         );
     }
 
@@ -1543,7 +1553,10 @@ pub(crate) mod tests {
             );
         }
         let own = server.permissions.app_settings(&id).unwrap();
-        assert_eq!(own.answer_with, waos_permissions::AnswerWith::default());
+        assert_eq!(
+            own.answer_with,
+            waos_services::permissions::AnswerWith::default()
+        );
     }
 
     #[tokio::test]

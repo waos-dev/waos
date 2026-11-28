@@ -64,7 +64,7 @@ use crate::logic::test_installs;
 use crate::logic::vsync_waiter::WaftVsync;
 use crate::state::questions::{self, Questions};
 use crate::ui::every_window::{every_window, program_windows};
-use waos_store::Store;
+use waos_services::store::Store;
 
 /// The desktop's one screen, which every window is made on.
 const SCREEN: ScreenId = ScreenId(1);
@@ -77,7 +77,7 @@ struct Desktop {
     engine: Arc<WaOS>,
     clipboard: MockClipboard,
     store: Store,
-    permissions: waos_permissions::Permissions,
+    permissions: waos_services::permissions::Permissions,
     view_windows: Entity<ViewWindows>,
     /// How many of the windows made the app has heard of, and which closed ones.
     reported_made: usize,

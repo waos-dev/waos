@@ -216,7 +216,7 @@ pub(crate) struct TestPhone {
     pub(crate) view_windows: Entity<ViewWindows>,
     pub(crate) runs: Arc<RunningApps>,
     /// What installs the library's apps.
-    packages: Arc<waos_package_manager::PackageManager>,
+    packages: Arc<waos_services::packages::PackageManager>,
     /// Where the programs' questions to their user are put.
     pub(crate) prompts: Arc<PromptsOnRequest>,
     pub(crate) folder: TempDir,
@@ -258,7 +258,7 @@ impl TestPhone {
         } = crate::logic::test_installs::domains(
             &folder.path().join("store"),
             &runs,
-            Arc::clone(&prompts) as Arc<dyn waos_permissions::Prompts>,
+            Arc::clone(&prompts) as Arc<dyn waos_services::permissions::Prompts>,
         );
         let (own_windows, requests) =
             WindowsOnRequest::new(ProgramFaces::new(Arc::clone(&packages), None));

@@ -36,7 +36,7 @@ use tracing::Instrument;
 use waos::{ProgramEnd, RunningProgram};
 use waos_dev_protocol::RunEnd;
 use waos_package::ProgramId;
-use waos_package_manager::{PackageChange, StopApp};
+use waos_services::packages::{PackageChange, StopApp};
 
 #[cfg(desktop)]
 pub(crate) use driven::DrivenProgram;

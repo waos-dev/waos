@@ -19,9 +19,9 @@ use waos::RunningProgram;
 #[cfg(desktop)]
 use waos::{Question, Switch};
 use waos_dev_protocol::Asked;
-use waos_permissions::AskedQuestion;
+use waos_services::permissions::AskedQuestion;
 #[cfg(desktop)]
-use waos_permissions::{AppQuestion, Role};
+use waos_services::permissions::{AppQuestion, Role};
 
 /// How many askings a run that is slow to read may fall behind by before it misses some.
 const TOLD_BACKLOG: usize = 64;

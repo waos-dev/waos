@@ -3,7 +3,7 @@
 
 use waos::RunningProgram;
 use waos_package::ProgramId;
-use waos_package_manager::PackageManager;
+use waos_services::packages::PackageManager;
 
 /// `program`'s name: its name in `packages` where it is installed there, else what it runs as.
 pub(crate) fn program_name(packages: &PackageManager, program: &RunningProgram) -> String {

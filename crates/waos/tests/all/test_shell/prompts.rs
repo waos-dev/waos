@@ -8,7 +8,7 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 use futures::FutureExt;
 use futures::channel::oneshot;
 use waos::{Answer, AnswerFuture, Question, Role, SettingsClosedFuture, Switch};
-use waos_permissions::{App, Prompts};
+use waos_services::permissions::{App, Prompts};
 
 /// What the user was asked, and what is still waiting for an answer.
 #[derive(Default)]

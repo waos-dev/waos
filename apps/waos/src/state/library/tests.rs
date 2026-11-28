@@ -77,8 +77,8 @@ impl TestLibrary {
         } = test_installs::domains_compiling(
             &folder.path().join("store"),
             &runs,
-            Arc::new(waos_permissions::NoPrompts),
-            Arc::clone(&compiler) as Arc<dyn waos_package_manager::CodeCompiler>,
+            Arc::new(waos_services::permissions::NoPrompts),
+            Arc::clone(&compiler) as Arc<dyn waos_services::packages::CodeCompiler>,
         );
         let services = AppServices::new(
             Arc::clone(&runs),

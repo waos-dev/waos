@@ -22,8 +22,8 @@ use waos::inspection::InspectedPrograms;
 use waos::{Compiler, EngineTime, FreezePolicy, HttpProxy, PlatformState, WaOS, WaOSConfig};
 use waos_headless::{Display, HeadlessShell, Refreshes};
 use waos_local::LocalCapabilities;
-use waos_permissions::Prompts;
-use waos_store::SourceProxy;
+use waos_services::permissions::Prompts;
+use waos_services::store::SourceProxy;
 
 use crate::logic::app_services::{AppServices, Domains, EngineCompiler, open_domains};
 use crate::logic::asking_now::AskingNow;
@@ -635,7 +635,7 @@ mod tests {
         {
             let running = Arc::new(RunningApps::default());
             let compiler = Arc::new(crate::logic::test_installs::MarkerCompiler);
-            let prompts = Arc::new(waos_permissions::NoPrompts);
+            let prompts = Arc::new(waos_services::permissions::NoPrompts);
             let domains = open_domains(
                 &folders.store,
                 compiler,

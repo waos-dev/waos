@@ -115,7 +115,7 @@ mod host {
     use tokio::sync::watch;
     use waft::{App, Entity};
     use waos_package::ProgramId;
-    use waos_package_manager::InstallSessionInfo;
+    use waos_services::packages::InstallSessionInfo;
 
     use super::{AppNapExemption, WindowKey};
     use crate::logic::app_starter::StartStage;

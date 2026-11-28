@@ -20,9 +20,9 @@ use waos::inspection::InspectedPrograms;
 use waos::inspection::ProgramStorage;
 use waos::inspection::bindings::wasdk::inspect::devices::{Program, ProgramChange, StartError};
 use waos_package::ProgramId;
-use waos_package_manager::{InstalledProgram, PackageManager};
-use waos_permissions::Permissions;
-use waos_store::Store;
+use waos_services::packages::{InstalledProgram, PackageManager};
+use waos_services::permissions::Permissions;
+use waos_services::store::Store;
 
 use super::held_starts::HeldStarts;
 use super::running_apps::RunningApps;

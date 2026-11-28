@@ -22,7 +22,7 @@ use waft::{
     StatelessWidget, Text, TextAlign, TextOverflow, TextStyle, WidgetRef,
 };
 use waos_package::ProgramId;
-use waos_package_manager::InstalledProgram;
+use waos_services::packages::InstalledProgram;
 
 use crate::state::library::Library;
 use crate::ui::library::words;
