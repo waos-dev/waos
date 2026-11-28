@@ -29,6 +29,17 @@ jobs:
       # Formatting builds nothing, so it runs with the other quick check.
       - name: Formatting
         run: cargo fmt --all -- --check
+      # What `sync-wit` writes is committed, so no build pays for it: the WIT's copies, and the plain
+      # types and the engine's conversions generated from it. Running it again must change nothing.
+      - name: The WIT's copies and generated types are what wit/ makes
+        run: |
+          cargo xtask sync-wit
+          if [ -n "$(git status --porcelain)" ]; then
+            git status --short
+            git diff
+            echo "::error::wit/ makes other files than those committed: run cargo xtask sync-wit and commit what it changes"
+            exit 1
+          fi
 
   # macOS runs every test of the workspace, in three jobs: the engine and the command (whose tests
   # start programs), the app (whose deck tests start programs of their own), and everything else.
