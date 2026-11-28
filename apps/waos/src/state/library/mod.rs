@@ -458,12 +458,12 @@ impl Library {
 
     /// Keeps which programs run as the runs' list changes, from now on.
     fn follow_running(&mut self, cx: &mut Context<Library>) {
-        let mut ids = self.instances.running();
-        self.running = ids.borrow_and_update().clone();
+        let mut instances = self.instances.running();
+        self.running = instances.borrow_and_update().keys().cloned().collect();
         follow(
-            ids,
+            instances,
             |library, running, cx| {
-                library.running = running;
+                library.running = running.into_keys().collect();
                 cx.notify();
             },
             cx,

@@ -3,11 +3,11 @@
 //! new one is in the list, so two opens of one app arriving together cannot both start it, and an
 //! id never names two instances. The list's own lock is held only to read or change the list, never
 //! while an instance starts or ends, so an instance slow to end holds back no screenshot, input,
-//! open or quit, nor another app's open; the ids running, which [`InstanceList::ids`] tells, change
-//! with the list under that lock. Each instance knows whether a later one took its place, so its
+//! open or quit, nor another app's open; the instances running, which the list writes to the watch
+//! it is handed ([`RunningInstances`]), change with the list under that lock. Each instance knows whether a later one took its place, so its
 //! end is told as `Replaced`.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
@@ -16,8 +16,9 @@ use waos::{AppInstance, ProgramEnd};
 use waos_dev_protocol::RunEnd;
 use waos_package::ProgramId;
 
+use super::RunningInstances;
+
 /// The instances running, by their app's id.
-#[derive(Default)]
 pub(super) struct InstanceList {
     /// The instances in the list, held only to read or change it.
     running: Mutex<HashMap<ProgramId, Listed>>,
@@ -25,8 +26,8 @@ pub(super) struct InstanceList {
     turns: Mutex<HashMap<ProgramId, Arc<tokio::sync::Mutex<()>>>>,
     /// Tells one instance of an app from the next.
     serials: AtomicU64,
-    /// The ids in the list, for whoever shows which apps run.
-    ids: watch::Sender<BTreeSet<ProgramId>>,
+    /// The instances in the list, for whoever follows which apps run.
+    told: watch::Sender<RunningInstances>,
 }
 
 /// One instance in the list.
@@ -60,6 +61,16 @@ impl Run {
 }
 
 impl InstanceList {
+    /// An empty list, which tells the instances in it to `told`, empty yet, from now on.
+    pub(super) fn new(told: watch::Sender<RunningInstances>) -> InstanceList {
+        InstanceList {
+            running: Mutex::default(),
+            turns: Mutex::default(),
+            serials: AtomicU64::default(),
+            told,
+        }
+    }
+
     /// The turn of the app `id`, once no other open or stop of it holds it.
     pub(super) async fn turn_of(&self, id: &ProgramId) -> OwnedMutexGuard<()> {
         let turn = {
@@ -99,7 +110,7 @@ impl InstanceList {
     fn take_out(&self, id: &ProgramId) -> Option<Listed> {
         let mut running = self.listed();
         let current = running.remove(id)?;
-        self.ids.send_replace(running.keys().cloned().collect());
+        self.tell(&running);
         Some(current)
     }
 
@@ -116,7 +127,7 @@ impl InstanceList {
                 replaced: Arc::clone(&replaced),
             },
         );
-        self.ids.send_replace(running.keys().cloned().collect());
+        self.tell(&running);
         Run {
             app: id.clone(),
             serial,
@@ -134,13 +145,13 @@ impl InstanceList {
             .is_some_and(|current| current.serial == run.serial)
         {
             running.remove(&run.app);
-            self.ids.send_replace(running.keys().cloned().collect());
+            self.tell(&running);
         }
     }
 
-    /// The ids running now, and each change of them from now on.
-    pub(super) fn ids(&self) -> watch::Receiver<BTreeSet<ProgramId>> {
-        self.ids.subscribe()
+    /// The instances running now, and each change of them from now on.
+    pub(super) fn instances_running(&self) -> watch::Receiver<RunningInstances> {
+        self.told.subscribe()
     }
 
     /// The instance of `id` running now, if one is.
@@ -155,6 +166,14 @@ impl InstanceList {
         (self.listed().values())
             .map(|current| current.instance.clone())
             .collect()
+    }
+
+    /// Tells the watch the instances in `running`, the list as it is now, under its lock.
+    fn tell(&self, running: &HashMap<ProgramId, Listed>) {
+        let instances = (running.iter())
+            .map(|(id, listed)| (id.clone(), listed.instance.clone()))
+            .collect();
+        self.told.send_replace(instances);
     }
 
     /// The list, for a moment: never held across an await.
@@ -183,13 +202,16 @@ mod tests {
             )
             .unwrap()
             .named("dev.example.other");
-        let list = InstanceList::default();
+        let list = InstanceList::new(watch::Sender::default());
         let slow: ProgramId = "dev.example.slow".parse().unwrap();
         let other: ProgramId = "dev.example.other".parse().unwrap();
         let _slow_turn = list.turn_of(&slow).await;
 
         let at_once = Duration::from_secs(1);
-        assert!(list.ids().borrow().is_empty(), "the list is read meanwhile");
+        assert!(
+            list.instances_running().borrow().is_empty(),
+            "the list is read meanwhile"
+        );
         let other_turn = tokio::time::timeout(at_once, list.turn_of(&other))
             .await
             .expect("and another app's turn comes meanwhile");

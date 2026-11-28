@@ -472,6 +472,7 @@ pub(crate) mod tests {
     use waos_package::ProgramId;
 
     use super::*;
+    use crate::logic::app_instances::RunningInstances;
     use crate::logic::developer_access::Listening;
     use crate::logic::open_command::{self, Sent};
     use crate::logic::opened_package::tests::write_package;
@@ -955,8 +956,9 @@ pub(crate) mod tests {
         /// Waits until the runs are exactly `names`.
         pub(crate) async fn wait_for_runs(&self, names: &[&str]) {
             let mut running = self.instances.running();
-            let named = |ids: &std::collections::BTreeSet<ProgramId>| {
-                ids.iter()
+            let named = |running: &RunningInstances| {
+                running
+                    .keys()
                     .map(ToString::to_string)
                     .eq(names.iter().copied())
             };

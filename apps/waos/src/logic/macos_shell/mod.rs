@@ -1,8 +1,8 @@
 //! macOS's parts of WaOS's shell, as Chrome's app shims are the browser's: each app's windows open
 //! in a window process of its own, which belongs to the app, launched from the app's bundle by the
 //! app's id (`app_bundles`, `bundles`) through Launch Services, and served by WaOS once it said
-//! hello over Mach (`server`, `window_process`), at most one per app, the app's instance attaching
-//! to it as it first reaches it (`window_processes`); what each view shows stays in
+//! hello over Mach (`server`, `window_process`), at most one per app, lasting as long as the app's
+//! instance runs, as a macOS app's process does (`window_processes`); what each view shows stays in
 //! WaOS, on a canvas WaOS keeps in a layer context the window shows (`canvases`), a window's new
 //! size showing only with the app's picture at it, which the window waits for inside the resize
 //! (`canvas_pictures`); and so do WaOS's prompts for the app, which its window process shows in
@@ -53,11 +53,13 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use futures::channel::mpsc::UnboundedSender;
+use tokio::sync::watch;
 use waos::bindings::wasdk::platform::views::ViewError;
 use waos::{AppInstance, ViewPlacement, ViewRequest};
 use waos_services::packages::PackageManager;
 use waos_window_messages::bootstrap_name;
 
+use crate::logic::app_instances::RunningInstances;
 use crate::os::check_layer_contexts;
 use crate::system_shell::UserOpen;
 
@@ -81,12 +83,14 @@ pub(crate) use {
 const THREADS: usize = 2;
 
 /// The apps' window processes, their bundles in `folders`, following what `packages` installs,
-/// what each reports going by `routes`, listening for them from now on, the apps the user opens
-/// going to `user_opens`; why there can be none, as when WaOS's window library or loader is not
-/// there or the system cannot show what a window draws.
+/// each lasting while its app's instance in `running` runs, what each reports going by `routes`,
+/// listening for them from now on, the apps the user opens going to `user_opens`; why there can be
+/// none, as when WaOS's window library or loader is not there or the system cannot show what a
+/// window draws.
 pub(crate) fn start(
     folders: AppsFolders,
     packages: Arc<PackageManager>,
+    running: watch::Receiver<RunningInstances>,
     routes: Routes,
     user_opens: UnboundedSender<UserOpen>,
 ) -> Result<Arc<WindowProcesses>> {
@@ -106,7 +110,7 @@ pub(crate) fn start(
         runtime.handle().clone(),
     )?);
     bundles.follow_installed();
-    WindowProcesses::start(runtime, bundles, routes, &name, user_opens)
+    WindowProcesses::start(runtime, bundles, running, routes, &name, user_opens)
 }
 
 /// The engine's placement on macOS where there can be no window processes: every window an app
