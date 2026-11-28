@@ -628,8 +628,8 @@ impl ProgramView {
 
     /// The GPU has drawn a frame into `buffer`, which the program presented after reading
     /// `events_read` of the view's events: it is handed to the shell with `layers` beneath it,
-    /// `opaque` where the engine made it so, and is the picture the view shows once the shell has
-    /// it; `released`, the pool's release of it, runs once the shell is done with it and the next
+    /// `opaque` where the engine made it so, and is the picture the view shows by the time the
+    /// shell has it; `released`, the pool's release of it, runs once the shell is done with it and the next
     /// picture has replaced it.
     pub(crate) fn present(
         &self,
@@ -647,8 +647,10 @@ impl ProgramView {
         );
         let (picture, released) =
             HandedPicture::new(&buffer, layers.clone(), released, events_read);
-        self.0.shell.present(buffer, layers, opaque, released);
+        // Before the shell has it: whoever the shell tells of the picture finds the view showing
+        // it.
         self.0.shown.show(picture);
+        self.0.shell.present(buffer, layers, opaque, released);
     }
 
     /// How many of the view's events the program has read.
@@ -701,6 +703,8 @@ impl ProgramView {
 
 #[cfg(test)]
 pub(super) mod tests {
+    #[cfg(target_vendor = "apple")]
+    use crate::bindings::wasdk::platform::views::{Cursor, ViewFocusDirection, ViewFocusState};
     use crate::bindings::wasdk::platform::views::{KeyKind, PointerChange};
     use crate::bindings::wasdk::platform::windows::Point;
     use crate::shell::tests::Headless;
@@ -712,6 +716,8 @@ pub(super) mod tests {
     use super::super::screen_refreshes::tests::{
         A_SECOND, refresh, refresh_at, refreshes_a_second_apart, refreshes_of,
     };
+    #[cfg(target_vendor = "apple")]
+    use super::super::shown_picture::tests::buffer as picture_buffer;
     use super::*;
 
     pub(in crate::views) const ON_SCREEN: Presence = Presence {
@@ -779,6 +785,52 @@ pub(super) mod tests {
 
     fn view() -> ProgramView {
         view_on(&Arc::default())
+    }
+
+    /// A shell's view that notes, at each picture it is handed, whether the program's view shows
+    /// one.
+    #[cfg(target_vendor = "apple")]
+    #[derive(Default)]
+    struct ReadingBack {
+        view: std::sync::OnceLock<WeakProgramView>,
+        shown_when_handed: Mutex<Vec<bool>>,
+    }
+
+    #[cfg(target_vendor = "apple")]
+    impl ShellView for ReadingBack {
+        fn present(
+            &self,
+            _buffer: HardwareBuffer,
+            _layers: Vec<(Arc<dyn ShellCompositionLayer>, Placement)>,
+            _opaque: bool,
+            _released: Released,
+        ) {
+            let view = self.view.get().and_then(WeakProgramView::upgrade);
+            let shown = view.is_some_and(|view| view.0.shown.now().is_some());
+            locked(&self.shown_when_handed).push(shown);
+        }
+
+        fn set_cursor(&self, _cursor: Cursor) {}
+
+        fn request_focus_change(&self, _state: ViewFocusState, _direction: ViewFocusDirection) {}
+
+        fn set_handles_back(&self, _handles: bool) {}
+    }
+
+    #[cfg(target_vendor = "apple")]
+    #[test]
+    fn a_shell_handed_a_picture_finds_the_view_showing_it() {
+        let shell = Arc::new(ReadingBack::default());
+        let placed = PlacedView {
+            view: Arc::clone(&shell) as Arc<dyn ShellView>,
+            ..placed(&Arc::default())
+        };
+        let view = view_placed(&Arc::default(), placed);
+        let _ = shell.view.set(view.downgrade());
+
+        view.present(picture_buffer(), Vec::new(), true, Box::new(|| {}), 0);
+
+        assert_eq!(*locked(&shell.shown_when_handed), [true]);
     }
 
     /// What the view delivered, once it is gone.

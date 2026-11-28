@@ -995,10 +995,6 @@ impl TestPhone {
     pub(crate) fn pump_for(&mut self, time: Duration) {
         let until = Instant::now() + time;
         while Instant::now() < until {
-            #[allow(
-                clippy::disallowed_methods,
-                reason = "real time for a program to go wrong in; exact once it says its start is over"
-            )]
             thread::sleep(Duration::from_millis(5));
             self.pump();
         }

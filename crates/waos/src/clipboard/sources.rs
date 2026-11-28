@@ -272,10 +272,6 @@ async fn within<T>(limit: Duration, future: impl Future<Output = T>) -> Option<T
     let timer = thread::Builder::new()
         .name("clipboard deadline".to_owned())
         .spawn(move || {
-            #[allow(
-                clippy::disallowed_methods,
-                reason = "the paste's deadline, kept on a thread of its own"
-            )]
             thread::sleep(limit);
             let _ = elapsed.send(());
         });

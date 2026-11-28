@@ -205,7 +205,6 @@ async fn serve(mut listener: Listener, context: ServerContext, mut stopped: ones
                 }
                 Err(error) => {
                     tracing::warn!(%error, "accepting a connection");
-                    #[allow(clippy::disallowed_methods, reason = "a pause before accepting again")]
                     tokio::time::sleep(Duration::from_millis(100)).await;
                 }
             },
@@ -220,7 +219,6 @@ async fn serve(mut listener: Listener, context: ServerContext, mut stopped: ones
                 }
                 Err(error) => {
                     tracing::warn!(%error, "accepting a connection from the network");
-                    #[allow(clippy::disallowed_methods, reason = "a pause before accepting again")]
                     tokio::time::sleep(Duration::from_millis(100)).await;
                 }
             },
@@ -1896,10 +1894,6 @@ pub(crate) mod tests {
         let deadline = Instant::now() + WITHIN;
         while fs::read_to_string(&file).unwrap() != "my notes, seen" {
             assert!(Instant::now() < deadline, "the program never wrote to it");
-            #[allow(
-                clippy::disallowed_methods,
-                reason = "a file a program writes announces nothing; exact once it prints that it wrote"
-            )]
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     }
@@ -2166,10 +2160,6 @@ pub(crate) mod tests {
         let deadline = Instant::now() + WITHIN;
         while read_u64("wrote") < (1 << 20) || read_u64("ticks") == 0 {
             assert!(Instant::now() < deadline, "flood never filled the queue");
-            #[allow(
-                clippy::disallowed_methods,
-                reason = "flood says what it wrote in files, which announce nothing"
-            )]
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
         // Stdout waits once the writer stands still while the timer ticks on: a writer free to
@@ -2183,10 +2173,6 @@ pub(crate) mod tests {
                     Instant::now() < deadline,
                     "the timer stopped while stdout waited"
                 );
-                #[allow(
-                    clippy::disallowed_methods,
-                    reason = "flood says what it wrote in files, which announce nothing"
-                )]
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
             if wrote >= (1 << 20) && read_u64("wrote") == wrote {
@@ -2241,18 +2227,10 @@ pub(crate) mod tests {
         let deadline = Instant::now() + WITHIN;
         while read_wrote() < (1 << 20) {
             assert!(Instant::now() < deadline, "println never filled the queue");
-            #[allow(
-                clippy::disallowed_methods,
-                reason = "flood says what it wrote in files, which announce nothing"
-            )]
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
         loop {
             let wrote_a = read_wrote();
-            #[allow(
-                clippy::disallowed_methods,
-                reason = "a writer standing still shows only over time; exact once the engine says a write waits"
-            )]
             tokio::time::sleep(Duration::from_millis(150)).await;
             let wrote_b = read_wrote();
             if wrote_b == wrote_a {

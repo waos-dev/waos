@@ -51,10 +51,6 @@ pub(crate) fn find_or_start_waos(
 fn poll<T>(mut look_up: impl FnMut() -> Option<T>, period: Duration, attempts: u32) -> Option<T> {
     for attempt in 0..attempts {
         if attempt > 0 {
-            #[allow(
-                clippy::disallowed_methods,
-                reason = "WaOS just started announces nothing; asked again `period` apart"
-            )]
             thread::sleep(period);
         }
         if let Some(found) = look_up() {

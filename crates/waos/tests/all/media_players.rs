@@ -117,6 +117,11 @@ fn a_link_opens_once_its_host_passes_the_rules_and_refused_sources_reach_no_shel
         1,
         "nothing refused reaches the shell"
     );
+    // The engine asks them once the shell's player is open, which the program does not wait for.
+    shell.changes.wait_until(
+        "the player is asked what the program asked meanwhile",
+        || player.calls().len() >= 3,
+    );
     assert_eq!(
         player.calls(),
         [

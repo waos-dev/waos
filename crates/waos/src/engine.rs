@@ -536,10 +536,6 @@ mod tests {
     impl VsyncWaiter for Refreshing {
         fn next_vsync(&self, _screen: ScreenId, on_refresh: OnRefresh) {
             thread::spawn(move || {
-                #[allow(
-                    clippy::disallowed_methods,
-                    reason = "the stand-in's screen refreshes a moment after it is asked, as a screen does"
-                )]
                 thread::sleep(REFRESH_INTERVAL);
                 let now = Instant::now();
                 on_refresh(now, now + REFRESH_INTERVAL);
@@ -663,11 +659,6 @@ mod tests {
                 if now.is_back_to(before, checked) || Instant::now() > deadline {
                     return now;
                 }
-                #[allow(
-                    clippy::disallowed_methods,
-                    reason = "wgpu-core and Metal announce no release; exact would take the engine \
-                              saying when a stopped program's GPU objects are gone"
-                )]
                 thread::sleep(Duration::from_millis(50));
             }
         }

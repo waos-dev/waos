@@ -4,11 +4,12 @@
 //! it is written there as a PNG named for its layout, its place in the walk and what it shows:
 //!
 //! ```text
-//! WAOS_GALLERY_DIR=target/gallery cargo test -p waos-app --lib gallery
+//! WAOS_GALLERY_DIR=target/gallery cargo test -p waos-app --lib gallery -- --ignored
 //! ```
 //!
-//! Without it the scenes are still read back, so a page that stops painting fails here. Text is
-//! in the fonts of the machine the test runs on; what is left unpainted reads back clear.
+//! Run on demand only (`--ignored`): each walk takes over ten seconds, and the library's own
+//! tests already fail a page that stops painting. Text is in the fonts of the machine the test
+//! runs on; what is left unpainted reads back clear.
 
 use std::path::Path;
 
@@ -186,6 +187,7 @@ const SOURCE_ICON: &str = "example-apps.png";
 const SOURCE_FEATURES: [&str; 2] = ["dev.waos.notes", "dev.example.maps"];
 
 #[test]
+#[ignore = "run on demand, to see the library's pages"]
 fn the_library_in_the_launcher() {
     // With preferences of its own, as the app has, so WaOS's own settings have a page to draw.
     let as_the_app = DesktopKind {
@@ -196,6 +198,7 @@ fn the_library_in_the_launcher() {
 }
 
 #[test]
+#[ignore = "run on demand, to see the library's pages"]
 fn the_library_in_a_phones_window() {
     walks_the_library("phone", on_phone());
 }

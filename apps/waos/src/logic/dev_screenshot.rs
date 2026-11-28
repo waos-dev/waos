@@ -421,10 +421,6 @@ mod tests {
                     Instant::now() < deadline,
                     "once detached, covered is out of sight"
                 );
-                #[allow(
-                    clippy::disallowed_methods,
-                    reason = "the engine announces no change of a view's presence; exact once it does"
-                )]
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
             server.wait_for_runs(&[INPUT_DEVELOPMENT]).await;

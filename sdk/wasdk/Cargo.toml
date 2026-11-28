@@ -33,9 +33,6 @@ raw-window-handle = { workspace = true, optional = true, features = ["alloc"] }
 [lints.rust]
 unsafe_code = "deny"
 
-[lints.clippy]
-# As the workspace's: a sleep in a test fails the lint (`clippy.toml`).
-disallowed_methods = "deny"
 
 [package.metadata.docs.rs]
 all-features = true

@@ -100,10 +100,6 @@ impl Mouse {
         let mut sent = self.position.come_to(at);
         sent.push(pressed(at));
         self.deliver(view, &sent);
-        #[allow(
-            clippy::disallowed_methods,
-            reason = "a simulated press is held for `held`"
-        )]
         tokio::time::sleep(held).await;
         self.deliver(view, &[released(at)]);
     }
@@ -115,16 +111,8 @@ impl Mouse {
         let mut sent = self.position.come_to(start);
         sent.push(pressed(start));
         self.deliver(view, &sent);
-        #[allow(
-            clippy::disallowed_methods,
-            reason = "a simulated drag keeps the pace a hand would"
-        )]
         tokio::time::sleep(path.hold).await;
         for point in path.moves(view.id()) {
-            #[allow(
-                clippy::disallowed_methods,
-                reason = "a simulated drag keeps the pace a hand would"
-            )]
             tokio::time::sleep(path.interval()).await;
             self.position.held_at(point);
             self.deliver(view, &[dragged(point)]);

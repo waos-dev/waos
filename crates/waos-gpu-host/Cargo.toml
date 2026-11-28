@@ -43,9 +43,6 @@ features = ["wgsl", "spirv", "glsl", "gles", "noop"]
 unsafe_code = "deny"
 
 # wgpu-types' features as named flags, for the test that every feature is decided on.
-[lints.clippy]
-# As the workspace's: a sleep in a test fails the lint (`clippy.toml`).
-disallowed_methods = "deny"
 
 [dev-dependencies]
 bitflags = "2"

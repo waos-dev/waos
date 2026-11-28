@@ -113,8 +113,8 @@ impl ShownPicture {
         ShownPicture(watch::Sender::new(Showing::Nothing))
     }
 
-    /// The shell has `picture`: the view shows it from now on, in place of the one before. A view
-    /// gone keeps nothing, and the shell's release alone counts.
+    /// The shell is being handed `picture`: the view shows it from now on, in place of the one
+    /// before. A view gone keeps nothing, and the shell's release alone counts.
     pub(super) fn show(&self, picture: HandedPicture) {
         let mut replaced = None;
         self.0.send_if_modified(|showing| {
@@ -172,7 +172,7 @@ impl ShownPicture {
 }
 
 #[cfg(all(test, target_vendor = "apple"))]
-mod tests {
+pub(super) mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use futures::FutureExt;
@@ -181,7 +181,7 @@ mod tests {
     use crate::bindings::wasdk::platform::hardware_buffers::HardwareBufferUsage;
 
     /// A picture's hardware buffer, two pixels wide.
-    fn buffer() -> HardwareBuffer {
+    pub(in crate::views) fn buffer() -> HardwareBuffer {
         HardwareBufferMemory::new(
             2,
             1,

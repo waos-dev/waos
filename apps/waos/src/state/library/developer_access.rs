@@ -47,7 +47,6 @@ impl Library {
         match access.show_code() {
             // The code's end is the access's to say; the settings hear it as a change.
             Ok(_) => drop(self.work.spawn(async move {
-                #[allow(clippy::disallowed_methods, reason = "a pairing code lasts this long")]
                 tokio::time::sleep(CODE_LIFE).await;
                 access.end_expired_code();
             })),
