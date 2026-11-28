@@ -32,6 +32,11 @@
 //! which the network serves. A stream-returning function is given store access, which a stream needs and an
 //! `async func` gets on its own.
 //!
+//! The same WIT's value types are also plain Rust, in `waos_capabilities::wit`, at the same
+//! paths, for whatever must not depend on the engine; `wit_conversions`, generated with them by
+//! `cargo xtask sync-wit`, converts each both ways with `From`, since `bindgen!` cannot be
+//! pointed at another crate's record or enum.
+//!
 //! No derive is added to the generated types: `additional_derives` applies to every type of the
 //! world, and a variant holding a resource cannot be `PartialEq`. A type the state compares whole
 //! gets its `PartialEq` beside that comparison.
@@ -189,3 +194,6 @@ wasmtime::component::bindgen!({
         "wasi:http/client@0.3.0": wasmtime_wasi_http::p3::bindings::http::client,
     },
 });
+
+#[cfg(test)]
+mod tests;

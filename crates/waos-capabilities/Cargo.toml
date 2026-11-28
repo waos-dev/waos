@@ -4,13 +4,14 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish = true
-description = "The capability traits WaOS's engine serves programs through, and their records, in the shape of the WIT interfaces they serve."
+description = "The capability traits WaOS's engine serves programs through, and their records, in the shape of the WIT interfaces they serve, with the WIT's value types as plain Rust."
 homepage.workspace = true
 repository.workspace = true
 readme = "README.md"
 
 [dependencies]
-# What a program's audit summary is kept as: its days, serialized by whoever keeps them.
+# What a program's audit summary is kept as: its days, serialized by whoever keeps them; and the
+# WIT's plain types, which are sent between WaOS and an app's window process.
 serde.workspace = true
 # What a machine's commands answer with: futures to await and streams of their output.
 futures.workspace = true

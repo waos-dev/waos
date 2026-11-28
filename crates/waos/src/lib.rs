@@ -100,6 +100,7 @@ mod video_frames;
 mod views;
 mod wasi;
 mod windows;
+mod wit_conversions;
 mod workers;
 
 /// A machine as the shell's picker shows it.
