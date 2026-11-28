@@ -24,7 +24,7 @@ use waos_capabilities::{
 };
 use waos_local_processes::{LocalMachines, LoginEnvironment, THIS_COMPUTER};
 
-use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, wait_until, within};
+use crate::test_shell::{RecordedOutput, TestShell, config, poll_until, printing_to, within};
 
 /// What the program says of a machine picked and acted on, in order.
 #[cfg(unix)]
@@ -83,7 +83,7 @@ fn a_machine_picked_is_kept_and_acted_on_with_pipes_a_terminal_signals_and_its_r
 /// Waits until no process of this computer runs `command_line`, as its program's end ends it.
 #[cfg(unix)]
 fn until_gone(command_line: &str) {
-    wait_until(&format!("{command_line} ends with its program"), || {
+    poll_until(&format!("{command_line} ends with its program"), || {
         let found = std::process::Command::new("pgrep")
             .args(["-f", command_line])
             .output()
@@ -219,15 +219,17 @@ fn a_waiting_machine_picker_is_answered_by_setting_its_row_and_drops_its_prompt(
     let output = Arc::new(RecordedOutput::default());
     let running = run(&engine, Some(&grants), vec![this_computer()], &output);
 
-    wait_until("machine picker is waiting", || {
+    shell.changes.wait_until("machine picker is waiting", || {
         !shell.machine_picker.asked().is_empty()
     });
     assert!(!shell.machine_picker.held_cancelled(0));
 
     grants.set_machine_answer(THIS_COMPUTER);
-    wait_until("machine picker future is dropped", || {
-        shell.machine_picker.held_cancelled(0)
-    });
+    shell
+        .changes
+        .wait_until("machine picker future is dropped", || {
+            shell.machine_picker.held_cancelled(0)
+        });
     output.wait_for("picked: This computer");
     running.stop();
     within(running.ended());

@@ -23,7 +23,7 @@ use waos::{ProgramEnvironment, ShellCompositor, WaOS};
 use crate::test_shell::composition::{self, PresentedLayer};
 use crate::test_shell::video_frames::{HeldFrame, frame_sized};
 use crate::test_shell::{
-    RecordedOutput, TestShell, config, pixel_of, printing_to, wait_until, within,
+    RecordedOutput, TestShell, config, pixel_of, poll_until, printing_to, within,
 };
 
 /// The program's first layer, made opaque, and its second.
@@ -44,7 +44,9 @@ fn a_present_hands_the_shell_the_layers_the_view_holds_in_order_with_their_place
         .run(&program, ProgramEnvironment::default())
         .expect("the program runs");
     let shown = within(shell.headless.view(0)).expect("its view arrives");
-    wait_until("two frames presented", || shown.pictures_shown() >= 2);
+    shell
+        .changes
+        .wait_until("two frames presented", || shown.pictures_shown() >= 2);
 
     let made = shell.compositor.layers_made();
     let opaque: Vec<(usize, bool)> = made.iter().map(|l| (l.number, l.opaque)).collect();
@@ -67,7 +69,7 @@ fn a_present_hands_the_shell_the_layers_the_view_holds_in_order_with_their_place
     running.stop();
     within(running.ended());
     // One for the compositor's list, one for `made`.
-    wait_until("the engine holds no layer of the ended program", || {
+    poll_until("the engine holds no layer of the ended program", || {
         made.iter().all(|layer| Arc::strong_count(layer) <= 2)
     });
 }
@@ -128,7 +130,9 @@ fn a_screenshot_shows_a_frame_on_a_layer_whole_where_the_last_picture_places_the
         .expect("the program runs");
     let shown = within(shell.headless.view(0)).expect("its view arrives");
     let view = shown.view().expect("its view");
-    wait_until("two frames presented", || shown.pictures_shown() >= 2);
+    shell
+        .changes
+        .wait_until("two frames presented", || shown.pictures_shown() >= 2);
     let made = shell.compositor.layers_made();
     // Square, where the badge is twice as wide as it is high.
     made[BADGE].show_frame(HeldFrame::new(frame_sized(48, 48, ORANGE)));

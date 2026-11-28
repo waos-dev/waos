@@ -27,7 +27,7 @@ use waos::{
 use waos_capabilities::Setting;
 
 use crate::asking::{app, permissions_with};
-use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, wait_until, within};
+use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, within};
 
 /// The engine's tick, at which a freeze takes.
 const TICK: Duration = Duration::from_millis(100);
@@ -132,7 +132,9 @@ fn a_system_with_a_permission_per_program_is_asked_after_waos_and_its_refusal_re
     let running = run(&engine, "notifications", Arc::clone(&grants), &output);
     output.wait_for("permission: not asked");
     output.wait_for("post greeting: denied");
-    wait_until("the program asks", || !shell.prompts.questions().is_empty());
+    shell
+        .changes
+        .wait_until("the program asks", || !shell.prompts.questions().is_empty());
     assert!(
         shell.notifications.asked().is_empty(),
         "the system is not asked before WaOS's question is answered"
@@ -248,9 +250,11 @@ fn a_click_made_before_the_program_listens_reaches_its_first_stream_and_later_on
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let output = Arc::new(RecordedOutput::default());
     let running = run(&engine, "notifications", not_asked(&shell), &output);
-    wait_until("the program asks, not listening yet", || {
-        !shell.prompts.questions().is_empty()
-    });
+    shell
+        .changes
+        .wait_until("the program asks, not listening yet", || {
+            !shell.prompts.questions().is_empty()
+        });
     running.notification_activated(activation("later", None));
     allow_when_asked(&shell);
     output.wait_for("activated: greeting Some(\"later\") None");
@@ -377,7 +381,9 @@ fn run(
 
 /// Waits until the program asks its user for notifications, and allows them.
 fn allow_when_asked(shell: &TestShell) {
-    wait_until("the program asks", || !shell.prompts.questions().is_empty());
+    shell
+        .changes
+        .wait_until("the program asks", || !shell.prompts.questions().is_empty());
     assert_eq!(
         shell.prompts.questions(),
         [(app().to_string(), Question::Notifications)]

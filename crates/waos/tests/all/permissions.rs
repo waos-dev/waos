@@ -14,7 +14,7 @@ use waos::{Answer, ProgramEnd, ProgramEnvironment, Question, Switch, WaOS};
 use waos_capabilities::{DomainRule, NetworkGrant, Setting};
 use waos_services::permissions::{Permissions, ProgramId};
 
-use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, wait_until, within};
+use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, within};
 
 /// What the program prints first: where each permission stands at WaOS's defaults.
 const FIRST_STATES: [&str; 7] = [
@@ -56,7 +56,7 @@ fn a_program_reads_its_permissions_asks_once_and_hears_each_change() {
         "no permission for processes: machines are picked"
     );
 
-    wait_until("the question is put", || {
+    shell.changes.wait_until("the question is put", || {
         !shell.prompts.questions().is_empty()
     });
     shell.prompts.answer_questions(Some(Answer::Granted));
@@ -75,7 +75,7 @@ fn a_program_reads_its_permissions_asks_once_and_hears_each_change() {
         "kept"
     );
 
-    wait_until("the network page opens", || {
+    shell.changes.wait_until("the network page opens", || {
         !shell.prompts.settings_opened().is_empty()
     });
     assert_eq!(
@@ -121,7 +121,7 @@ fn notifications_the_user_allowed_read_denied_once_the_system_asked_after_denies
     };
     let running = engine.run(&program, environment).unwrap();
     output.wait_for("notifications: not asked");
-    wait_until("the question is put", || {
+    shell.changes.wait_until("the question is put", || {
         !shell.prompts.questions().is_empty()
     });
     assert!(

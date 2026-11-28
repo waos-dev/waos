@@ -23,6 +23,7 @@ use waos::{
     DecodedFrame, OpenedVideoDecoder, ShellVideoDecoder, ShellVideoDecoders,
     VideoDecodeSupportFuture, VideoDecoderFuture, VideoDecoderOpenFuture,
 };
+use waos_headless::testing::Changes;
 
 /// The first byte of a chunk a test decoder answers as damaged.
 pub const DAMAGED: u8 = 0xBD;
@@ -44,9 +45,18 @@ pub const CHROMA: [u8; 2] = [102, 240];
 #[derive(Default)]
 pub struct TestVideoDecoders {
     opened: Mutex<Vec<Arc<TestDecoder>>>,
+    changes: Arc<Changes>,
 }
 
 impl TestVideoDecoders {
+    /// Decoders of which none is opened, announcing each opening and each call to `changes`.
+    pub fn announcing(changes: &Arc<Changes>) -> TestVideoDecoders {
+        TestVideoDecoders {
+            opened: Mutex::default(),
+            changes: Arc::clone(changes),
+        }
+    }
+
     /// The decoders opened, in order.
     pub fn opened(&self) -> Vec<Arc<TestDecoder>> {
         self.opened.lock().unwrap().clone()
@@ -77,8 +87,10 @@ impl ShellVideoDecoders for TestVideoDecoders {
             put_out: Mutex::new(Some(put_out)),
             end: Mutex::new(Some(end)),
             taken: Arc::default(),
+            changes: Arc::clone(&self.changes),
         });
         self.opened.lock().unwrap().push(Arc::clone(&decoder));
+        self.changes.announce();
         let opened = OpenedVideoDecoder {
             frames: counted(frames, Arc::clone(&decoder.taken)),
             // A decoder never taken away never ends by itself.
@@ -115,6 +127,7 @@ pub struct TestDecoder {
     end: Mutex<Option<oneshot::Sender<DecoderError>>>,
     /// How many of its frames the engine has taken.
     taken: Arc<AtomicUsize>,
+    changes: Arc<Changes>,
 }
 
 impl TestDecoder {
@@ -138,6 +151,7 @@ impl TestDecoder {
 
     fn record(&self, call: DecoderCall) {
         self.calls.lock().unwrap().push(call);
+        self.changes.announce();
     }
 
     /// Puts out the picture of `chunk`.

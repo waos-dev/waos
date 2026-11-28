@@ -3,7 +3,7 @@
 //! hears a constant, or none where a test says; and the shell's picker, which picks what the test said, and its indicator of
 //! who records, and with what, which keeps what it was told.
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use futures::FutureExt;
 use futures::channel::oneshot;
@@ -15,6 +15,9 @@ use waos::{
 use waos_capabilities::web_audio_api::AudioBuffer;
 use waos_capabilities::web_audio_api::context::{AudioContext, AudioContextOptions};
 use waos_capabilities::web_audio_api::media_streams::{MediaStream, MediaStreamTrack};
+use waos_headless::testing::Changes;
+
+use super::announced_when_dropped;
 
 /// What the test microphone hears, always.
 pub const HEARD: f32 = 0.25;
@@ -100,21 +103,29 @@ pub struct TestSound {
     shown: Mutex<Vec<Vec<String>>>,
     /// What the indicator was told, in order: which program, with what, and whether it records.
     recording: Mutex<Vec<(String, RecordingDevice, bool)>>,
+    changes: Arc<Changes>,
 }
 
 impl Default for TestSound {
     fn default() -> TestSound {
+        TestSound::announcing(&Arc::default())
+    }
+}
+
+impl TestSound {
+    /// A picker that picks [`HEADPHONES`] and an indicator told nothing, announcing each picker
+    /// shown, each held picker's future dropped, and each recording told, to `changes`.
+    pub fn announcing(changes: &Arc<Changes>) -> TestSound {
         TestSound {
             pick: Mutex::new(Some(HEADPHONES.to_owned())),
             hold_pick: Mutex::default(),
             held: Mutex::default(),
             shown: Mutex::default(),
             recording: Mutex::default(),
+            changes: Arc::clone(changes),
         }
     }
-}
 
-impl TestSound {
     /// The user picks `output` in each picker from now on; none dismisses it.
     pub fn set_pick(&self, output: Option<&str>) {
         *self.pick.lock().unwrap() = output.map(str::to_owned);
@@ -153,10 +164,11 @@ impl ShellAudioOutputPicker for TestSound {
     ) -> AudioOutputPickedFuture {
         let ids = outputs.into_iter().map(|output| output.id).collect();
         self.shown.lock().unwrap().push(ids);
+        self.changes.announce();
         if *self.hold_pick.lock().unwrap() {
             let (tx, rx) = oneshot::channel();
             self.held.lock().unwrap().push(tx);
-            return Box::pin(rx.map(|picked| picked.unwrap_or(None)));
+            return announced_when_dropped(&self.changes, rx.map(|picked| picked.unwrap_or(None)));
         }
         Box::pin(ready(self.pick.lock().unwrap().clone()))
     }
@@ -173,5 +185,6 @@ impl ShellRecordingIndicator for TestSound {
             .lock()
             .unwrap()
             .push((program.name().to_owned(), device, recording));
+        self.changes.announce();
     }
 }

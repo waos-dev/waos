@@ -27,9 +27,9 @@ use waos::{
 
 use crate::asking::app;
 use crate::test_shell::clipboard::CopiedText;
-use crate::test_shell::menus::{OpenedAt, TestMenus};
+use crate::test_shell::menus::OpenedAt;
 use crate::test_shell::opener::Opened;
-use crate::test_shell::{RecordedOutput, TestShell, config, wait_until, within};
+use crate::test_shell::{RecordedOutput, TestShell, config, within};
 
 /// The line the program's text field starts with.
 const LINE: &str = "a line of waft-menus";
@@ -43,7 +43,7 @@ fn the_menu_bar_reaches_the_shell_flat_and_a_choice_in_it_reaches_the_items_call
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let output = Arc::new(RecordedOutput::default());
     let (running, window) = run(&engine, &shell, &output);
-    let bar = wait_for_bar(&shell.menus, "Greet");
+    let bar = wait_for_bar(&shell, "Greet");
 
     let titles: Vec<_> = bar
         .iter()
@@ -87,7 +87,7 @@ fn its_file_dialog_goes_through_waos_whose_pick_it_reads() {
     shell.file_dialogs.answer_next(vec![file]);
     let output = Arc::new(RecordedOutput::default());
     let (running, window) = run(&engine, &shell, &output);
-    let bar = wait_for_bar(&shell.menus, "Open…");
+    let bar = wait_for_bar(&shell, "Open…");
 
     running.menu_chosen(id_of(&bar, "Open…"));
     output.wait_for("opened: a line to open");
@@ -105,7 +105,7 @@ fn it_opens_a_link_and_posts_a_notification_through_waos_and_hears_its_click_and
     let output = Arc::new(RecordedOutput::default());
     let grants = shell.permissions().of(&app());
     let (running, window) = run_with(&engine, &shell, &output, Some(grants));
-    let bar = wait_for_bar(&shell.menus, "Open Link");
+    let bar = wait_for_bar(&shell, "Open Link");
 
     running.menu_chosen(id_of(&bar, "Open Link"));
     output.wait_for("opened link: ok");
@@ -118,7 +118,9 @@ fn it_opens_a_link_and_posts_a_notification_through_waos_and_hears_its_click_and
     );
 
     running.menu_chosen(id_of(&bar, "Notify"));
-    wait_until("the program asks", || !shell.prompts.questions().is_empty());
+    shell
+        .changes
+        .wait_until("the program asks", || !shell.prompts.questions().is_empty());
     assert_eq!(shell.prompts.questions()[0].1, Question::Notifications);
     shell.prompts.answer_questions(Some(Answer::Granted));
     output.wait_for("notifications allowed: Granted");
@@ -172,7 +174,7 @@ fn its_text_field_leaves_command_c_to_the_host_and_acts_on_edits_commands() {
     assert!(shell.clipboard.written_types().is_empty(), "nothing copied");
 
     window.copy();
-    wait_until("the user's copy is written", || {
+    shell.changes.wait_until("the user's copy is written", || {
         !shell.clipboard.written_types().is_empty()
     });
     assert_eq!(
@@ -199,7 +201,7 @@ fn its_text_field_handles_command_c_itself_where_the_program_has_no_menu_bar() {
     output.wait_for("field: focused");
     window.edit(EditCommand::SelectAll);
     window.copy();
-    wait_until("the user's copy is written", || {
+    shell.changes.wait_until("the user's copy is written", || {
         !shell.clipboard.written_types().is_empty()
     });
 
@@ -318,11 +320,20 @@ fn close(running: &RunningProgram, window: &ProgramView) {
 
 /// Waits until the menu bar the program set last holds the entry titled or labelled `title`, and
 /// answers that bar. Waft's `PlatformMenuBar` clears the bar before it sets its own.
-fn wait_for_bar(menus: &TestMenus, title: &str) -> Vec<MenuEntry> {
-    let last = || menus.bars().pop().map(|(_, bar)| bar).unwrap_or_default();
-    wait_until(&format!("a menu bar with {title}"), || {
-        last().iter().any(|entry| label_of(entry) == title)
-    });
+fn wait_for_bar(shell: &TestShell, title: &str) -> Vec<MenuEntry> {
+    let last = || {
+        shell
+            .menus
+            .bars()
+            .pop()
+            .map(|(_, bar)| bar)
+            .unwrap_or_default()
+    };
+    shell
+        .changes
+        .wait_until(&format!("a menu bar with {title}"), || {
+            last().iter().any(|entry| label_of(entry) == title)
+        });
     last()
 }
 

@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use waos::{Keyboard, ProgramEnd, ProgramView, RunningProgram, WaOS};
 
-use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, wait_until, within};
+use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, within};
 
 #[test]
 fn a_tap_on_its_button_is_a_click_and_text_and_keys_reach_its_field() {
@@ -30,9 +30,11 @@ fn a_tap_on_its_button_is_a_click_and_text_and_keys_reach_its_field() {
     output.wait_for("clicked 2");
 
     running.mouse().tap(&window, said_at(&output, "field"));
-    wait_until("the field starts the view's text input", || {
-        window.editing_value().is_some()
-    });
+    shell
+        .changes
+        .wait_until("the field starts the view's text input", || {
+            window.editing_value().is_some()
+        });
     Keyboard::insert_text(&window, "milk").unwrap();
     output.wait_for("text: \"milk\"");
     // A key reaches the field too, which has the keyboard.

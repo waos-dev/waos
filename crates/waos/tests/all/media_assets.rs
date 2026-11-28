@@ -25,7 +25,7 @@ use waos_capabilities::ProgramFolders;
 use crate::reaching::{TestGrants, off};
 use crate::test_shell::media_assets::{AssetAnswers, FrameAsked};
 use crate::test_shell::video_frames::{FRAME_HEIGHT, FRAME_WIDTH};
-use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, wait_until, within};
+use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, within};
 
 #[test]
 fn an_asset_of_a_file_reads_its_length_tracks_title_and_a_picture() {
@@ -60,9 +60,11 @@ fn an_asset_of_a_file_reads_its_length_tracks_title_and_a_picture() {
         }],
         "a tenth of the way in, at the nearest keyframe, fitting the size asked"
     );
-    wait_until("the asset goes as the program ends", || {
-        opened[0].is_dropped()
-    });
+    shell
+        .changes
+        .wait_until("the asset goes as the program ends", || {
+            opened[0].is_dropped()
+        });
 }
 
 #[test]

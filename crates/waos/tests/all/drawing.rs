@@ -19,6 +19,8 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use waos_headless::testing::Changes;
+
 use waos::bindings::wasdk::platform::views::{
     Cursor, Placement, ViewFocusDirection, ViewFocusState,
 };
@@ -28,8 +30,7 @@ use waos::{
 };
 
 use crate::test_shell::{
-    DISPLAY, RecordedOutput, TestShell, WITHIN, config, pixel_of, place_view, printing_to,
-    wait_until, within,
+    DISPLAY, RecordedOutput, TestShell, WITHIN, config, pixel_of, place_view, printing_to, within,
 };
 
 /// How long a program stays hidden before the engine freezes it, in the freezing tests.
@@ -157,9 +158,11 @@ fn a_frame_due_while_the_shell_holds_every_hardware_buffer_gets_another_and_the_
         .recv_timeout(WITHIN)
         .expect("triangle asks for its view");
 
-    wait_until("at least FRAMES_HELD frames are held", || {
-        held_view.held_count() >= FRAMES_HELD
-    });
+    held_view
+        .changes
+        .wait_until("at least FRAMES_HELD frames are held", || {
+            held_view.held_count() >= FRAMES_HELD
+        });
     // Stop serving new frames so the view goes quiet (default freeze policy never freezes on hide)
     // and drain any frame already in flight before measuring the pool and advancing manual time.
     view.presence_changed(OFF_SCREEN);
@@ -212,10 +215,12 @@ fn a_covered_triangle_draws_while_watched_and_not_minimized_nor_after_the_watch(
         .run(&triangle, ProgramEnvironment::default())
         .unwrap();
     let witness_shown = within(shell.headless.view(1)).expect("witness asks for its view");
-    wait_until("witness draws", || witness_shown.pictures_shown() >= 1);
+    shell
+        .changes
+        .wait_until("witness draws", || witness_shown.pictures_shown() >= 1);
     let witness_draws = |frames: usize| {
         let before = witness_shown.pictures_shown();
-        wait_until("witness keeps drawing", || {
+        shell.changes.wait_until("witness keeps drawing", || {
             witness_shown.pictures_shown() >= before + frames
         });
     };
@@ -231,9 +236,11 @@ fn a_covered_triangle_draws_while_watched_and_not_minimized_nor_after_the_watch(
         "covered and unwatched, triangle draws nothing"
     );
     let watching = running.watch();
-    wait_until("covered and watched, triangle draws", || {
-        shown.pictures_shown() > presented
-    });
+    shell
+        .changes
+        .wait_until("covered and watched, triangle draws", || {
+            shown.pictures_shown() > presented
+        });
 
     // Minimized while watched: draws nothing while the witness keeps drawing, then draws covered again.
     view.presence_changed(OFF_SCREEN);
@@ -246,9 +253,11 @@ fn a_covered_triangle_draws_while_watched_and_not_minimized_nor_after_the_watch(
         "minimized while watched, triangle draws nothing"
     );
     view.presence_changed(COVERED);
-    wait_until("covered and watched again, triangle draws", || {
-        shown.pictures_shown() > presented
-    });
+    shell
+        .changes
+        .wait_until("covered and watched again, triangle draws", || {
+            shown.pictures_shown() > presented
+        });
 
     // Covered after the watch ends: draws nothing while the witness keeps drawing, then draws once shown.
     drop(watching);
@@ -261,7 +270,7 @@ fn a_covered_triangle_draws_while_watched_and_not_minimized_nor_after_the_watch(
         "covered after the watch ends, triangle draws nothing"
     );
     view.presence_changed(FOCUSED);
-    wait_until("shown again, triangle draws", || {
+    shell.changes.wait_until("shown again, triangle draws", || {
         shown.pictures_shown() > presented
     });
 
@@ -290,9 +299,7 @@ fn a_view_out_of_sight_answers_occluded_for_its_surfaces_texture() {
     let view = within(shell.headless.view(0))
         .and_then(|shown| shown.view())
         .expect("occluded asks for its view");
-    let said = |line: &'static str| {
-        wait_until(line, || output.lines().iter().any(|said| said == line));
-    };
+    let said = |line: &'static str| output.wait_for(line);
     said("started: a frame");
     said("asked again while holding a frame: validation, caught: true");
     view.presence_changed(COVERED);
@@ -300,9 +307,8 @@ fn a_view_out_of_sight_answers_occluded_for_its_surfaces_texture() {
     view.presence_changed(FOCUSED);
     said("resumed: a frame");
     view.presence_changed(OFF_SCREEN);
-    wait_until("minimized, occluded again", || {
-        output
-            .lines()
+    output.wait_until("minimized, occluded again", |lines| {
+        lines
             .iter()
             .filter(|said| *said == "hidden: occluded")
             .count()
@@ -367,9 +373,11 @@ fn a_frozen_triangle_keeps_one_hardware_buffer_and_draws_again_after_the_unfreez
     );
 
     view.presence_changed(FOCUSED);
-    wait_until("unfrozen, triangle draws again", || {
-        running.stats().frames_presented() > presented
-    });
+    shell
+        .changes
+        .wait_until("unfrozen, triangle draws again", || {
+            running.stats().frames_presented() > presented
+        });
     let unfrozen = running.stats().hardware_buffer_bytes() / HARDWARE_BUFFER_BYTES;
     assert!(
         unfrozen >= 2,
@@ -407,9 +415,11 @@ fn app_suspending_with_triangle_drawing_resolves_with_no_gpu_work_in_flight() {
     );
 
     engine.resume();
-    wait_until("resumed, triangle draws again", || {
-        running.stats().frames_presented() > presented
-    });
+    shell
+        .changes
+        .wait_until("resumed, triangle draws again", || {
+            running.stats().frames_presented() > presented
+        });
     running.stop();
     assert!(matches!(within(running.ended()), ProgramEnd::Stopped));
 }
@@ -420,6 +430,8 @@ fn app_suspending_with_triangle_drawing_resolves_with_no_gpu_work_in_flight() {
 #[derive(Default)]
 struct HoldingBuffersView {
     held: Mutex<Vec<Box<dyn FnOnce() + Send + Sync>>>,
+    /// Announces each buffer held.
+    changes: Changes,
 }
 
 impl HoldingBuffersView {
@@ -449,6 +461,7 @@ impl ShellView for HoldingBuffersView {
         released: Box<dyn FnOnce() + Send + Sync>,
     ) {
         self.held.lock().unwrap().push(released);
+        self.changes.announce();
     }
 
     fn set_cursor(&self, _cursor: Cursor) {}

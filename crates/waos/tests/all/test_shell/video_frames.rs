@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use waos::{ShellVideoFrameReader, ShellVideoFrameReaders, VideoFrame};
+use waos_headless::testing::Changes;
 
 /// A frame's size, in pixels.
 pub const FRAME_WIDTH: usize = 64;
@@ -21,9 +22,18 @@ pub const FRAME_HEIGHT: usize = 48;
 #[derive(Default)]
 pub struct TestVideoFrameReaders {
     made: Mutex<Vec<Arc<TestReader>>>,
+    changes: Arc<Changes>,
 }
 
 impl TestVideoFrameReaders {
+    /// Readers of which none is made, announcing each made and each asking to `changes`.
+    pub fn announcing(changes: &Arc<Changes>) -> TestVideoFrameReaders {
+        TestVideoFrameReaders {
+            made: Mutex::default(),
+            changes: Arc::clone(changes),
+        }
+    }
+
     /// Each reader made so far, in order.
     pub fn made(&self) -> Vec<Arc<TestReader>> {
         self.made.lock().unwrap().clone()
@@ -37,8 +47,11 @@ impl ShellVideoFrameReaders for TestVideoFrameReaders {
             number: made.len(),
             asked: Mutex::default(),
             next: Mutex::default(),
+            changes: Arc::clone(&self.changes),
         });
         made.push(Arc::clone(&reader));
+        drop(made);
+        self.changes.announce();
         reader
     }
 }
@@ -51,6 +64,7 @@ pub struct TestReader {
     asked: Mutex<Vec<Instant>>,
     /// The frame it hands out at the next asking.
     next: Mutex<Option<HeldFrame>>,
+    changes: Arc<Changes>,
 }
 
 impl TestReader {
@@ -70,6 +84,7 @@ impl TestReader {
 impl ShellVideoFrameReader for TestReader {
     fn frame_for(&self, display_time: Instant) -> Option<VideoFrame> {
         self.asked.lock().unwrap().push(display_time);
+        self.changes.announce();
         self.next.lock().unwrap().take().map(|frame| frame.0)
     }
 }

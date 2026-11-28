@@ -23,7 +23,7 @@ use waos::{
     ShellMenuBar, ShellTrayIcon, ShellTrayIcons, TrayIconAddFuture, TrayIconReports,
 };
 
-use super::wait_until;
+use waos_headless::testing::Changes;
 
 /// The menu bars set, the menus opened and the tray icons added, in order.
 pub struct TestMenus {
@@ -39,25 +39,20 @@ pub struct TestMenus {
     refusal: Mutex<Option<String>>,
     /// How many icons the tray has refused.
     refused: AtomicUsize,
+    changes: Arc<Changes>,
 }
 
 impl Default for TestMenus {
     fn default() -> TestMenus {
-        TestMenus {
-            bars: Mutex::default(),
-            opened: Arc::default(),
-            icons: Mutex::default(),
-            attached_menus: AtomicBool::new(true),
-            menus_at_icon: AtomicBool::new(true),
-            refusal: Mutex::default(),
-            refused: AtomicUsize::new(0),
-        }
+        TestMenus::announcing(&Arc::default())
     }
 }
 
 /// Each menu opened, in order, and where its choice goes until a test makes it.
-#[derive(Default)]
-struct OpenedMenus(Mutex<Vec<OpenedMenu>>);
+struct OpenedMenus {
+    menus: Mutex<Vec<OpenedMenu>>,
+    changes: Arc<Changes>,
+}
 
 struct OpenedMenu {
     at: OpenedAt,
@@ -80,6 +75,23 @@ pub enum OpenedAt {
 }
 
 impl TestMenus {
+    /// No bar set, no menu opened and no icon added, each announced to `changes` as it comes.
+    pub fn announcing(changes: &Arc<Changes>) -> TestMenus {
+        TestMenus {
+            bars: Mutex::default(),
+            opened: Arc::new(OpenedMenus {
+                menus: Mutex::default(),
+                changes: Arc::clone(changes),
+            }),
+            icons: Mutex::default(),
+            attached_menus: AtomicBool::new(true),
+            menus_at_icon: AtomicBool::new(true),
+            refusal: Mutex::default(),
+            refused: AtomicUsize::new(0),
+            changes: Arc::clone(changes),
+        }
+    }
+
     /// The icons added from now on offer no menu the system opens by itself, as Windows'.
     pub fn without_attached_menus(&self) {
         self.attached_menus.store(false, Ordering::SeqCst);
@@ -102,16 +114,17 @@ impl TestMenus {
 
     /// Waits until the `count`th menu is opened, and answers where, and what it shows.
     pub fn wait_for_opened(&self, count: usize) -> (OpenedAt, Vec<MenuEntry>) {
-        wait_until(&format!("{count} menus opened"), || {
-            self.opened.0.lock().unwrap().len() >= count
-        });
-        let opened = &self.opened.0.lock().unwrap()[count - 1];
+        self.changes
+            .wait_until(&format!("{count} menus opened"), || {
+                self.opened.menus.lock().unwrap().len() >= count
+            });
+        let opened = &self.opened.menus.lock().unwrap()[count - 1];
         (opened.at.clone(), opened.entries.clone())
     }
 
     /// The user chooses `choice` in the `count`th menu opened; none closes it without a choice.
     pub fn choose(&self, count: usize, choice: Option<u32>) {
-        let choose = self.opened.0.lock().unwrap()[count - 1].choice.take();
+        let choose = self.opened.menus.lock().unwrap()[count - 1].choice.take();
         let _ = choose.expect("a menu open").send(choice);
     }
 
@@ -122,17 +135,19 @@ impl TestMenus {
 
     /// Waits until the `count`th tray icon is added, and answers it.
     pub fn wait_for_icon(&self, count: usize) -> Arc<TestTrayIcon> {
-        wait_until(&format!("{count} tray icons added"), || {
-            self.icons.lock().unwrap().len() >= count
-        });
+        self.changes
+            .wait_until(&format!("{count} tray icons added"), || {
+                self.icons.lock().unwrap().len() >= count
+            });
         Arc::clone(&self.icons.lock().unwrap()[count - 1])
     }
 
     /// Waits until the tray has refused the `count`th icon.
     pub fn wait_for_refused(&self, count: usize) {
-        wait_until(&format!("{count} tray icons refused"), || {
-            self.refused.load(Ordering::SeqCst) >= count
-        });
+        self.changes
+            .wait_until(&format!("{count} tray icons refused"), || {
+                self.refused.load(Ordering::SeqCst) >= count
+            });
     }
 }
 
@@ -140,11 +155,12 @@ impl OpenedMenus {
     /// Opens `entries` at `at`, until a test chooses in it.
     fn open(&self, at: OpenedAt, entries: &[MenuEntry]) -> MenuChosenFuture {
         let (choice, chosen) = oneshot::channel();
-        self.0.lock().unwrap().push(OpenedMenu {
+        self.menus.lock().unwrap().push(OpenedMenu {
             at,
             entries: entries.to_vec(),
             choice: Some(choice),
         });
+        self.changes.announce();
         Box::pin(chosen.map(|chosen| chosen.unwrap_or(None)))
     }
 }
@@ -153,6 +169,7 @@ impl ShellMenuBar for TestMenus {
     fn set(&self, program: &RunningProgram, entries: &[MenuEntry]) {
         let set = (program.name().to_owned(), entries.to_vec());
         self.bars.lock().unwrap().push(set);
+        self.changes.announce();
     }
 }
 
@@ -185,6 +202,7 @@ impl ShellTrayIcons for TestMenus {
     ) -> TrayIconAddFuture {
         if let Some(reason) = self.refusal.lock().unwrap().clone() {
             self.refused.fetch_add(1, Ordering::SeqCst);
+            self.changes.announce();
             return Box::pin(ready(Err(TrayIconError::Failed(reason))));
         }
         let icon = Arc::new(TestTrayIcon {
@@ -198,8 +216,10 @@ impl ShellTrayIcons for TestMenus {
             opened: Arc::clone(&self.opened),
             offers_attached_menu: self.attached_menus.load(Ordering::SeqCst),
             offers_menu_at_icon: self.menus_at_icon.load(Ordering::SeqCst),
+            changes: Arc::clone(&self.changes),
         });
         self.icons.lock().unwrap().push(Arc::clone(&icon));
+        self.changes.announce();
         Box::pin(ready(Ok(
             Box::new(AddedIcon(icon)) as Box<dyn ShellTrayIcon>
         )))
@@ -221,6 +241,7 @@ pub struct TestTrayIcon {
     opened: Arc<OpenedMenus>,
     offers_attached_menu: bool,
     offers_menu_at_icon: bool,
+    changes: Arc<Changes>,
 }
 
 impl TestTrayIcon {
@@ -234,7 +255,7 @@ impl TestTrayIcon {
 
     /// Waits until the program sets the icon's attached menu, and answers what it shows.
     pub fn wait_for_attached_menu(&self) -> Vec<MenuEntry> {
-        wait_until("an attached menu set", || {
+        self.changes.wait_until("an attached menu set", || {
             self.attached_menu.lock().unwrap().is_some()
         });
         self.attached_menu.lock().unwrap().clone().unwrap()
@@ -242,7 +263,7 @@ impl TestTrayIcon {
 
     /// Waits until the program has taken what opens a menu at the icon.
     pub fn wait_for_menu_at_icon_taken(&self) {
-        wait_until("the menu at the icon taken", || {
+        self.changes.wait_until("the menu at the icon taken", || {
             self.menu_at_icon_taken.load(Ordering::SeqCst)
         });
     }
@@ -266,6 +287,7 @@ impl TestTrayIcon {
 impl ShellAttachedMenu for TestTrayIcon {
     fn set(&self, entries: &[MenuEntry]) {
         *self.attached_menu.lock().unwrap() = Some(entries.to_vec());
+        self.changes.announce();
     }
 }
 
@@ -281,10 +303,12 @@ struct AddedIcon(Arc<TestTrayIcon>);
 impl ShellTrayIcon for AddedIcon {
     fn set_image(&self, image: &Image) {
         *self.0.image.lock().unwrap() = image.clone();
+        self.0.changes.announce();
     }
 
     fn set_tooltip(&self, tooltip: Option<&str>) {
         *self.0.tooltip.lock().unwrap() = tooltip.map(str::to_owned);
+        self.0.changes.announce();
     }
 
     fn attached_menu(&self) -> Option<&dyn ShellAttachedMenu> {
@@ -299,6 +323,7 @@ impl ShellTrayIcon for AddedIcon {
             return None;
         }
         icon.menu_at_icon_taken.store(true, Ordering::SeqCst);
+        icon.changes.announce();
         Some(icon as &dyn ShellMenuAtIcon)
     }
 }
@@ -306,5 +331,6 @@ impl ShellTrayIcon for AddedIcon {
 impl Drop for AddedIcon {
     fn drop(&mut self) {
         self.0.removed.store(true, Ordering::SeqCst);
+        self.0.changes.announce();
     }
 }

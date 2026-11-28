@@ -26,7 +26,7 @@ use waos_capabilities::ProgramFolders;
 
 use crate::reaching::{TestGrants, off};
 use crate::test_shell::media_players::{Destination, OpenedPlayer, PlayerCall};
-use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, wait_until, within};
+use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, within};
 
 /// Where the program plays each source from.
 const TWO_SECONDS: Duration = Duration::from_secs(2);
@@ -150,7 +150,7 @@ fn a_shell_without_players_gives_the_program_none() {
 
 /// The player opened after `before` others, once the shell has it.
 fn opened(shell: &TestShell, before: usize) -> OpenedPlayer {
-    wait_until("the shell opens a player", || {
+    shell.changes.wait_until("the shell opens a player", || {
         shell.media_players.opened().len() > before
     });
     shell.media_players.opened()[before].clone()

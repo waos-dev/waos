@@ -14,6 +14,7 @@ use waos::{
     AcceptedBuffers, AcceptedFormat, GpuMemory, HardwareBuffer, LayerPicture,
     ShellCompositionLayer, ShellCompositor,
 };
+use waos_headless::testing::Changes;
 
 use super::hardware_buffer::HeldHardwareBuffer;
 use super::video_frames::HeldFrame;
@@ -22,9 +23,19 @@ use super::video_frames::HeldFrame;
 #[derive(Default)]
 pub struct TestCompositor {
     made: Mutex<Vec<Arc<TestLayer>>>,
+    changes: Arc<Changes>,
 }
 
 impl TestCompositor {
+    /// A compositor that made no layer, announcing each layer made and each present to one to
+    /// `changes`.
+    pub fn announcing(changes: &Arc<Changes>) -> TestCompositor {
+        TestCompositor {
+            made: Mutex::default(),
+            changes: Arc::clone(changes),
+        }
+    }
+
     /// Each layer made so far, in order.
     pub fn layers_made(&self) -> Vec<Arc<TestLayer>> {
         self.made.lock().unwrap().clone()
@@ -38,8 +49,11 @@ impl ShellCompositor for TestCompositor {
             number: made.len(),
             opaque,
             shown: Mutex::default(),
+            changes: Arc::clone(&self.changes),
         });
         made.push(Arc::clone(&layer));
+        drop(made);
+        self.changes.announce();
         layer
     }
 
@@ -65,6 +79,7 @@ pub struct TestLayer {
     pub number: usize,
     pub opaque: bool,
     shown: Mutex<Shown>,
+    changes: Arc<Changes>,
 }
 
 /// The buffers presented to a layer, what lets the one shown now go, and what it shows.
@@ -124,6 +139,7 @@ impl ShellCompositionLayer for TestLayer {
         if let Some(replaced) = replaced {
             replaced();
         }
+        self.changes.announce();
     }
 
     fn current_picture(&self) -> Option<LayerPicture> {

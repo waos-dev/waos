@@ -3,10 +3,11 @@
 
 use std::future::ready;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use waos::bindings::wasdk::platform::opener::OpenError;
 use waos::{OpenFuture, RunningProgram, ShellOpener};
+use waos_headless::testing::Changes;
 
 /// What was opened, and what no app opens.
 #[derive(Default)]
@@ -14,6 +15,7 @@ pub struct TestOpener {
     opened: Mutex<Vec<Opened>>,
     /// The links, and the paths on the machine, that no app opens.
     without_app: Mutex<Vec<String>>,
+    changes: Arc<Changes>,
 }
 
 /// One call, as a program made it.
@@ -25,6 +27,14 @@ pub enum Opened {
 }
 
 impl TestOpener {
+    /// An opener asked nothing, announcing each call to `changes`.
+    pub fn announcing(changes: &Arc<Changes>) -> TestOpener {
+        TestOpener {
+            changes: Arc::clone(changes),
+            ..TestOpener::default()
+        }
+    }
+
     /// No app opens `link`, or the file at `path` on the machine, from now on.
     pub fn without_app_for(&self, link_or_path: &str) {
         self.without_app
@@ -41,6 +51,7 @@ impl TestOpener {
     /// Keeps `call`, and answers it: opened, unless no app opens `what`.
     fn answer(&self, call: Opened, what: &str) -> OpenFuture {
         self.opened.lock().unwrap().push(call);
+        self.changes.announce();
         let has_app = !self
             .without_app
             .lock()

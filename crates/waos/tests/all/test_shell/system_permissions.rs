@@ -12,6 +12,7 @@ use waos::{
     RunningProgram, ShellSystemPermissions, SystemPermission, SystemPermissionFuture,
     SystemPermissionState,
 };
+use waos_headless::testing::Changes;
 
 use super::notifications::TestNotifications;
 
@@ -24,16 +25,22 @@ pub struct TestSystemPermissions {
     allows_when_asked: AtomicBool,
     /// Each path the system was asked for, in order.
     paths_asked: Mutex<Vec<PathBuf>>,
+    changes: Arc<Changes>,
 }
 
 impl TestSystemPermissions {
-    /// The system's permissions, its notifications' as `notifications` says, every path allowed.
-    pub fn new(notifications: Arc<TestNotifications>) -> TestSystemPermissions {
+    /// The system's permissions, its notifications' as `notifications` says, every path allowed,
+    /// announcing each path asked for to `changes`.
+    pub fn new(
+        notifications: Arc<TestNotifications>,
+        changes: &Arc<Changes>,
+    ) -> TestSystemPermissions {
         TestSystemPermissions {
             notifications,
             denied_folders: Mutex::default(),
             allows_when_asked: AtomicBool::new(false),
             paths_asked: Mutex::default(),
+            changes: Arc::clone(changes),
         }
     }
 
@@ -67,6 +74,7 @@ impl TestSystemPermissions {
         if self.allows_when_asked.load(Ordering::SeqCst) {
             self.denied_folders.lock().unwrap().clear();
         }
+        self.changes.announce();
         self.path_state(path)
     }
 }

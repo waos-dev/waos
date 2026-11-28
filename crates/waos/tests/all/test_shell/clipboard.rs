@@ -18,6 +18,7 @@ use waos::{
     ClipboardItemsFuture, ClipboardReadFuture, ClipboardWriteFuture, Content, CopiedItem,
     CopyOptions, FileSink, ShellClipboard, ShellClipboardItem, WaOS,
 };
+use waos_headless::testing::Changes;
 
 /// What the last program to write put on the clipboard, and how it is to be treated; and what
 /// is on the clipboard now, a program's copy or another application's, as it is listed.
@@ -27,9 +28,18 @@ pub struct TestClipboard {
     listed: Mutex<Vec<Arc<dyn ShellClipboardItem>>>,
     /// How many copies the clipboard has held, the last being the one on it.
     copies: Arc<AtomicU64>,
+    changes: Arc<Changes>,
 }
 
 impl TestClipboard {
+    /// An empty clipboard, announcing each program's write to `changes`.
+    pub fn announcing(changes: &Arc<Changes>) -> TestClipboard {
+        TestClipboard {
+            changes: Arc::clone(changes),
+            ..TestClipboard::default()
+        }
+    }
+
     /// Another application copies `items`: they are what is on the clipboard, and `engine` is
     /// told of the change, as a shell tells it.
     pub fn another_application_copies(
@@ -155,6 +165,7 @@ impl ShellClipboard for TestClipboard {
     fn write(&self, items: Vec<CopiedItem>, options: CopyOptions) -> ClipboardWriteFuture {
         let listed = self.hold(items.iter().map(ListedCopy::of).collect());
         *self.copy.lock().unwrap() = Some((items, options));
+        self.changes.announce();
         Box::pin(ready(Ok(listed)))
     }
 }

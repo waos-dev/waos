@@ -2,11 +2,14 @@
 //! at once, and keeps each pick asked of it, with the machines it showed.
 
 use std::future::ready;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use futures::FutureExt;
 use futures::channel::oneshot;
 use waos::{MachineChoice, MachinePickedFuture, RunningProgram, ShellMachinePicker};
+use waos_headless::testing::Changes;
+
+use super::announced_when_dropped;
 
 /// What the picker answers, and what it was asked.
 #[derive(Default)]
@@ -18,9 +21,19 @@ pub struct TestMachinePicker {
     held: Mutex<Vec<oneshot::Sender<Option<String>>>>,
     /// Each pick asked: the program's name and the machines shown.
     asked: Mutex<Vec<(String, Vec<MachineChoice>)>>,
+    changes: Arc<Changes>,
 }
 
 impl TestMachinePicker {
+    /// A picker asked nothing, announcing each pick, and each held pick's future dropped, to
+    /// `changes`.
+    pub fn announcing(changes: &Arc<Changes>) -> TestMachinePicker {
+        TestMachinePicker {
+            changes: Arc::clone(changes),
+            ..TestMachinePicker::default()
+        }
+    }
+
     /// Picks the machine `id` from now on; none cancels.
     pub fn answer_with(&self, id: Option<&str>) {
         *self.answer.lock().unwrap() = id.map(str::to_owned);
@@ -52,10 +65,11 @@ impl ShellMachinePicker for TestMachinePicker {
             .lock()
             .unwrap()
             .push((program.name().to_owned(), machines));
+        self.changes.announce();
         if *self.hold.lock().unwrap() {
             let (tx, rx) = oneshot::channel();
             self.held.lock().unwrap().push(tx);
-            return Box::pin(rx.map(|picked| picked.unwrap_or(None)));
+            return announced_when_dropped(&self.changes, rx.map(|picked| picked.unwrap_or(None)));
         }
         Box::pin(ready(self.answer.lock().unwrap().clone()))
     }

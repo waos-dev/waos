@@ -20,8 +20,6 @@ use waos_capabilities::ProgramFolders;
 use crate::test_shell::media_players::{Destination, PlayerCall};
 #[cfg(target_vendor = "apple")]
 use crate::test_shell::video_frames::{FRAME_HEIGHT, FRAME_WIDTH};
-#[cfg(target_vendor = "apple")]
-use crate::test_shell::wait_until;
 use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, within};
 
 #[cfg(target_vendor = "apple")]
@@ -43,9 +41,11 @@ fn a_readers_frame_for_a_frames_display_time_reaches_the_program_and_its_device(
         "the player sends its frames to the reader the shell made"
     );
 
-    wait_until("the program asks its reader for a frame", || {
-        !reader.asked().is_empty()
-    });
+    shell
+        .changes
+        .wait_until("the program asks its reader for a frame", || {
+            !reader.asked().is_empty()
+        });
     reader.put_frame([0, 0, 255, 255]);
     let said = format!("frame {FRAME_WIDTH}x{FRAME_HEIGHT}, first pixel [0, 0, 255, 255]");
     run.output.wait_for(&said);
