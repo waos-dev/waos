@@ -8,8 +8,8 @@
 //! ```
 //!
 //! Run on demand only (`--ignored`): each walk takes over ten seconds, and the library's own
-//! tests already fail a page that stops painting. Text is in the fonts of the machine the test
-//! runs on; what is left unpainted reads back clear.
+//! tests already fail a page that stops painting. Text is in Waft's test font, as in every test of
+//! the app, each glyph a box; what is left unpainted reads back clear.
 
 use std::path::Path;
 

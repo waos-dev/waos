@@ -1,25 +1,20 @@
 //! A phone of the tests' own: Waft's test platform giving the app one view, a phone's screen held
 //! upright at three pixels a point with a status bar and a home indicator, with a compositor whose
-//! layers show nothing and the system's fonts; the app's library and deck over a store in a folder
+//! layers show nothing and Waft's test font; the app's library and deck over a store in a folder
 //! of the test's own; and an engine that refuses every view request, as a phone's does, whose
 //! screens never refresh. The test plays the host and the user: it draws the frames asked for,
-//! sixty a second on the test's own clock, runs the app's tasks, and puts fingers on the screen.
+//! sixty a second on the test's own clock, runs the app's tasks, and opens, shows and closes
+//! programs as a user does.
 //!
-//! The invariant: nothing a test sees depends on how long the machine takes to draw a frame. Time
-//! is the test's clock, but for one thing a gesture reads from the real one: Waft's velocity
-//! tracker takes a finger to have stopped when its last move is more than 40 ms of real time
-//! old, and a frame drawn between a finger's last move and its lift can take longer than that on
-//! a busy machine. So a lift is reported right behind a repeat of the finger's last move, as a
-//! touch screen reports them, and a finger that stops before it lifts says so in moves that go
-//! nowhere (`drag_and_let_go`).
+//! The invariants: nothing a test sees depends on how long the machine takes to draw a frame,
+//! since time is the test's clock; and a test of the deck's own gestures and drawing does not
+//! belong here, where each one starts the whole of WaOS: the deck's rules have unit tests beside
+//! them (`ui::deck`, `logic::deck_geometry`, `logic::tab_list`).
 //!
-//! What a test reads is what a user would see: the labels on screen and where they are, and where
-//! the last frame placed each program's picture, the composition layer of its tab's canvas; and
-//! which program's canvas a touch reaches, and where on it, as the hit test of a finger coming
-//! down finds it.
+//! What a test reads is what a user would see: the labels on screen, and where the last frame
+//! placed each program's picture, the composition layer of its tab's canvas.
 
 use crate::state::test_turns::{Turn, turn_until};
-use std::any::Any;
 use std::cell::Cell;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -27,26 +22,21 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use tempfile::TempDir;
-use waft::ui::valo::Op;
 use waft::ui::{
     Contact, EmbedderClient, Frame, HostWindow, PlatformRef, PointerDeviceKind, PointerReport,
-    ReportedChange, Scene, TargetPlatform, TextAffinity, TextEditingValue, TextSelection, View,
-    ViewHost, ViewId, ViewMetrics, ViewPadding, ViewRef, WindowConfig, flattened_ops, slices,
+    ReportedChange, Scene, TargetPlatform, View, ViewHost, ViewId, ViewMetrics, ViewPadding,
+    ViewRef, WindowConfig, slices,
 };
 use waft::{
-    AnyElement, App, Entity, Offset, Opacity, Rect, Shell, TextStyle, WidgetsBinding,
-    downcast_widget, run_widget,
+    AnyElement, App, Entity, Offset, Opacity, Rect, Shell, WidgetsBinding, downcast_widget,
+    run_widget,
 };
 use waft_cupertino::install_cupertino_icon_font;
-use waft_gestures::{GestureBinding, HitTestResult};
-use waft_rendering::{AnyRenderBox, BoxHitTestEntry};
-use waft_test::{
-    BarsShown, MockCompositor, TestPlatform, TestView, TestWindow, TestWindows, TextInputCall,
-};
+use waft_test::{BarsShown, MockCompositor, TestPlatform, TestView, TestWindow, TestWindows};
 use waft_winui::install_icon_font;
 use waos::{ProgramEnd, ProgramView, ViewPlacement};
 use waos_package::{ProgramId, SigningKey};
-use waos_program_window::{ProgramCanvas, WindowRestoration};
+use waos_program_window::WindowRestoration;
 
 use super::tabs::{TabContent, TabStage, Tabs};
 use crate::logic::opened_package::tests::write_package;
@@ -92,7 +82,6 @@ pub(crate) const SURVEY: &str = "dev.example.survey";
 pub(crate) const TRAP: &str = "dev.example.trap";
 pub(crate) const TWO_WINDOWS: &str = "dev.example.twowindows";
 pub(crate) const BACK: &str = "dev.example.back";
-pub(crate) const INCOMPATIBLE: &str = "dev.example.incompatible";
 
 /// The phone's screen: a test view whose size, and what the system covers of it and takes swipes
 /// on, the test sets.
@@ -181,16 +170,6 @@ pub(crate) struct Picture {
     pub(crate) scale: f64,
 }
 
-/// A program's canvas a touch reaches.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct TouchedCanvas {
-    /// Where the canvas is drawn, in points.
-    pub(crate) drawn: Rect,
-    /// Where on the canvas the touch is, in the canvas's own points as it is laid out: where the
-    /// program hears it.
-    pub(crate) at: Offset,
-}
-
 /// How a test phone shows its programs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PhoneKind {
@@ -224,19 +203,6 @@ pub(crate) struct TestPhone {
     pub(crate) key: SigningKey,
     /// The time of the frame drawn last.
     elapsed: Duration,
-    /// The fingers on the screen, by their number, each with whether the host has reported it
-    /// before.
-    fingers_added: Vec<i64>,
-    /// Where each finger that has moved since it came down last moved to.
-    last_moves: Vec<FingerMove>,
-}
-
-/// A move of a finger's, as it was reported.
-#[derive(Clone, Copy)]
-struct FingerMove {
-    finger: i64,
-    to: Offset,
-    time_stamp: Duration,
 }
 
 impl TestPhone {
@@ -304,8 +270,7 @@ impl TestPhone {
         let windows = Rc::new(TestWindows::new());
         let mut platform = TestPlatform::new()
             .with_view(Rc::clone(&screen) as ViewRef)
-            .with_compositor(Arc::new(compositor.clone()))
-            .with_system_fonts();
+            .with_compositor(Arc::new(compositor.clone()));
         if kind == PhoneKind::Tasks {
             platform = platform
                 .on(TargetPlatform::Android)
@@ -368,8 +333,6 @@ impl TestPhone {
             folder,
             key: SigningKey::generate(),
             elapsed: Duration::ZERO,
-            fingers_added: Vec::new(),
-            last_moves: Vec::new(),
         };
         phone.settle();
         phone
@@ -507,24 +470,6 @@ impl TestPhone {
         self.tab_kinds().swap_remove(index)
     }
 
-    /// Whether the program of `id`'s tab runs and goes back within itself, as its tab last heard.
-    pub(crate) fn handles_back(&self, id: &str) -> bool {
-        let app = self.shell.app();
-        let tabs = self.tabs.read(&app);
-        tabs.tabs().any(|tab| match tab.content {
-            TabContent::Program {
-                id: program,
-                stage: TabStage::Running(shown),
-            } => program.as_str() == id && shown.read(&app).handles_back(),
-            _ => false,
-        })
-    }
-
-    pub(crate) fn overview_open(&self) -> bool {
-        let app = self.shell.app();
-        self.tabs.read(&app).list().overview_open()
-    }
-
     /// The program `id` running, and its one view.
     pub(crate) fn program_view(&self, id: &str) -> ProgramView {
         let id: ProgramId = id.parse().unwrap();
@@ -548,70 +493,6 @@ impl TestPhone {
             .any(|element| downcast_widget::<W>(element.widget(&app).as_ref()).is_some())
     }
 
-    /// Where the first widget of type `W` on screen that `which` picks is.
-    pub(crate) fn bounds_of<W: 'static>(&self, which: impl Fn(&W) -> bool) -> Option<Rect> {
-        let mut app = self.shell.app();
-        let element = elements_in_sight(&mut app).into_iter().find(|element| {
-            downcast_widget::<W>(element.widget(&app).as_ref()).is_some_and(&which)
-        })?;
-        let found = element.render_object(&app)?.as_box()?;
-        let size = found.size(&app);
-        let top_left = found.local_to_global(&app, Offset::ZERO, None);
-        let bottom_right =
-            found.local_to_global(&app, Offset::new(size.width(), size.height()), None);
-        Some(Rect::from_points(top_left, bottom_right))
-    }
-
-    /// The program's canvas a touch at `at` reaches, and where on it, as hit testing finds it
-    /// when the finger comes down; none where it reaches no canvas.
-    pub(crate) fn canvas_touched_at(&self, at: Offset) -> Option<TouchedCanvas> {
-        let mut app = self.shell.app();
-        let canvases: Vec<AnyRenderBox> = elements_in_sight(&mut app)
-            .into_iter()
-            .filter(|element| {
-                downcast_widget::<ProgramCanvas>(element.widget(&app).as_ref()).is_some()
-            })
-            .filter_map(|element| element.render_object(&app)?.as_box())
-            .collect();
-        let mut result = HitTestResult::new();
-        GestureBinding::instance(&mut app).hit_test_in_view(
-            &mut app,
-            &mut result,
-            at,
-            self.screen.id(),
-        );
-        let reached = result.path().iter().find_map(|entry| {
-            let target: &dyn Any = entry.target();
-            let hit = target.downcast_ref::<BoxHitTestEntry>()?;
-            canvases.contains(&hit.target()).then_some(*hit)
-        })?;
-        let canvas = reached.target();
-        let size = canvas.size(&app);
-        let top_left = canvas.local_to_global(&app, Offset::ZERO, None);
-        let bottom_right =
-            canvas.local_to_global(&app, Offset::new(size.width(), size.height()), None);
-        Some(TouchedCanvas {
-            drawn: Rect::from_points(top_left, bottom_right),
-            at: reached.local_position(),
-        })
-    }
-
-    /// Whether what has the keyboard's focus is a program's canvas.
-    pub(crate) fn keyboard_is_a_programs(&self) -> bool {
-        let mut app = self.shell.app();
-        let Some(context) = waft::primary_focus(&mut app).and_then(|node| node.context(&app))
-        else {
-            return false;
-        };
-        let mut in_a_canvas = false;
-        context.visit_ancestor_elements(&app, &mut |ancestor| {
-            in_a_canvas =
-                downcast_widget::<ProgramCanvas>(ancestor.widget(&app).as_ref()).is_some();
-            !in_a_canvas
-        });
-        in_a_canvas
-    }
-
     /// Every label shown.
     pub(crate) fn labels(&self) -> Vec<String> {
         let mut app = self.shell.app();
@@ -623,23 +504,6 @@ impl TestPhone {
 
     pub(crate) fn shows(&self, text: &str) -> bool {
         self.labels().iter().any(|label| label == text)
-    }
-
-    /// The style the label showing `text` is drawn in, as it was built; none where no label on
-    /// screen shows it.
-    pub(crate) fn label_style(&self, text: &str) -> Option<TextStyle> {
-        let mut app = self.shell.app();
-        elements_in_sight(&mut app).into_iter().find_map(|element| {
-            let widget = element.widget(&app);
-            let label = downcast_widget::<waft::Text>(widget.as_ref())?;
-            (label.data.as_deref() == Some(text)).then(|| label.style.clone().unwrap_or_default())
-        })
-    }
-
-    /// Where the label showing `text` is on screen, as it is drawn: moved and scaled with what
-    /// holds it.
-    pub(crate) fn label_bounds(&self, text: &str) -> Option<Rect> {
-        self.bounds_of::<waft::Text>(|label| label.data.as_deref() == Some(text))
     }
 
     /// Where the last frame placed the picture of the `nth` program opened, counting from 0, in
@@ -664,89 +528,6 @@ impl TestPhone {
             visible: in_points(placement.visible_bounds()),
             scale: placement.scale() / PIXEL_RATIO,
         })
-    }
-
-    /// The programs whose pictures the last frame placed, each by its place among the programs
-    /// opened, counting from 0, in the order painted: the one beneath every other first.
-    pub(crate) fn pictures_in_paint_order(&self) -> Vec<usize> {
-        let Some(scene) = self.screen.last_scene() else {
-            return Vec::new();
-        };
-        let made = self.compositor.made();
-        slices(&scene, |_| None)
-            .composition_layers()
-            .filter_map(|(placed, _)| {
-                made.iter()
-                    .position(|made| std::ptr::addr_eq(Arc::as_ptr(made), Arc::as_ptr(placed)))
-            })
-            .collect()
-    }
-
-    /// The size of each clip the last frame draws, in the order drawn and in the coordinates each
-    /// is recorded in: every clip in the picture a host draws of the frame, the drawing between
-    /// its composition layers with the room made for each.
-    pub(crate) fn clips_drawn(&self) -> Vec<[f64; 2]> {
-        let Some(scene) = self.screen.last_scene() else {
-            return Vec::new();
-        };
-        let picture = slices(&scene, |_| None).picture_with_room();
-        flattened_ops(&picture)
-            .iter()
-            .filter_map(|op| match op {
-                Op::ClipPath { path, .. } => {
-                    let bounds = path.bounds();
-                    Some([f64::from(bounds.width), f64::from(bounds.height)])
-                }
-                _ => None,
-            })
-            .collect()
-    }
-
-    /// Whether the app has asked for the keyboard, and not sent it away since.
-    pub(crate) fn keyboard_asked_for(&self) -> bool {
-        let calls = self.screen.view.test_host().text_input_calls();
-        let last = calls
-            .iter()
-            .rev()
-            .find(|call| matches!(call, TextInputCall::Show | TextInputCall::Hide));
-        matches!(last, Some(TextInputCall::Show))
-    }
-
-    /// The keyboard makes what is edited read `text`, the caret after it, as typing it does.
-    pub(crate) fn type_text(&mut self, text: &str) {
-        let typed = TextEditingValue::new()
-            .text(text)
-            .selection(TextSelection::collapsed(
-                text.chars().count() as i32,
-                TextAffinity::Downstream,
-            ));
-        self.shell.text_input_editing_value(self.screen.id(), typed);
-        self.settle();
-    }
-
-    /// The system covers `top` and `bottom` points of the screen from now on, and the keyboard
-    /// `keyboard` points from its bottom.
-    pub(crate) fn cover(&mut self, top: f64, bottom: f64, keyboard: f64) {
-        self.screen.top_padding.set(top);
-        self.screen.bottom_padding.set(bottom);
-        self.screen.keyboard.set(keyboard);
-        self.shell.view_metrics_changed(self.screen.id());
-    }
-
-    /// The system takes swipes that start in the `bottom` points along the screen's bottom from
-    /// now on, as Android's gesture navigation does.
-    pub(crate) fn take_swipes_along_the_bottom(&mut self, bottom: f64) {
-        self.screen.bottom_gesture_inset.set(bottom);
-        self.shell.view_metrics_changed(self.screen.id());
-    }
-
-    /// The screen measures `width` by `height` points from now on, as a phone turned does.
-    pub(crate) fn resize(&mut self, width: f64, height: f64) {
-        self.screen.view.set_physical_size(waft::ui::Size::new(
-            width * PIXEL_RATIO,
-            height * PIXEL_RATIO,
-        ));
-        self.shell.view_metrics_changed(self.screen.id());
     }
 
     /// The system's Back, as Waft's Android host sends it for the back button and the back
@@ -849,91 +630,6 @@ impl TestPhone {
         self.pump();
     }
 
-    /// A finger, `finger`, comes down at `at`, in points, and a frame is drawn.
-    pub(crate) fn touch_down(&mut self, finger: i64, at: Offset) {
-        if !self.fingers_added.contains(&finger) {
-            self.fingers_added.push(finger);
-            self.report(finger, at, ReportedChange::Add);
-        }
-        self.report(finger, at, ReportedChange::Down { buttons: 1 });
-        self.pump();
-    }
-
-    /// The finger `finger` moves to `to`, and a frame is drawn.
-    pub(crate) fn touch_move(&mut self, finger: i64, to: Offset) {
-        let moved = FingerMove {
-            finger,
-            to,
-            time_stamp: self.elapsed,
-        };
-        self.last_moves.retain(|last| last.finger != finger);
-        self.last_moves.push(moved);
-        self.report_move(moved);
-        self.pump();
-    }
-
-    /// The finger `finger` lifts at `at`, right behind a repeat of its last move, and a frame is
-    /// drawn.
-    pub(crate) fn touch_up(&mut self, finger: i64, at: Offset) {
-        let last_move = self.last_moves.iter().find(|last| last.finger == finger);
-        if let Some(last_move) = last_move.copied() {
-            self.report_move(last_move);
-        }
-        self.report(finger, at, ReportedChange::Up { buttons: 0 });
-        self.report(finger, at, ReportedChange::Remove);
-        self.fingers_added.retain(|added| *added != finger);
-        self.last_moves.retain(|last| last.finger != finger);
-        self.pump();
-    }
-
-    /// The finger `finger` moves from `from` to `to` in a straight line over `frames` frames,
-    /// staying down.
-    pub(crate) fn slide(&mut self, finger: i64, from: Offset, to: Offset, frames: u32) {
-        for frame in 1..=frames {
-            let along = f64::from(frame) / f64::from(frames);
-            self.touch_move(finger, from + (to - from) * along);
-        }
-    }
-
-    /// A finger comes down at `from`, moves to `to` over `frames` frames and lifts there while
-    /// still moving: a swipe, and a flick when the frames are few.
-    pub(crate) fn swipe(&mut self, from: Offset, to: Offset, frames: u32) {
-        self.touch_down(1, from);
-        self.slide(1, from, to, frames);
-        self.touch_up(1, to);
-    }
-
-    /// A finger comes down at `from`, moves to `to` over `frames` frames, rests there, and lifts:
-    /// a drag let go with no speed.
-    pub(crate) fn drag_and_let_go(&mut self, from: Offset, to: Offset, frames: u32) {
-        self.touch_down(1, from);
-        self.slide(1, from, to, frames);
-        for _ in 0..12 {
-            self.touch_move(1, to);
-        }
-        self.touch_up(1, to);
-    }
-
-    /// A finger comes down at `at` and lifts there: a tap.
-    pub(crate) fn tap(&mut self, at: Offset) {
-        self.touch_down(1, at);
-        self.touch_up(1, at);
-    }
-
-    /// Reports `change` of `finger` at `at`, at the time of the frame drawn last.
-    fn report(&mut self, finger: i64, at: Offset, change: ReportedChange) {
-        self.report_at(self.elapsed, finger, at, change);
-    }
-
-    fn report_move(&mut self, moved: FingerMove) {
-        let change = ReportedChange::Move { buttons: 1 };
-        self.report_at(moved.time_stamp, moved.finger, moved.to, change);
-    }
-
-    fn report_at(&mut self, time_stamp: Duration, finger: i64, at: Offset, change: ReportedChange) {
-        self.report_in(self.screen.id(), time_stamp, finger, at, change);
-    }
-
     fn report_in(
         &mut self,
         view: ViewId,
@@ -996,13 +692,6 @@ impl TestPhone {
         let until = Instant::now() + time;
         while Instant::now() < until {
             thread::sleep(Duration::from_millis(5));
-            self.pump();
-        }
-    }
-
-    /// `frames` turns of the host's loop.
-    pub(crate) fn pump_frames(&mut self, frames: u32) {
-        for _ in 0..frames {
             self.pump();
         }
     }
