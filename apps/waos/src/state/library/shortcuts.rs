@@ -84,7 +84,7 @@ impl Library {
 
     /// Puts the program `id` first among the recent programs on WaOS's icon's menu, where the
     /// system has one; nothing for a program not installed.
-    pub(super) fn add_recent(&self, id: &ProgramId, cx: &mut Context<Library>) {
+    pub(super) fn add_recent(&mut self, id: &ProgramId, cx: &mut Context<Library>) {
         if self.shortcuts.is_none() {
             return;
         }
@@ -227,7 +227,7 @@ impl Library {
     /// Makes the shortcuts of the installed programs among `ids`, their icons decoded and shaped
     /// on the library's runtime, and hands them to `then` on the main thread.
     fn with_shortcuts(
-        &self,
+        &mut self,
         ids: Vec<ProgramId>,
         then: impl FnOnce(&mut Library, Vec<ProgramShortcut>, &mut Context<Library>) + 'static,
         cx: &mut Context<Library>,

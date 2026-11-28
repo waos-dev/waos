@@ -1,79 +1,200 @@
-//! Installing a test program as the package manager installs one, without compiling it again: the
-//! version is staged, then its code folder is filled with links to the code of the test program it
-//! is a copy of, compiled once per test run into that program's code folder
-//! (`waos_test_programs::code_of`), then committed. A compile is a function of the component's
-//! bytes and the engine alone, so the code is the code an install would compile; and a code file
-//! is never changed in place, so a link to it is safe.
+//! Installing in a test as WaOS installs, through the real package manager, without compiling a
+//! component twice in a test run: the tests' package managers are handed [`TestCompiler`], which
+//! compiles each component's content once, into a folder named by its SHA-256, and links that
+//! code into each version's code folder. A compile is a function of the component's bytes and the
+//! compiler alone, so the code is the code an install would compile; and a code file is never
+//! changed in place, so a link to it is safe.
 //!
-//! The invariant: a test that installs a program it then opens or launches installs it here, so
-//! no test waits on a compile it did not ask for; a test of the install itself goes through the
-//! package manager, and compiles.
+//! The invariant: a test that installs an app installs it through a package manager made here, so
+//! no test waits on a compile another already did, and every test runs the package manager's real
+//! checks and its one-step install.
 
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
-use waos::WaOS;
-use waos_package::Package;
-use waos_store::{DevelopmentBuild, InstalledProgram, InstalledVersion, Staged, Store};
+use anyhow::Result;
+use futures::StreamExt as _;
+use sha2::{Digest, Sha256};
+use waos::Compiler;
+use waos_package::Manifest;
+use waos_package_manager::{
+    Caller, CodeCompiler, DevelopmentBuild, InstalledProgram, InstalledVersion, PackageContent,
+    PackageManager,
+};
+use waos_store::Store;
+
+use super::app_services;
+use super::running_apps::RunningApps;
 
 /// The smallest component, as text, which the engine compiles as it does a binary: what a test
 /// installs where it shows or removes a program but never runs it, since an install compiles, and
 /// this compiles at once.
 pub(crate) const EMPTY_COMPONENT: &[u8] = b"(component)";
 
-/// Installs `package`, whose component is a copy of the test program at `component`, into
-/// `store`, with its code compiled by an engine like `engine`.
-pub(crate) fn install_package(
-    store: &Store,
-    engine: &WaOS,
-    package: Package,
-    component: &str,
-) -> InstalledProgram {
-    let staged = store.stage(package).expect("the package stages");
-    commit_compiled(store, engine, staged, component)
-}
+/// The engine's compiler, compiling each component's content once in a test run.
+pub(crate) struct TestCompiler(pub(crate) Compiler);
 
-/// Installs `build`, whose component is a copy of the test program at `component`, into `store`
-/// as its development install, with its code compiled by an engine like `engine`.
-pub(crate) fn install_development(
-    store: &Store,
-    engine: &WaOS,
-    build: &DevelopmentBuild<'_>,
-    component: &str,
-) -> InstalledProgram {
-    let staged = store.stage_development(build).expect("the build stages");
-    commit_compiled(store, engine, staged, component)
-}
-
-/// Commits `staged`, its code folder filled with the code of the test program at `component`,
-/// compiled first where this run has not compiled it yet.
-fn commit_compiled(
-    store: &Store,
-    engine: &WaOS,
-    staged: Staged,
-    component: &str,
-) -> InstalledProgram {
-    let compiled = compiled(engine, component);
-    let code = staged.version().code();
-    fs::create_dir_all(&code).unwrap();
-    for file in fs::read_dir(&compiled).unwrap() {
-        let file = file.unwrap().path();
-        let linked = code.join(file.file_name().unwrap());
-        if fs::hard_link(&file, &linked).is_err() {
-            fs::copy(&file, &linked).unwrap();
+impl CodeCompiler for TestCompiler {
+    fn compile(&self, component: &Path, code: &Path) -> Result<()> {
+        let compiled = self.compiled(component)?;
+        fs::create_dir_all(code)?;
+        for file in fs::read_dir(&compiled)? {
+            let file = file?.path();
+            let linked = code.join(file.file_name().expect("a file in a folder has a name"));
+            let _ = fs::remove_file(&linked);
+            if fs::hard_link(&file, &linked).is_err() {
+                fs::copy(&file, &linked)?;
+            }
         }
+        Ok(())
     }
-    store.commit(staged).expect("the program installs")
+
+    fn is_usable(&self, code: &Path) -> bool {
+        self.0.is_compiled(code)
+    }
 }
 
-/// The code folder of the test program at `component`, which `engine` has compiled it into: a
-/// load compiles it once, the engine's other loads of it waiting for that compile.
-fn compiled(engine: &WaOS, component: &str) -> PathBuf {
-    let code = waos_test_programs::code_of(component);
-    engine
-        .load(Path::new(component), &code)
-        .expect("the test program compiles");
-    code
+impl TestCompiler {
+    /// The folder of the code of the component at `component`, compiled there once per content.
+    fn compiled(&self, component: &Path) -> Result<PathBuf> {
+        let sha256 = hex::encode(Sha256::digest(fs::read(component)?));
+        let code = std::env::temp_dir().join("waos-test-code").join(&sha256);
+        let turn = turn_of(&sha256);
+        let _turn = turn.lock().unwrap_or_else(PoisonError::into_inner);
+        if !self.0.is_compiled(&code) {
+            self.0.compile(component, &code)?;
+        }
+        Ok(code)
+    }
+}
+
+/// The turn of the content `sha256`: one compile of it at a time in this process.
+fn turn_of(sha256: &str) -> Arc<Mutex<()>> {
+    static TURNS: OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = OnceLock::new();
+    let mut turns = TURNS
+        .get_or_init(Mutex::default)
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+    Arc::clone(turns.entry(sha256.to_owned()).or_default())
+}
+
+/// A compiler for a test that never runs what it installs: it writes a marker in the code folder,
+/// which is all it takes to be usable.
+pub(crate) struct MarkerCompiler;
+
+/// The file [`MarkerCompiler`] writes.
+const MARKER: &str = "compiled";
+
+impl CodeCompiler for MarkerCompiler {
+    fn compile(&self, _component: &Path, code: &Path) -> Result<()> {
+        fs::create_dir_all(code)?;
+        fs::write(code.join(MARKER), b"")?;
+        Ok(())
+    }
+
+    fn is_usable(&self, code: &Path) -> bool {
+        code.join(MARKER).is_file()
+    }
+}
+
+/// A test's package manager over the store `store` in `folder`, for apps it never runs.
+pub(crate) fn packages_never_run(folder: &Path, store: &Store) -> Arc<PackageManager> {
+    let running = Arc::new(RunningApps::default());
+    app_services::open_packages(folder, Arc::new(MarkerCompiler), &running, store.clone())
+        .expect("the package manager opens")
+}
+
+/// A test's package manager over the store `store` in `folder`, compiling once per content with
+/// a compiler set up as the tests' engines are, so they map its code, stopping apps among
+/// `running`.
+pub(crate) fn packages(
+    folder: &Path,
+    store: &Store,
+    running: &Arc<RunningApps>,
+) -> Arc<PackageManager> {
+    static COMPILER: OnceLock<Compiler> = OnceLock::new();
+    let compiler = COMPILER.get_or_init(|| Compiler::new(false).expect("a compiler"));
+    let compiler = Arc::new(TestCompiler(compiler.clone()));
+    app_services::open_packages(folder, compiler, running, store.clone())
+        .expect("the package manager opens")
+}
+
+/// Installs the package at `file` with `packages`, for the user, and waits until it is installed,
+/// on a thread and a runtime of its own, so a test on a runtime or off one calls it alike.
+pub(crate) fn install_package(packages: &PackageManager, file: &Path) -> InstalledProgram {
+    let bytes = fs::read(file).unwrap();
+    let app = waos_package::Package::open(file)
+        .expect("a package")
+        .manifest()
+        .id()
+        .clone();
+    let size = Some(bytes.len() as u64);
+    let content = PackageContent::Package {
+        app,
+        bytes: futures::stream::iter([Ok(bytes)]).boxed(),
+        size,
+    };
+    wait_installed(packages, content, Caller::User)
+}
+
+/// Installs the build of `manifest`, its component the test program at `component`, as its
+/// development install, as `install_package` does.
+pub(crate) fn install_development(
+    packages: &PackageManager,
+    manifest: Manifest,
+    component: &str,
+) -> InstalledProgram {
+    let build = DevelopmentBuild {
+        manifest,
+        component: fs::read(component).unwrap(),
+        icon: None,
+    };
+    wait_installed(
+        packages,
+        PackageContent::Development(build),
+        Caller::DeveloperTools,
+    )
+}
+
+/// What `content` comes to, installed for `caller`, waited for on a thread and a runtime of its
+/// own.
+fn wait_installed(
+    packages: &PackageManager,
+    content: PackageContent,
+    caller: Caller,
+) -> InstalledProgram {
+    std::thread::scope(|scope| {
+        scope
+            .spawn(|| {
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap()
+                    .block_on(async { packages.install(content, caller).finished().await })
+            })
+            .join()
+            .unwrap()
+    })
+    .expect("the app installs")
+}
+
+/// The version of `id` installed now in `packages`, read under its lock, on a runtime of its own.
+pub(crate) fn installed_version(packages: &PackageManager, id: &str) -> InstalledVersion {
+    let id = id.parse().unwrap();
+    std::thread::scope(|scope| {
+        scope
+            .spawn(|| {
+                tokio::runtime::Builder::new_current_thread()
+                    .build()
+                    .unwrap()
+                    .block_on(async { packages.lock(&id).await.version() })
+            })
+            .join()
+            .unwrap()
+    })
+    .expect("the app is installed")
 }
 
 /// Spoils `version`, installed, as a disk that lost its files would: its component and every code
@@ -81,6 +202,9 @@ fn compiled(engine: &WaOS, component: &str) -> PathBuf {
 pub(crate) fn spoil(version: &InstalledVersion) {
     fs::write(version.component(), b"spoiled").unwrap();
     for file in fs::read_dir(version.code()).unwrap() {
-        fs::write(file.unwrap().path(), b"spoiled").unwrap();
+        let file = file.unwrap().path();
+        // A link's file is shared with every test that compiled the same content: unlink first.
+        fs::remove_file(&file).unwrap();
+        fs::write(file, b"spoiled").unwrap();
     }
 }

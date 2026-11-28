@@ -54,8 +54,8 @@ mod macos {
         ShellContextMenus, ShellFileDialogs, ShellMenuBar, ShellNotifications,
         ShellSystemPermissions, ViewPlacement, ViewRequest,
     };
+    use waos_package_manager::PackageManager;
     use waos_program_window::{CanvasLayer, PromptWindows};
-    use waos_store::Store;
     use waos_window_messages::HostedLayers;
     use waos_window_messages::os::macos::SendRight;
 
@@ -88,9 +88,9 @@ mod macos {
         window_presences: UnboundedReceiver<WindowPresence>,
     }
 
-    /// The programs' apps, listening for them, over `store`; or why there can be none, said as an
+    /// The programs' apps, listening for them, over `packages`; or why there can be none, said as an
     /// error.
-    pub(crate) fn start(folders: &AppFolders, store: &Store) -> Started {
+    pub(crate) fn start(folders: &AppFolders, packages: &Arc<PackageManager>) -> Started {
         let apps_folders = AppsFolders {
             data: folders.data.clone(),
             installed: folders.installed_apps.clone(),
@@ -102,7 +102,7 @@ mod macos {
         let (presence, window_presences) = mpsc::unbounded();
         let apps = ProgramApps::start(
             apps_folders,
-            store.clone(),
+            Arc::clone(packages),
             canvases,
             dialogs,
             notification_permissions,
@@ -468,8 +468,8 @@ mod other {
         ShellContextMenus, ShellFileDialogs, ShellMenuBar, ShellNotifications,
         ShellSystemPermissions, ViewPlacement,
     };
+    use waos_package_manager::PackageManager;
     use waos_program_window::PromptWindows;
-    use waos_store::Store;
 
     use super::ProgramPrompts;
     use crate::logic::app_services::AppServices;
@@ -494,29 +494,29 @@ mod other {
         #[cfg(any(windows, target_os = "linux"))]
         entries: ProgramEntries,
         #[cfg(any(windows, target_os = "linux"))]
-        store: Store,
+        packages: Arc<PackageManager>,
     }
 
-    /// The installed programs' entries over `store`, among `folders`, where the system lists apps
+    /// The installed programs' entries over `packages`, among `folders`, where the system lists apps
     /// by entries WaOS writes.
-    pub(crate) fn start(folders: &AppFolders, store: &Store) -> Started {
+    pub(crate) fn start(folders: &AppFolders, packages: &Arc<PackageManager>) -> Started {
         Started {
-            entries: kept_entries(folders, store),
+            entries: kept_entries(folders, packages),
         }
     }
 
     #[cfg(any(windows, target_os = "linux"))]
-    fn kept_entries(folders: &AppFolders, store: &Store) -> Option<KeptEntries> {
+    fn kept_entries(folders: &AppFolders, packages: &Arc<PackageManager>) -> Option<KeptEntries> {
         let identities = Identities::of_this_waos(folders.program_icons.clone())?;
         Some(KeptEntries {
             entries: ProgramEntries::of_this_system(folders, identities),
-            store: store.clone(),
+            packages: Arc::clone(packages),
         })
     }
 
     /// None: Android lists an app by its package, which WaOS's programs have none of.
     #[cfg(not(any(windows, target_os = "linux")))]
-    fn kept_entries(_folders: &AppFolders, _store: &Store) -> Option<KeptEntries> {
+    fn kept_entries(_folders: &AppFolders, _packages: &Arc<PackageManager>) -> Option<KeptEntries> {
         None
     }
 
@@ -524,7 +524,7 @@ mod other {
     /// change of what `library` has installed.
     #[cfg(any(windows, target_os = "linux"))]
     fn follow_installed(app: &mut App, kept: KeptEntries, library: &Entity<Library>) {
-        match kept.entries.follow(kept.store) {
+        match kept.entries.follow(kept.packages) {
             Ok(changes) => app
                 .subscribe(library, move |_app, _changed: &InstalledChanged| {
                     changes.changed();

@@ -195,6 +195,7 @@ mod tests {
             file_associations: Vec::new(),
             length: 0,
             digest: [0; 32],
+            compiling_answer: false,
         })
     }
 

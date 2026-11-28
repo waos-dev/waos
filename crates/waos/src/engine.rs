@@ -2,7 +2,7 @@
 //! with their async ABI, fuel and an epoch tick; one GPU instance every program draws on; the
 //! shell it asks; the machine's facts, set whole and worked out into what changed; the screens'
 //! refreshes every program's frames wait on; the programs running, for what the app's suspending
-//! and resuming and a screen's refresh do to all of them; and the public API that compiles, loads
+//! and resuming and a screen's refresh do to all of them; and the public API that loads
 //! and runs programs.
 //!
 //! The invariant: code compiled ahead of time loads only into an engine of the same wasmtime and
@@ -27,6 +27,7 @@ use crate::bindings::wasdk::platform::system::{Brightness, Locale};
 use crate::caption_settings::CaptionSettings;
 use crate::clipboard::PlatformClipboard;
 use crate::code_folder;
+use crate::compiler::Compiler;
 use crate::engine_time::{EngineClock, EngineTime};
 use crate::gpu::{self, GpuInstance, ProgramsAdapter};
 use crate::inspection::InspectedPrograms;
@@ -67,14 +68,9 @@ pub(crate) enum BufferKind {
 pub struct WaOSConfig {
     /// When a program out of sight is frozen.
     pub freeze: FreezePolicy,
-    /// Whether programs are compiled with native unwind information (wasmtime's
-    /// `Config::native_unwind_info`): what a native profiler or debugger needs to walk through a
-    /// program's frames, and nothing else does, wasmtime's own backtraces of a program among
-    /// them. Off unless asked for: macOS's unwinder lets go of each compiled function's
-    /// information one at a time, at a cost that grows with the square of their number, so a
-    /// large program takes seconds to drop with it (the gallery's debug build, 7 s against 2 ms).
-    /// Always on Windows, whose exception handling needs it, and where wasmtime refuses it off.
-    pub native_unwind_info: bool,
+    /// What compiles programs' code, which the engine maps: made first, so whatever compiles apps
+    /// at their install is handed it before the engine is made.
+    pub compiler: Compiler,
     /// Which proxy programs' HTTP goes through: the system's, as an app sends, or none, as the
     /// tests send, so what they reach does not depend on the machine's settings.
     pub http_proxy: HttpProxy,
@@ -112,6 +108,7 @@ pub struct PlatformState {
 /// The engine: runs programs and serves `wasdk:platform` and `wasdk:media` to them.
 pub struct WaOS {
     engine: Arc<Engine>,
+    compiler: Compiler,
     gpu: GpuInstance,
     /// What programs' pictures are kept in.
     hardware_buffers: BufferKind,
@@ -147,7 +144,8 @@ impl WaOS {
     /// long as it lives, as `config.time` moves it.
     pub fn new(config: WaOSConfig, shell: Shell, platform: PlatformState) -> Result<WaOS> {
         let temporary_folders = Arc::new(TemporaryFolders::new(config.temporary_folders)?);
-        let engine = Arc::new(Engine::new(&engine_config(config.native_unwind_info))?);
+        let engine = Arc::clone(config.compiler.engine());
+        let compiler = config.compiler;
         let programs = Programs::default();
         let clock = config.time.start(&engine, &programs)?;
         let gpu = gpu::instance();
@@ -176,6 +174,7 @@ impl WaOS {
             .context("the thread that keeps the programs' days")?;
         Ok(WaOS {
             engine,
+            compiler,
             screenshots: Arc::new(Screenshots::new(Arc::clone(&gpu), hardware_buffers)),
             gpu,
             hardware_buffers,
@@ -244,17 +243,9 @@ impl WaOS {
         self.clipboard.set(items);
     }
 
-    /// Whether `code`, the component's code folder, holds the code this engine compiles, so that
-    /// [`load`](Self::load) maps it without compiling.
-    pub fn is_compiled(&self, code: &Path) -> bool {
-        code_folder::is_compiled(&self.engine, code)
-    }
-
-    /// Compiles the program at `component` into `code`, its code folder, as an app compiles a
-    /// program it installs, so that [`load`](Self::load) maps it without compiling; the code
-    /// other engines compiled there goes. Blocks for seconds, so call it off the main thread.
-    pub fn compile(&self, component: &Path, code: &Path) -> Result<()> {
-        code_folder::compile(&self.engine, component, code)
+    /// The compiler it was made with, whose code it maps.
+    pub fn compiler(&self) -> &Compiler {
+        &self.compiler
     }
 
     /// The program at `component`, mapped from its code in `code`, compiled there first when this
@@ -573,7 +564,7 @@ mod tests {
     fn engine(shell: &Arc<Refreshing>) -> Arc<WaOS> {
         let config = WaOSConfig {
             freeze: FreezePolicy::default(),
-            native_unwind_info: false,
+            compiler: Compiler::new(false).unwrap(),
             http_proxy: HttpProxy::None,
             time: EngineTime::Real,
             temporary_folders: std::env::temp_dir().join("waos-tests"),

@@ -44,12 +44,13 @@ use waos::bindings::wasdk::platform::hardware_buffers::PixelBuffer;
 use waos::bindings::wasdk::platform::system::{Brightness, Locale};
 use waos::bindings::wasdk::platform::views::ViewError;
 use waos::{
-    EngineTime, FreezePolicy, HttpProxy, PlacedView, PlatformState, Presence, ProgramEnvironment,
-    ProgramOutput, ProgramView, Prompts, RunningProgram, Shell, ShellAudioOutputPicker,
-    ShellCameras, ShellClipboard, ShellCompositor, ShellContextMenus, ShellFileDialogs, ShellGpus,
-    ShellImageCodecs, ShellMachinePicker, ShellMediaAssets, ShellMediaPlayers, ShellMenuBar,
-    ShellNotifications, ShellOpener, ShellRecordingIndicator, ShellSystemPermissions,
-    ShellTrayIcons, ShellVideoFrameReaders, ShellView, ViewPlacement, ViewRequest, WaOSConfig,
+    Compiler, EngineTime, FreezePolicy, HttpProxy, PlacedView, PlatformState, Presence,
+    ProgramEnvironment, ProgramOutput, ProgramView, Prompts, RunningProgram, Shell,
+    ShellAudioOutputPicker, ShellCameras, ShellClipboard, ShellCompositor, ShellContextMenus,
+    ShellFileDialogs, ShellGpus, ShellImageCodecs, ShellMachinePicker, ShellMediaAssets,
+    ShellMediaPlayers, ShellMenuBar, ShellNotifications, ShellOpener, ShellRecordingIndicator,
+    ShellSystemPermissions, ShellTrayIcons, ShellVideoFrameReaders, ShellView, ViewPlacement,
+    ViewRequest, WaOSConfig,
 };
 use waos_headless::{Display, HeadlessShell, Refreshes, SCREEN};
 
@@ -190,7 +191,7 @@ impl TestShell {
 pub fn config() -> WaOSConfig {
     WaOSConfig {
         freeze: FreezePolicy::default(),
-        native_unwind_info: false,
+        compiler: Compiler::new(false).unwrap(),
         http_proxy: HttpProxy::None,
         time: EngineTime::Real,
         temporary_folders: std::env::temp_dir().join("waos-tests"),

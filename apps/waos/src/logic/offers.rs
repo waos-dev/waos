@@ -8,7 +8,7 @@
 use std::cmp::Ordering;
 
 use waos_package::ListedProgram;
-use waos_store::InstalledProgram;
+use waos_package_manager::InstalledProgram;
 
 /// What the library offers to do with a listed program.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -46,7 +46,7 @@ pub(crate) fn offer_of(listed: &ListedProgram, installed: &[InstalledProgram]) -
 #[cfg(test)]
 mod tests {
     use waos_package::{Manifest, SigningKey};
-    use waos_store::Origin;
+    use waos_package_manager::Origin;
 
     use super::*;
 

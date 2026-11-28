@@ -342,7 +342,7 @@ impl Page {
             footnote(&info.version),
         ]
         .into_iter()
-        .chain(info.status.map(footnote));
+        .chain(info.status.as_deref().map(footnote));
         let app = Padding::new(EdgeInsetsGeometry::from_ltrb(20.0, 12.0, 20.0, 4.0)).child(
             Column::new()
                 .cross_axis_alignment(CrossAxisAlignment::Center)

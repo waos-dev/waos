@@ -1,16 +1,16 @@
 //! Reading from a package source over HTTP: an index and a picture, each whole within a cap, and
-//! a package, streamed to a temporary file and checked against the SHA-256 its listing gives
-//! before anything opens it.
+//! a package, streamed as it arrives and checked against the SHA-256 its listing gives.
 //!
-//! The invariant a later editor will break: a download is handed on only when its SHA-256 is the
-//! one listed; one that is not is removed with its temporary file.
+//! The invariant a later editor will break: a download's bytes end in an error unless their
+//! SHA-256 is the one listed, so whoever takes them in installs nothing else.
 
-use std::io::Write;
+use std::io;
 use std::time::Duration;
 
+use futures::StreamExt as _;
+use futures::stream::{self, BoxStream};
 use reqwest::{Client, Response};
 use sha2::{Digest, Sha256};
-use tempfile::NamedTempFile;
 use url::Url;
 use waos_package::Index;
 
@@ -93,55 +93,65 @@ pub(crate) async fn read_picture(http: &Client, url: &Url) -> Result<Vec<u8>, So
     Ok(picture)
 }
 
-/// How far a download is: the bytes received so far, of the total its server announced, where it
-/// announced one.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct DownloadProgress {
-    pub received: u64,
-    pub total: Option<u64>,
+/// A package downloading.
+pub struct Download {
+    /// Its bytes as they arrive, ending in an error where the download fails or their SHA-256 is
+    /// not the one listed.
+    pub bytes: BoxStream<'static, io::Result<Vec<u8>>>,
+    /// Their length, where the server said it.
+    pub size: Option<u64>,
 }
 
-/// Downloads the package at `url` into a temporary file, removed when dropped, and refuses it
-/// unless its SHA-256 is `listed`; `progress` hears how far it is as each part arrives.
+/// What a download keeps between two parts.
+struct Downloading {
+    response: Response,
+    sha256: Sha256,
+    url: Url,
+    listed: [u8; 32],
+}
+
+/// Starts downloading the package at `url`, whose SHA-256 is `listed`.
 pub(crate) async fn download(
     http: &Client,
     url: &Url,
     listed: &[u8; 32],
-    mut progress: impl FnMut(DownloadProgress),
-) -> Result<NamedTempFile, SourceError> {
-    let mut response = get(http, url).await?;
-    let mut far = DownloadProgress {
-        received: 0,
-        total: response.content_length(),
+) -> Result<Download, SourceError> {
+    let response = get(http, url).await?;
+    let size = response.content_length();
+    let downloading = Downloading {
+        response,
+        sha256: Sha256::new(),
+        url: url.clone(),
+        listed: *listed,
     };
-    progress(far);
-    let mut file = NamedTempFile::new().map_err(|error| SourceError::Io {
-        path: std::env::temp_dir(),
-        error,
-    })?;
-    let mut sha256 = Sha256::new();
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(SourceError::unreachable_at(url))?
-    {
-        sha256.update(&chunk);
-        // A part of an answer is written to a local file in far less time than it took to come.
-        file.write_all(&chunk).map_err(|error| SourceError::Io {
-            path: file.path().to_path_buf(),
-            error,
-        })?;
-        far.received += chunk.len() as u64;
-        progress(far);
-    }
-    let downloaded: [u8; 32] = sha256.finalize().into();
-    if downloaded != *listed {
-        return Err(SourceError::Sha256Mismatch {
-            listed: *listed,
-            downloaded,
-        });
-    }
-    Ok(file)
+    let bytes = stream::unfold(Some(downloading), |downloading| async move {
+        let mut downloading = downloading?;
+        match downloading.response.chunk().await {
+            Ok(Some(chunk)) => {
+                downloading.sha256.update(&chunk);
+                Some((Ok(chunk.to_vec()), Some(downloading)))
+            }
+            Ok(None) => {
+                let downloaded: [u8; 32] = downloading.sha256.finalize().into();
+                (downloaded != downloading.listed).then(|| {
+                    let mismatch = SourceError::Sha256Mismatch {
+                        listed: downloading.listed,
+                        downloaded,
+                    };
+                    (Err(io::Error::other(mismatch)), None)
+                })
+            }
+            Err(error) => {
+                let unreachable = SourceError::Unreachable {
+                    url: downloading.url,
+                    error,
+                };
+                Some((Err(io::Error::other(unreachable)), None))
+            }
+        }
+    })
+    .boxed();
+    Ok(Download { bytes, size })
 }
 
 /// The answer to a `GET` of `url`, refused unless its status is success.

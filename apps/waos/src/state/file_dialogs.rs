@@ -249,7 +249,8 @@ mod tests {
             Rc::new(TestPlatform::new().with_file_dialogs(Rc::new(waft_dialogs.clone())));
         let folder = tempfile::tempdir().unwrap();
         let store = waos_store::Store::open(folder.path(), waos_store::SourceProxy::None).unwrap();
-        let (placement, requests) = WindowsOnRequest::new(ProgramFaces::new(store, None));
+        let packages = crate::logic::test_installs::packages_never_run(folder.path(), &store);
+        let (placement, requests) = WindowsOnRequest::new(ProgramFaces::new(packages, None));
         let engine = test_engine::engine(Arc::new(placement));
         let program = engine
             .load(

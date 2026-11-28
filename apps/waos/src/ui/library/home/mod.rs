@@ -22,7 +22,7 @@ use waft::{
     StatelessWidget, Text, TextAlign, TextOverflow, TextStyle, WidgetRef,
 };
 use waos_package::ProgramId;
-use waos_store::InstalledProgram;
+use waos_package_manager::InstalledProgram;
 
 use crate::state::library::Library;
 use crate::ui::library::words;
@@ -35,7 +35,7 @@ pub(crate) struct HomeEntry {
     pub(crate) icon: Option<Arc<[u8]>>,
     pub(crate) running: bool,
     /// What WaOS is doing to it, as optimizing its code after a compiler change (`words::status`).
-    pub(crate) status: Option<&'static str>,
+    pub(crate) status: Option<String>,
 }
 
 /// The programs `library` has installed, as the home shows them, in the order of their names:
@@ -120,16 +120,16 @@ pub(crate) struct IconTile {
     pub(crate) name: String,
     pub(crate) running: bool,
     /// What WaOS is doing to the program (`words::status`).
-    pub(crate) status: Option<&'static str>,
+    pub(crate) status: Option<String>,
     pub(crate) look: TileLook,
 }
 
 impl StatelessWidget for IconTile {
     fn build(&self, _app: &mut App, _context: BuildContext) -> WidgetRef {
-        let (icon, name) = match self.status {
+        let (icon, name) = match &self.status {
             Some(status) => {
                 let dimmed = Opacity::new(INSTALLING_OPACITY).child(self.icon.clone());
-                (dimmed.into_widget(), status.to_owned())
+                (dimmed.into_widget(), status.clone())
             }
             None => (self.icon.clone(), self.name.clone()),
         };

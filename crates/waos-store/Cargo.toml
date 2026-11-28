@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "Installed programs, their updates, and the package sources they come from, in a directory the app gives it."
+description = "The package sources the user added and their downloads, what the user lets each app use, each app's own folders and its activity, in a directory the app gives it."
 
 [dependencies]
 waos-package.workspace = true
@@ -19,10 +19,10 @@ hex.workspace = true
 serde.workspace = true
 postcard.workspace = true
 toml.workspace = true
-# What an install unpacks into, a file written whole, and a download.
+# A file written whole.
 tempfile.workspace = true
-# Opening and installing a download off the async task that downloaded it, and what tells the
-# engine that the user changed a program's settings.
+# What tells the engine that the user changed a program's settings, and a download's bytes as a
+# stream.
 tokio.workspace = true
 futures.workspace = true
 # What the user lets a program use, which the store's settings answer as `ProgramGrants`.
@@ -33,6 +33,9 @@ tracing.workspace = true
 [dev-dependencies]
 # A local HTTP server, which the tests read sources from.
 tokio = { workspace = true, features = ["net", "io-util"] }
+# What installs the packages the tests download, and removes the apps whose settings they keep.
+waos-package-manager.workspace = true
+anyhow.workspace = true
 
 [lints]
 workspace = true

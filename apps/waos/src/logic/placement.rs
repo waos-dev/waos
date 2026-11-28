@@ -77,6 +77,11 @@ pub(crate) mod tests {
         Store::open(&folder.join("store"), waos_store::SourceProxy::None).expect("a store")
     }
 
+    /// The package manager of a store with nothing installed, in `folder`, for apps never run.
+    pub(crate) fn packages_in(folder: &Path) -> Arc<waos_package_manager::PackageManager> {
+        crate::logic::test_installs::packages_never_run(&folder.join("store"), &store_in(folder))
+    }
+
     /// Runs survey, which asks for a view as it starts, on `engine`.
     fn run_survey(engine: &WaOS) -> RunningProgram {
         let survey = engine
@@ -95,7 +100,7 @@ pub(crate) mod tests {
     async fn a_request_reaches_the_main_thread_with_its_program_and_waits_for_its_answer() {
         let folder = tempfile::tempdir().unwrap();
         let (placement, mut arriving) =
-            WindowsOnRequest::new(ProgramFaces::new(store_in(folder.path()), None));
+            WindowsOnRequest::new(ProgramFaces::new(packages_in(folder.path()), None));
         let engine = test_engine::engine(Arc::new(placement));
         let running = run_survey(&engine);
         let arrived = tokio::time::timeout(WITHIN, arriving.next())
@@ -123,7 +128,7 @@ pub(crate) mod tests {
     async fn a_request_is_refused_once_the_main_thread_stopped_listening() {
         let folder = tempfile::tempdir().unwrap();
         let (placement, arriving) =
-            WindowsOnRequest::new(ProgramFaces::new(store_in(folder.path()), None));
+            WindowsOnRequest::new(ProgramFaces::new(packages_in(folder.path()), None));
         drop(arriving);
         let engine = test_engine::engine(Arc::new(placement));
         let running = run_survey(&engine);

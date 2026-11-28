@@ -14,7 +14,7 @@ use waos::{OpenRequest, RunningProgram};
 #[cfg(desktop)]
 use waos_dev_protocol::{OpenAnswer, Refusal, RefusalKind, ServerConnection};
 use waos_package::ProgramId;
-use waos_store::Store;
+use waos_package_manager::PackageManager;
 
 use super::app_starter::{AppStarter, Opening, StartRequest};
 use super::running_apps::RunningApps;
@@ -24,11 +24,11 @@ use super::running_apps::RunningApps;
 pub(crate) async fn open_with(
     starter: &AppStarter,
     running: &RunningApps,
-    store: &Store,
+    packages: &PackageManager,
     id: &ProgramId,
     request: OpenRequest,
 ) -> Result<()> {
-    let program = program_named(starter, running, store, id)
+    let program = program_named(starter, running, packages, id)
         .await?
         .with_context(|| format!("{id} is neither installed nor running"))?;
     tracing::info!(%id, ?request, "files opened with the program");
@@ -42,11 +42,11 @@ pub(crate) async fn open_with(
 pub(crate) async fn notification_activated(
     starter: &AppStarter,
     running: &RunningApps,
-    store: &Store,
+    packages: &PackageManager,
     id: &ProgramId,
     activation: Activation,
 ) -> Result<()> {
-    let program = program_named(starter, running, store, id)
+    let program = program_named(starter, running, packages, id)
         .await?
         .with_context(|| {
             format!("{id} is no longer installed, so its notification has nothing to open")
@@ -61,10 +61,10 @@ pub(crate) async fn notification_activated(
 pub(crate) async fn program_named(
     starter: &AppStarter,
     running: &RunningApps,
-    store: &Store,
+    packages: &PackageManager,
     id: &ProgramId,
 ) -> Result<Option<RunningProgram>> {
-    if store.installed_program(id).is_none() {
+    if packages.installed_program(id).is_none() {
         return Ok(running.running(id));
     }
     let opened = starter
@@ -80,11 +80,11 @@ pub(crate) async fn answer(
     mut connection: ServerConnection,
     starter: &AppStarter,
     running: &RunningApps,
-    store: &Store,
+    packages: &PackageManager,
     id: &ProgramId,
     request: OpenRequest,
 ) {
-    let answer = match open_with(starter, running, store, id, request).await {
+    let answer = match open_with(starter, running, packages, id, request).await {
         Ok(()) => OpenAnswer::Opened,
         Err(why) => {
             tracing::info!("an opening refused: {why:#}");

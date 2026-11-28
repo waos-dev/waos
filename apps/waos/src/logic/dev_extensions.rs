@@ -14,7 +14,7 @@ use waos_dev_protocol::{
     ServingProgramsAnswer,
 };
 use waos_package::ProgramId;
-use waos_store::Store;
+use waos_package_manager::PackageManager;
 
 use super::dev_refusal;
 use super::running_apps::RunningApps;
@@ -44,14 +44,18 @@ pub(crate) async fn call(
 }
 
 /// Answers a connection's `ServingPrograms`: each program running that serves extensions, by the
-/// name `store` gives it, in this WaOS's process.
-pub(crate) async fn serving(mut connection: ServerConnection, runs: &RunningApps, store: &Store) {
+/// name `packages` gives it, in this WaOS's process.
+pub(crate) async fn serving(
+    mut connection: ServerConnection,
+    runs: &RunningApps,
+    packages: &PackageManager,
+) {
     let programs = runs
         .programs()
         .await
         .iter()
         .filter(|program| program.service_extensions().serves())
-        .filter_map(|program| serving_program(program, store))
+        .filter_map(|program| serving_program(program, packages))
         .collect();
     let answer = ServingProgramsAnswer::Programs(ServingPrograms {
         pid: std::process::id(),
@@ -63,9 +67,9 @@ pub(crate) async fn serving(mut connection: ServerConnection, runs: &RunningApps
 
 /// `program` as a tool lists it: its id, the name its user sees, its id's where it is installed
 /// no longer.
-fn serving_program(program: &RunningProgram, store: &Store) -> Option<ServingProgram> {
+fn serving_program(program: &RunningProgram, packages: &PackageManager) -> Option<ServingProgram> {
     let id: ProgramId = program.name().parse().ok()?;
-    let name = store
+    let name = packages
         .installed_program(&id)
         .map_or_else(|| id.to_string(), |installed| installed.name());
     Some(ServingProgram {

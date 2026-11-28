@@ -20,7 +20,7 @@
 //! calls (`logic::menu_calls`), the notifications' calls
 //! (`logic::notification_calls`), each view's calls (`waos-program-window`'s), on macOS what
 //! the programs' apps send (`logic::program_apps`), the presence of each of their windows among
-//! it, what the package manager is doing (`logic::package_manager`), and the calls posted to a value
+//! it, what the package manager is doing (`waos-package-manager`), and the calls posted to a value
 //! on the main thread that serves them (`app_thread_bound`): the players' (`media_players`), the media
 //! assets' (`media_assets`), the image codecs' (`image_codecs`), the cameras' (`cameras`) and the openings (`opener`).
 
@@ -75,16 +75,17 @@ use waft_single_instance::LaterLaunches;
 use waft_winui::install_icon_font;
 use waos::inspection::InspectedPrograms;
 use waos::{
-    EngineTime, HttpProxy, OpenRequest, RunningProgram, Shell, ShellCompositor, ShellFileDialogs,
-    ShellRecordingIndicator, ShellSystemPermissions, ShellVideoFrameReaders, VsyncWaiter, WaOS,
-    WaOSConfig,
+    Compiler, EngineTime, HttpProxy, OpenRequest, RunningProgram, Shell, ShellCompositor,
+    ShellFileDialogs, ShellRecordingIndicator, ShellSystemPermissions, ShellVideoFrameReaders,
+    VsyncWaiter, WaOS, WaOSConfig,
 };
 use waos_local::LocalCapabilities;
 use waos_package::ProgramId;
+use waos_package_manager::PackageManager;
 use waos_program_window::WaftCompositor;
 use waos_store::{SourceProxy, Store};
 
-use crate::logic::app_services::AppServices;
+use crate::logic::app_services::{AppServices, EngineCompiler, open_packages};
 use crate::logic::asking_now::AskingNow;
 use crate::logic::command_line::LibraryPlace;
 #[cfg(desktop)]
@@ -223,9 +224,21 @@ pub(crate) fn start(
                 folders.package_copies.display()
             )
         })?;
-    let faces = program_faces(&store, &folders);
+    let native_unwind_info = native_unwind_info_asked();
+    if native_unwind_info {
+        tracing::info!("programs are compiled with native unwind information");
+    }
+    let compiler = Compiler::new(native_unwind_info).context("starting the compiler")?;
+    let runs = Arc::new(RunningApps::default());
+    let packages = open_packages(
+        &folders.store,
+        Arc::new(EngineCompiler(compiler.clone())),
+        &runs,
+        store.clone(),
+    )?;
+    let faces = program_faces(&packages, &folders);
     let (own_windows, requests) = WindowsOnRequest::new(faces.clone());
-    let program_apps = program_apps::start(&folders, &store);
+    let program_apps = program_apps::start(&folders, &packages);
     // The activity macOS must not throttle WaOS under, from now until WaOS ends: the programs
     // that compile and the windows in sight tell it (`state::app_nap_exemption`).
     #[cfg(target_os = "macos")]
@@ -309,23 +322,20 @@ pub(crate) fn start(
         // A machine is picked on a sheet put as a program's questions are.
         machine_picker: Some(Arc::new(machine_picker)),
     };
-    let runs = Arc::new(RunningApps::default());
     let inspected = Arc::new(ProgramsOnThisComputer::new(
         store.clone(),
+        Arc::clone(&packages),
         Arc::clone(&runs),
     ));
     let config = WaOSConfig {
         freeze: crate::os::freeze_policy(),
-        native_unwind_info: native_unwind_info_asked(),
+        compiler,
         http_proxy: HttpProxy::System,
         time: EngineTime::Real,
         temporary_folders: folders.temporary_folders,
         audit: Some(Arc::new(store.clone())),
         inspected_programs: Some(Arc::clone(&inspected) as Arc<dyn InspectedPrograms>),
     };
-    if config.native_unwind_info {
-        tracing::info!("programs are compiled with native unwind information");
-    }
     let engine = Arc::new(WaOS::new(config, shell, facts).context("starting the engine")?);
     machine_facts::keep_current(app, Arc::clone(&engine));
     days_kept::keep_every_day_when_paused(app, Arc::clone(&engine));
@@ -335,7 +345,7 @@ pub(crate) fn start(
     }
     let view_windows = ViewWindows::listen(app, requests);
     let posted_as_programs =
-        notifications.map(|notifications| notifications.serve(app, store.clone()));
+        notifications.map(|notifications| notifications.serve(app, Arc::clone(&packages)));
     let phone_storage = phone_files_followed
         .as_ref()
         .map(|followed| followed.storage.root().to_owned());
@@ -351,17 +361,13 @@ pub(crate) fn start(
     let tabs_runs = Arc::clone(&runs);
     let services = AppServices::new(
         runs,
+        Arc::clone(&packages),
         Arc::clone(&engine),
-        store.clone(),
         environments,
         places,
     );
     #[cfg(target_os = "macos")]
-    app_nap_exemption::follow_operations(
-        app,
-        app_nap_exemption.clone(),
-        services.packages.operations(),
-    );
+    app_nap_exemption::follow_sessions(app, app_nap_exemption.clone(), packages.sessions());
     #[cfg(target_os = "macos")]
     app_nap_exemption::follow_starts(app, app_nap_exemption.clone(), services.starter.starting());
     #[cfg(desktop)]
@@ -376,11 +382,10 @@ pub(crate) fn start(
     )?;
     let starts = HeldStarts {
         starter: Arc::clone(&services.starter),
-        store: store.clone(),
+        packages: Arc::clone(&packages),
     };
     let prompt_windows = questions::prompt_windows(app, view_windows.clone(), faces);
-    let questions_store = store.clone();
-    let recordings = Recordings::listen(app, recording_changes, store.clone());
+    let recordings = Recordings::listen(app, recording_changes, Arc::clone(&packages));
     let library = open_library(
         app,
         store,
@@ -411,7 +416,7 @@ pub(crate) fn start(
         &library,
         Rc::clone(&prompt_windows),
     );
-    Questions::listen(app, prompted.questions, prompts.placement, questions_store);
+    Questions::listen(app, prompted.questions, prompts.placement, packages);
     match opened {
         Some(OpenedAtStart::WithProgram { id, request }) => {
             library.update(app, |library, cx| library.open_with(&id, request, cx));
@@ -733,10 +738,10 @@ fn phone_deck(
     window
 }
 
-/// The faces of the programs in `store`, with the identities of the installed ones where a window
+/// The faces of the programs in `packages`, with the identities of the installed ones where a window
 /// is an app of its own, their icons for the system among `folders`.
-fn program_faces(store: &Store, folders: &AppFolders) -> ProgramFaces {
-    ProgramFaces::new(store.clone(), identities(folders))
+fn program_faces(packages: &Arc<PackageManager>, folders: &AppFolders) -> ProgramFaces {
+    ProgramFaces::new(Arc::clone(packages), identities(folders))
 }
 
 /// What the programs' identities are made of, their icons among `folders`; none on a system whose
@@ -753,7 +758,7 @@ fn identities(_folders: &AppFolders) -> Option<Identities> {
 
 /// Whether WaOS was started with `WAOS_NATIVE_UNWIND_INFO=1` in its environment, asking for
 /// programs compiled with what a native profiler or debugger needs to walk through their frames
-/// (`WaOSConfig::native_unwind_info`).
+/// (`Compiler::new`).
 fn native_unwind_info_asked() -> bool {
     std::env::var_os("WAOS_NATIVE_UNWIND_INFO").is_some_and(|value| value == "1")
 }

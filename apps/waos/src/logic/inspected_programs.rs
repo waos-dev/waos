@@ -1,5 +1,5 @@
-//! The programs an inspector sees on this computer: every program installed, by the store's
-//! manifests; every one running, by the runs; and every one run in development the store keeps days
+//! The programs an inspector sees on this computer: every program installed, by the package
+//! manager's manifests; every one running, by the runs; and every one run in development the store keeps days
 //! of, though it has ended; a program not installed by its id alone. Each change to them as it
 //! happens, an install or a removal as the library makes it, a start or an end as the runs list it;
 //! each one's icon, read as it is asked for; and a program started held (`held_starts`), or ended,
@@ -20,7 +20,8 @@ use waos::inspection::InspectedPrograms;
 use waos::inspection::ProgramStorage;
 use waos::inspection::bindings::wasdk::inspect::devices::{Program, ProgramChange, StartError};
 use waos_package::ProgramId;
-use waos_store::{InstalledProgram, Store};
+use waos_package_manager::{InstalledProgram, PackageManager};
+use waos_store::Store;
 
 use super::held_starts::HeldStarts;
 use super::running_apps::RunningApps;
@@ -31,6 +32,7 @@ const THIS_COMPUTER: &str = "This computer";
 /// The programs on this computer, as an inspector sees them.
 pub(crate) struct ProgramsOnThisComputer {
     store: Store,
+    packages: Arc<PackageManager>,
     runs: Arc<RunningApps>,
     /// The programs installed as the library last said, which a change is told against.
     installed: Mutex<BTreeSet<ProgramId>>,
@@ -42,10 +44,15 @@ pub(crate) struct ProgramsOnThisComputer {
 }
 
 impl ProgramsOnThisComputer {
-    pub(crate) fn new(store: Store, runs: Arc<RunningApps>) -> ProgramsOnThisComputer {
-        let installed = ids_of(&store.installed());
+    pub(crate) fn new(
+        store: Store,
+        packages: Arc<PackageManager>,
+        runs: Arc<RunningApps>,
+    ) -> ProgramsOnThisComputer {
+        let installed = ids_of(&packages.installed());
         ProgramsOnThisComputer {
             store,
+            packages,
             runs,
             installed: Mutex::new(installed),
             listeners: Mutex::default(),
@@ -62,7 +69,7 @@ impl ProgramsOnThisComputer {
     /// The library installed or removed a program: each listener hears what is new and what is
     /// gone since it last said.
     pub(crate) fn installed_changed(&self) {
-        let installed = self.store.installed();
+        let installed = self.packages.installed();
         let now = ids_of(&installed);
         let before = std::mem::replace(&mut *locked(&self.installed), now.clone());
         let added = installed
@@ -87,12 +94,12 @@ impl InspectedPrograms for ProgramsOnThisComputer {
     }
 
     fn programs(&self) -> BoxFuture<'static, Vec<Program>> {
-        let store = self.store.clone();
+        let (store, packages) = (self.store.clone(), Arc::clone(&self.packages));
         let running = self.runs.running_ids().borrow().clone();
         async move {
             // The installed programs and the days kept are read from their files.
             let (installed, recorded) = tokio::task::spawn_blocking(move || {
-                (store.installed(), store.programs_with_days())
+                (packages.installed(), store.programs_with_days())
             })
             .await
             .unwrap_or_default();
@@ -139,10 +146,10 @@ impl InspectedPrograms for ProgramsOnThisComputer {
     }
 
     fn icon(&self, id: &str) -> BoxFuture<'static, Option<Vec<u8>>> {
-        let store = self.store.clone();
+        let packages = Arc::clone(&self.packages);
         let id: Option<ProgramId> = id.parse().ok();
         async move {
-            let path = store.icon(&id?)?;
+            let path = packages.icon(&id?)?;
             // The icon is read from its file.
             tokio::task::spawn_blocking(move || std::fs::read(path).ok())
                 .await
@@ -251,12 +258,18 @@ mod tests {
     use super::*;
     use crate::logic::opened_package::tests::write_package;
     use crate::logic::placement::tests::store_in;
+    use crate::logic::test_installs;
 
     #[tokio::test]
     async fn an_inspector_sees_each_program_installed_with_its_icon_and_hears_an_install() {
         let folder = tempfile::tempdir().unwrap();
         let store = store_in(folder.path());
-        let programs = ProgramsOnThisComputer::new(store.clone(), Arc::new(RunningApps::default()));
+        let packages = test_installs::packages_never_run(&folder.path().join("store"), &store);
+        let programs = ProgramsOnThisComputer::new(
+            store,
+            Arc::clone(&packages),
+            Arc::new(RunningApps::default()),
+        );
         assert!(programs.programs().await.is_empty());
         let mut changes = programs.program_changes();
         let key = SigningKey::generate();
@@ -268,10 +281,7 @@ mod tests {
             b"\0asm",
             &key,
         );
-        store
-            .stage(waos_package::Package::open(&package).unwrap())
-            .and_then(|staged| store.commit(staged))
-            .unwrap();
+        test_installs::install_package(&packages, &package);
         programs.installed_changed();
         let notes = Program {
             id: "dev.example.notes".to_owned(),
@@ -293,6 +303,7 @@ mod tests {
     async fn a_program_that_does_not_run_has_the_mounts_of_its_store_folder() {
         let folder = tempfile::tempdir().unwrap();
         let store = store_in(folder.path());
+        let packages = test_installs::packages_never_run(&folder.path().join("store"), &store);
         let key = SigningKey::generate();
         let package = write_package(
             folder.path(),
@@ -302,15 +313,13 @@ mod tests {
             b"\0asm",
             &key,
         );
-        store
-            .stage(waos_package::Package::open(&package).unwrap())
-            .and_then(|staged| store.commit(staged))
-            .unwrap();
+        test_installs::install_package(&packages, &package);
         let id: waos_package::ProgramId = "dev.example.notes".parse().unwrap();
         let folders = store.folders(&id).unwrap();
         std::fs::write(folders.data.join("a note.txt"), b"hi").unwrap();
 
-        let programs = ProgramsOnThisComputer::new(store, Arc::new(RunningApps::default()));
+        let programs =
+            ProgramsOnThisComputer::new(store, packages, Arc::new(RunningApps::default()));
         let storage = programs.storage("dev.example.notes").expect("its storage");
         let mounts = storage.mounts();
         let data = mounts

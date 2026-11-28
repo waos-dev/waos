@@ -18,12 +18,12 @@ use futures::StreamExt;
 use tokio::sync::{oneshot, watch};
 use waos::bindings::wasdk::platform::system::{Brightness, Locale};
 use waos::inspection::InspectedPrograms;
-use waos::{EngineTime, FreezePolicy, HttpProxy, PlatformState, WaOS, WaOSConfig};
+use waos::{Compiler, EngineTime, FreezePolicy, HttpProxy, PlatformState, WaOS, WaOSConfig};
 use waos_headless::{Display, HeadlessShell, Refreshes};
 use waos_local::LocalCapabilities;
 use waos_store::{SourceProxy, Store};
 
-use crate::logic::app_services::AppServices;
+use crate::logic::app_services::{AppServices, EngineCompiler, open_packages};
 use crate::logic::asking_now::AskingNow;
 use crate::logic::dev_server::DevServer;
 use crate::logic::developer_access::DeveloperAccess;
@@ -124,13 +124,22 @@ impl HeadlessDaemon {
         shell.gpus = video_decoder_thread::start();
 
         let runs = Arc::new(RunningApps::default());
+        let compiler =
+            Compiler::new(native_unwind_info_asked()).context("starting the compiler")?;
+        let packages = open_packages(
+            &config.folders.store,
+            Arc::new(EngineCompiler(compiler.clone())),
+            &runs,
+            store.clone(),
+        )?;
         let inspected = Arc::new(ProgramsOnThisComputer::new(
             store.clone(),
+            Arc::clone(&packages),
             Arc::clone(&runs),
         ));
         let waos_config = WaOSConfig {
             freeze: FreezePolicy::default(),
-            native_unwind_info: native_unwind_info_asked(),
+            compiler,
             http_proxy: HttpProxy::System,
             time: EngineTime::Real,
             temporary_folders: config.folders.temporary_folders,
@@ -152,14 +161,14 @@ impl HeadlessDaemon {
         let places = ProgramPlaces::new(ProgramPlace::Windows);
         let services = AppServices::new(
             Arc::clone(&runs),
+            Arc::clone(&packages),
             Arc::clone(&engine),
-            store.clone(),
             environments,
             places,
         );
         let starts = HeldStarts {
             starter: Arc::clone(&services.starter),
-            store: store.clone(),
+            packages,
         };
         inspected.serve_starts(starts, runtime.clone());
 
@@ -378,6 +387,7 @@ mod tests {
             file_associations: Vec::new(),
             length: component.len() as u64,
             digest: component_digest(&component),
+            compiling_answer: false,
         }))
         .await
         .expect("send install");

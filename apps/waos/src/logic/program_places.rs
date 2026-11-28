@@ -139,7 +139,7 @@ mod tests {
 
     use super::*;
     use crate::logic::placement::WindowsOnRequest;
-    use crate::logic::placement::tests::store_in;
+    use crate::logic::placement::tests::packages_in;
     use crate::logic::program_faces::ProgramFaces;
     use crate::logic::test_engine::{self, WITHIN};
 
@@ -166,7 +166,7 @@ mod tests {
     async fn a_request_of_a_program_in_a_tab_goes_to_the_deck() {
         let folder = tempfile::tempdir().unwrap();
         let (windows, _windows_asked) =
-            WindowsOnRequest::new(ProgramFaces::new(store_in(folder.path()), None));
+            WindowsOnRequest::new(ProgramFaces::new(packages_in(folder.path()), None));
         let (tabs, mut tabs_asked) = TabsOnRequest::new();
         let places = ProgramPlaces::new(ProgramPlace::Windows);
         places.set(&SURVEY.parse().unwrap(), ProgramPlace::Tab);
@@ -192,7 +192,7 @@ mod tests {
     async fn with_no_deck_a_request_for_a_tab_is_refused_at_once() {
         let folder = tempfile::tempdir().unwrap();
         let (windows, _windows_asked) =
-            WindowsOnRequest::new(ProgramFaces::new(store_in(folder.path()), None));
+            WindowsOnRequest::new(ProgramFaces::new(packages_in(folder.path()), None));
         let (tabs, no_deck) = TabsOnRequest::new();
         drop(no_deck);
         let places = ProgramPlaces::new(ProgramPlace::Tab);
@@ -211,7 +211,7 @@ mod tests {
     async fn a_program_placed_nowhere_goes_where_programs_usually_go() {
         let folder = tempfile::tempdir().unwrap();
         let (windows, mut arriving) =
-            WindowsOnRequest::new(ProgramFaces::new(store_in(folder.path()), None));
+            WindowsOnRequest::new(ProgramFaces::new(packages_in(folder.path()), None));
         let placement = PlacedWhereOpened {
             places: ProgramPlaces::new(ProgramPlace::Windows),
             tabs: TabsOnRequest::new().0,

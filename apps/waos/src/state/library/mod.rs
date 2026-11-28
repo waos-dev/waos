@@ -17,12 +17,13 @@
 //! What reads the network or the disk at length, a source's index, a download, a program's load,
 //! runs on the library's own tokio runtime, and its answer comes back to the main thread, where
 //! the library changes and notifies. A program is installed, updated and removed by the package
-//! manager (`logic::package_manager`), as Android's launcher asks its package manager: an install
+//! manager (`waos-package-manager`), as Android's launcher asks its package manager: an install
 //! is done once its code is compiled, and a program removed or updated while it runs ends first,
 //! its tab closing and its windows with it, as a system ends an app it uninstalls or updates, and
-//! opened by the app starter (`logic::app_starter`). What the package manager is doing to each
-//! program, downloading, installing or removing it, and a start optimizing it, compiling its code
-//! again, are shown on its tile and its page. What was asked last and failed is the library's problem,
+//! opened by the app starter (`logic::app_starter`). What the package manager is doing to an app,
+//! whoever asked (an install in flight, its session begun at the tap, downloading or installing,
+//! or a removal), and a start optimizing it, compiling its code again, are shown on its tile and
+//! its page, read from the package manager and the starter alone. What was asked last and failed is the library's problem,
 //! until the next thing asked succeeds or the user dismisses it.
 //!
 //! The invariant: the library changes what is installed only through the package manager, and
@@ -63,7 +64,10 @@ use waft_single_instance::{LaterLaunches, Launch};
 use waos::OpenRequest;
 use waos::bindings::wasdk::platform::notifications::Activation;
 use waos_package::{Category, ListedProgram, ProgramId, ProgramKind};
-use waos_store::{InstalledProgram, Source, Store, Url};
+use waos_package_manager::{
+    Caller, InstallProgress, InstallSessionInfo, InstalledProgram, PackageContent, PackageManager,
+};
+use waos_store::{Source, Store, Url};
 
 use crate::logic::app_services::AppServices;
 use crate::logic::app_starter::{Opening, StartPlace, StartRequest, StartStage};
@@ -79,7 +83,6 @@ use crate::logic::often_used::{most_started, starts_lately};
 use crate::logic::opened_package::OpenedPackage;
 use crate::logic::opening;
 use crate::logic::package_copies::{PackageCopies, document_name};
-use crate::logic::package_manager::{Installable, PackageOperation};
 use crate::logic::preferences::{KeptPreferences, Preferences, PreferencesFile};
 use crate::logic::program_faces::program_face;
 use crate::logic::program_places::ProgramPlace;
@@ -99,6 +102,20 @@ pub(crate) use settings::{
 };
 use shortcuts::ShortcutsMatching;
 use waos_program_window::ProgramFace;
+
+/// What is being done to an app, as its tile and its page say it, in the words Android shows its
+/// user.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PackageOperation {
+    /// Its package is being downloaded, or taken in: the bytes received so far, of the total its
+    /// source said, where it said one.
+    Downloading { received: u64, total: Option<u64> },
+    /// Its package is in and checked, and its code is being compiled; it is installed once that
+    /// is done.
+    Installing,
+    /// It is being removed.
+    Removing,
+}
 
 pub(crate) struct Library {
     store: Store,
@@ -124,8 +141,13 @@ pub(crate) struct Library {
     /// The programs running now, by id, whoever started them.
     running: BTreeSet<ProgramId>,
     sources: Vec<SourceListing>,
-    /// What the package manager is doing to which program.
-    operations: watch::Receiver<BTreeMap<ProgramId, PackageOperation>>,
+    /// The installs in flight, the package manager's sessions.
+    sessions: watch::Receiver<Vec<InstallSessionInfo>>,
+    /// The apps being removed, as the package manager tells them.
+    removing: watch::Receiver<BTreeSet<ProgramId>>,
+    /// How many of the library's works are under way, for a test to wait until each answered.
+    #[cfg(test)]
+    works: usize,
     /// The starts under way, with their stage.
     starting: watch::Receiver<BTreeMap<ProgramId, StartStage>>,
     /// What the user is asked now, and then the packages opened with WaOS waiting their turn.
@@ -310,12 +332,13 @@ impl Library {
         work: Arc<Runtime>,
         cx: &mut Context<Library>,
     ) -> Library {
-        let installed_at = *store.installed_changes().borrow();
-        let installed = store.installed();
-        let operations = services.packages.operations();
+        let installed_at = *services.packages.installed_changes().borrow();
+        let installed = services.packages.installed();
+        let sessions = services.packages.sessions();
+        let removing = services.packages.removing();
         let starting = services.starter.starting();
         let mut library = Library {
-            icons: icons_of(&store, &installed),
+            icons: icons_of(&services.packages, &installed),
             installed,
             installed_at,
             running: BTreeSet::new(),
@@ -326,7 +349,10 @@ impl Library {
             programs_open,
             preferences,
             work,
-            operations,
+            sessions,
+            removing,
+            #[cfg(test)]
+            works: 0,
             starting,
             questions: Vec::new(),
             problem: None,
@@ -353,7 +379,7 @@ impl Library {
         };
         library.read_sources(cx);
         library.follow_running(cx);
-        library.follow_operations(cx);
+        library.follow_sessions(cx);
         library.follow_starts(cx);
         library.follow_installed(cx);
         library.often_used = library.most_started_lately();
@@ -364,7 +390,7 @@ impl Library {
     /// installs what `waos install` sends, from now on.
     fn follow_installed(&mut self, cx: &mut Context<Library>) {
         follow(
-            self.store.installed_changes(),
+            self.services.packages.installed_changes(),
             |library, changes, cx| {
                 if changes != library.installed_at {
                     library.installed_changed(cx);
@@ -388,11 +414,13 @@ impl Library {
         );
     }
 
-    /// Shows what the package manager is doing to which program each time that changes, from
-    /// now on; what it does is read from it as the library is shown.
-    fn follow_operations(&mut self, cx: &mut Context<Library>) {
-        let operations = self.services.packages.operations();
-        follow(operations, |_library, _operations, cx| cx.notify(), cx);
+    /// Shows the installs in flight and the removals under way each time they change, from now
+    /// on; they are read from the package manager as the library is shown.
+    fn follow_sessions(&mut self, cx: &mut Context<Library>) {
+        let sessions = self.services.packages.sessions();
+        follow(sessions, |_library, _sessions, cx| cx.notify(), cx);
+        let removing = self.services.packages.removing();
+        follow(removing, |_library, _removing, cx| cx.notify(), cx);
     }
 
     /// Shows the starts under way and their stage each time they change, from now on; they are
@@ -644,10 +672,27 @@ impl Library {
         self.running.contains(id)
     }
 
-    /// What the package manager is doing to the program `id` now: downloading, installing or
-    /// removing it; none while it does nothing to it.
+    /// What the package manager is doing to the program `id` now, whoever asked: removing it, or
+    /// an install of it in flight, receiving its package or installing it; none while nothing is.
     pub(crate) fn operation(&self, id: &ProgramId) -> Option<PackageOperation> {
-        self.operations.borrow().get(id).copied()
+        if self.removing.borrow().contains(id) {
+            return Some(PackageOperation::Removing);
+        }
+        let sessions = self.sessions.borrow();
+        let session = sessions.iter().find(|session| session.app == *id)?;
+        Some(match session.progress {
+            InstallProgress::Receiving { received, total } => {
+                PackageOperation::Downloading { received, total }
+            }
+            InstallProgress::Installing => PackageOperation::Installing,
+        })
+    }
+
+    /// Whether nothing is being done to any program, and every work the library asked for has
+    /// answered.
+    #[cfg(test)]
+    pub(crate) fn is_idle(&self) -> bool {
+        self.sessions.borrow().is_empty() && self.removing.borrow().is_empty() && self.works == 0
     }
 
     /// Where a start of the app `id` under way is: optimizing its code or starting it; none while
@@ -720,7 +765,7 @@ impl Library {
             activation_token = activation_token.is_some(),
             "a launch asked for the program"
         );
-        if self.store.installed_program(id).is_none() {
+        if self.services.packages.installed_program(id).is_none() {
             cx.emit(WantsToBeSeen);
         }
         self.open_bringing_forward(id, activation_token, cx);
@@ -733,7 +778,7 @@ impl Library {
         activation_token: Option<String>,
         cx: &mut Context<Library>,
     ) {
-        if self.store.installed_program(id).is_none() {
+        if self.services.packages.installed_program(id).is_none() {
             self.failed(
                 format!("{id} is not installed, or its files cannot be read"),
                 cx,
@@ -748,11 +793,12 @@ impl Library {
             return;
         }
         let is_an_app = self
-            .store
-            .manifest(id)
-            .is_none_or(|manifest| manifest.kind() == ProgramKind::App);
+            .services
+            .packages
+            .installed_program(id)
+            .is_none_or(|installed| installed.manifest.kind() == ProgramKind::App);
         if self.programs_open == ProgramsOpen::AsChosen && is_an_app && !self.is_running(id) {
-            let face = program_face(&self.store, id.as_str());
+            let face = program_face(&self.services.packages, id.as_str());
             cx.emit(FirstWindowWanted {
                 id: id.clone(),
                 face,
@@ -815,10 +861,11 @@ impl Library {
         cx: &mut Context<Library>,
     ) {
         self.opened(id, None, cx);
-        let (services, store, id) = (self.services.clone(), self.store.clone(), id.clone());
+        let (services, id) = (self.services.clone(), id.clone());
         self.work_then(
             async move {
-                opening::open_with(&services.starter, &services.running, &store, &id, request).await
+                let (starter, running) = (&services.starter, &services.running);
+                opening::open_with(starter, running, &services.packages, &id, request).await
             },
             Library::program_opened,
             cx,
@@ -836,13 +883,13 @@ impl Library {
         cx: &mut Context<Library>,
     ) {
         self.opened(id, None, cx);
-        let (services, store, id) = (self.services.clone(), self.store.clone(), id.clone());
+        let (services, id) = (self.services.clone(), id.clone());
         self.work_then(
             async move {
                 opening::notification_activated(
                     &services.starter,
                     &services.running,
-                    &store,
+                    &services.packages,
                     &id,
                     activation,
                 )
@@ -976,25 +1023,58 @@ impl Library {
         if self.operation(&program.id).is_some() {
             return;
         }
-        let from = Installable::Listed {
-            source: source.clone(),
-            program: program.clone(),
+        let (sender, bytes) = futures::channel::mpsc::unbounded();
+        let content = PackageContent::Package {
+            app: program.id.clone(),
+            bytes: bytes.boxed(),
+            size: None,
         };
-        self.install(&program.id, from, None, cx);
+        let session = {
+            // The session's work runs on the library's runtime.
+            let _entered = self.work.enter();
+            self.services.packages.install(content, Caller::User)
+        };
+        let (store, source, listed) = (self.store.clone(), source.clone(), program.clone());
+        let installing = async move {
+            let downloading = async {
+                let sender = sender;
+                let download = match store.download(&source, &listed).await {
+                    Ok(download) => download,
+                    Err(error) => {
+                        let _ = sender.unbounded_send(Err(std::io::Error::other(error)));
+                        return;
+                    }
+                };
+                if let Some(size) = download.size {
+                    session.set_size(size);
+                }
+                let mut bytes = download.bytes;
+                while let Some(part) = bytes.next().await {
+                    // A session cancelled takes no more.
+                    if sender.unbounded_send(part).is_err() {
+                        return;
+                    }
+                }
+            };
+            let ((), installed) = futures::join!(downloading, session.finished());
+            Ok(installed?)
+        };
+        self.install(&program.id, installing, None, cx);
     }
 
-    /// Installs the program `id` from `from`, then removes `copy`, the package's copy where it was
-    /// copied to be asked about: once it is installed, its tab closes where an update ended its
-    /// run, and a new program is offered a place on the home screen.
+    /// Waits for the install of the program `id`, its session begun, as `installing` does, then
+    /// removes `copy`, the package's copy where it was copied to be asked about: once it is
+    /// installed, its tab closes where an update ended its run, and a new program is offered a
+    /// place on the home screen.
     fn install(
         &mut self,
         id: &ProgramId,
-        from: Installable,
+        installing: impl Future<Output = Result<InstalledProgram>> + Send + 'static,
         copy: Option<PathBuf>,
         cx: &mut Context<Library>,
     ) {
         let first_install = self.installed_program(id).is_none();
-        let (installing, id) = (self.services.packages.install(from), id.clone());
+        let id = id.clone();
         self.work_then(
             installing,
             move |library, installed, cx| {
@@ -1114,12 +1194,24 @@ impl Library {
         tracing::info!(file = %package.file().display(), "the user said to install");
         let id = package.manifest().id().clone();
         let copy = package.file().to_path_buf();
-        self.install(
-            &id,
-            Installable::Package(package.into_package()),
-            Some(copy),
-            cx,
-        );
+        let file = copy.clone();
+        let size = std::fs::metadata(&file).ok().map(|metadata| metadata.len());
+        let bytes = futures::stream::once(async move {
+            let read = tokio::task::spawn_blocking(move || std::fs::read(&file)).await;
+            read.unwrap_or_else(|error| Err(std::io::Error::other(error)))
+        });
+        let content = PackageContent::Package {
+            app: id.clone(),
+            bytes: bytes.boxed(),
+            size,
+        };
+        let session = {
+            // The session's work runs on the library's runtime.
+            let _entered = self.work.enter();
+            self.services.packages.install(content, Caller::User)
+        };
+        let installing = async move { Ok(session.finished().await?) };
+        self.install(&id, installing, Some(copy), cx);
     }
 
     /// Removes the installed program `id`: one that runs ends first, its tab closing and its
@@ -1128,7 +1220,7 @@ impl Library {
         self.close(id, cx);
         self.work_then(
             self.services.packages.remove(id),
-            |library, removed, cx| {
+            move |library, removed, cx| {
                 match removed {
                     Ok(()) => library.succeeded(cx),
                     Err(error) => library.failed(format!("{error:#}"), cx),
@@ -1233,9 +1325,9 @@ impl Library {
 
     /// The store changed what is installed: read it again, and what each listing offers.
     fn installed_changed(&mut self, cx: &mut Context<Library>) {
-        self.installed_at = *self.store.installed_changes().borrow();
-        self.installed = self.store.installed();
-        self.icons = icons_of(&self.store, &self.installed);
+        self.installed_at = *self.services.packages.installed_changes().borrow();
+        self.installed = self.services.packages.installed();
+        self.icons = icons_of(&self.services.packages, &self.installed);
         self.often_used = self.most_started_lately();
         if self
             .category
@@ -1329,26 +1421,36 @@ impl Library {
     /// Runs `work` on the library's runtime, and hands what it answers to `then` on the main
     /// thread once it is done; a library gone by then hears nothing.
     fn work_then<T: Send + 'static>(
-        &self,
+        &mut self,
         work: impl Future<Output = T> + Send + 'static,
         then: impl FnOnce(&mut Library, T, &mut Context<Library>) + 'static,
         cx: &mut Context<Library>,
     ) {
         let working = self.work.spawn(work);
+        #[cfg(test)]
+        {
+            self.works += 1;
+        }
         let library = cx.weak_entity();
         // The task runs to its end whether or not its handle is kept.
         let _done = cx.spawn(async move |cx| {
-            let answer = match working.await {
-                Ok(answer) => answer,
-                Err(error) => {
-                    tracing::warn!(%error, "the library's work ended without an answer");
-                    return;
-                }
-            };
+            let answer = working.await;
             cx.update(|app: &mut App| {
-                if let Some(library) = library.upgrade() {
-                    library.update(app, |library, cx| then(library, answer, cx));
-                }
+                let Some(library) = library.upgrade() else {
+                    return;
+                };
+                library.update(app, |library, cx| {
+                    #[cfg(test)]
+                    {
+                        library.works -= 1;
+                    }
+                    match answer {
+                        Ok(answer) => then(library, answer, cx),
+                        Err(error) => {
+                            tracing::warn!(%error, "the library's work ended without an answer");
+                        }
+                    }
+                });
             });
         });
     }
@@ -1530,14 +1632,17 @@ fn follow<T: Clone + Send + Sync + 'static>(
     });
 }
 
-/// The icon of each of `installed`, as `store` keeps it; one that cannot be read is left out, and
-/// said.
-fn icons_of(store: &Store, installed: &[InstalledProgram]) -> HashMap<ProgramId, Arc<[u8]>> {
+/// The icon of each of `installed`, as `packages` keeps it; one that cannot be read is left out,
+/// and said.
+fn icons_of(
+    packages: &PackageManager,
+    installed: &[InstalledProgram],
+) -> HashMap<ProgramId, Arc<[u8]>> {
     installed
         .iter()
         .filter_map(|program| {
             let id = program.manifest.id();
-            let read = store.icon(id).map(std::fs::read);
+            let read = packages.icon(id).map(std::fs::read);
             match read {
                 Some(Ok(png)) => Some((id.clone(), Arc::from(png))),
                 Some(Err(error)) => {

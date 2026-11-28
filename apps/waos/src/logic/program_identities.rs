@@ -12,8 +12,8 @@
 use std::path::{Path, PathBuf};
 
 use waos_package::ProgramId;
+use waos_package_manager::PackageManager;
 use waos_program_window::ProgramIdentity;
-use waos_store::Store;
 
 /// What every program's identity starts with: WaOS's own identifier and a dot, as Flatpak
 /// requires of the ids an app's entries take, so the programs are WaOS's apps to the system.
@@ -28,13 +28,14 @@ pub(crate) fn app_id_of(id: &ProgramId) -> Option<String> {
     (app_id.len() <= LONGEST).then_some(app_id)
 }
 
-/// The identity of the program that runs as `runs_as`, where it is installed in `store`; none for
+/// The identity of the program that runs as `runs_as`, where it is installed in `packages`; none for
 /// a program never installed, whose windows and notifications are WaOS's.
-pub(crate) fn installed_app_id(store: &Store, runs_as: &str) -> Option<(ProgramId, String)> {
+pub(crate) fn installed_app_id(
+    packages: &PackageManager,
+    runs_as: &str,
+) -> Option<(ProgramId, String)> {
     let id: ProgramId = runs_as.parse().ok()?;
-    store
-        .installed_version(&id)
-        .map(|version| version.component())?;
+    packages.installed_program(&id)?;
     let app_id = app_id_of(&id)?;
     Some((id, app_id))
 }

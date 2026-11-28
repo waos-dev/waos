@@ -49,11 +49,11 @@ use std::fs;
 use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use serde::{Deserialize, Serialize};
 use waos_package::{Category, FileAssociation, ProgramId};
-use waos_store::Store;
+use waos_package_manager::PackageManager;
 
 #[cfg(any(windows, target_os = "linux"))]
 use super::folders::AppFolders;
@@ -80,9 +80,9 @@ pub(crate) struct ProgramEntry {
 }
 
 impl ProgramEntry {
-    /// The entry of each program installed in `store` that has an identity.
-    pub(crate) fn of_installed(store: &Store) -> Vec<ProgramEntry> {
-        store
+    /// The entry of each program installed in `packages` that has an identity.
+    pub(crate) fn of_installed(packages: &PackageManager) -> Vec<ProgramEntry> {
+        packages
             .installed()
             .into_iter()
             .filter_map(|program| {
@@ -91,7 +91,7 @@ impl ProgramEntry {
                     app_id: app_id_of(&id)?,
                     name: program.name(),
                     version: program.manifest.version().to_string(),
-                    icon: store.icon(&id),
+                    icon: packages.icon(&id),
                     category: program.manifest.category(),
                     file_associations: program.manifest.file_associations().to_vec(),
                     id,
@@ -194,13 +194,13 @@ impl ProgramEntries {
         ProgramEntries::open(Box::new(system), identities, &folders.data)
     }
 
-    /// From now on, the entries match `store`'s installed programs, on a thread of their own: now,
+    /// From now on, the entries match the installed programs of `packages`, on a thread of their own: now,
     /// and again at each change told to what this answers.
-    pub(crate) fn follow(self, store: Store) -> io::Result<StoreChanges> {
+    pub(crate) fn follow(self, packages: Arc<PackageManager>) -> io::Result<StoreChanges> {
         let (changes, arriving) = mpsc::channel();
         std::thread::Builder::new()
             .name("waos-program-entries".to_owned())
-            .spawn(move || self.keep_matching(&store, &arriving))?;
+            .spawn(move || self.keep_matching(&packages, &arriving))?;
         let changes = StoreChanges(changes);
         changes.changed();
         Ok(changes)
@@ -208,10 +208,10 @@ impl ProgramEntries {
 
     /// Matches the store at each change arriving, those that came meanwhile as one, until no one
     /// can tell of another.
-    fn keep_matching(&self, store: &Store, arriving: &Receiver<()>) {
+    fn keep_matching(&self, packages: &PackageManager, arriving: &Receiver<()>) {
         while arriving.recv().is_ok() {
             while arriving.try_recv().is_ok() {}
-            self.match_installed(&ProgramEntry::of_installed(store));
+            self.match_installed(&ProgramEntry::of_installed(packages));
         }
     }
 

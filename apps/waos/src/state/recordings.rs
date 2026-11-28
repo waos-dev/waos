@@ -8,9 +8,10 @@
 
 use futures::StreamExt;
 use futures::channel::mpsc::UnboundedReceiver;
+use std::sync::Arc;
 use waft::{App, Context, Entity, WeakEntity};
 use waos::{RecordingDevice, RunningProgram};
-use waos_store::Store;
+use waos_package_manager::PackageManager;
 
 use crate::logic::program_name::program_name;
 use crate::logic::recording_indicator::RecordingChanged;
@@ -20,20 +21,20 @@ pub(crate) struct Recordings {
     /// order they began.
     recording: Vec<Recording>,
     /// Where an installed program's name is read.
-    store: Store,
+    packages: Arc<PackageManager>,
 }
 
 impl Recordings {
     /// The programs recording, which follow each change arriving on `changes`; an installed
-    /// program's name is read from `store`.
+    /// program's name is read from `packages`.
     pub(crate) fn listen(
         app: &mut App,
         changes: UnboundedReceiver<RecordingChanged>,
-        store: Store,
+        packages: Arc<PackageManager>,
     ) -> Entity<Recordings> {
         let recordings = app.new_entity(|_| Recordings {
             recording: Vec::new(),
-            store,
+            packages,
         });
         take_changes(app, recordings.downgrade(), changes);
         recordings
@@ -63,7 +64,7 @@ impl Recordings {
         self.recording
             .retain(|listed| listed.program != program || listed.device != device);
         if recording {
-            let name = program_name(&self.store, &program);
+            let name = program_name(&self.packages, &program);
             self.recording.push(Recording {
                 program,
                 device,

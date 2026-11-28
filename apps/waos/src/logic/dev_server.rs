@@ -260,14 +260,13 @@ impl ConnectionContext {
     fn install(&self) -> InstallContext {
         InstallContext {
             packages: Arc::clone(&self.services.packages),
-            store: self.store.clone(),
         }
     }
 
     fn launch(&self) -> LaunchContext {
         LaunchContext {
             starter: Arc::clone(&self.services.starter),
-            store: self.store.clone(),
+            packages: Arc::clone(&self.services.packages),
         }
     }
 
@@ -399,7 +398,7 @@ async fn serve_request(
             dev_extensions::call(connection, runs, &id, &name, params).await;
         }
         Request::ServingPrograms => {
-            dev_extensions::serving(connection, runs, &context.store).await;
+            dev_extensions::serving(connection, runs, &context.services.packages).await;
         }
         Request::Open { id, files } => {
             if let Some(answer) = dev_refusal::elsewhere(connection.locality(), &id) {
@@ -410,8 +409,9 @@ async fn serve_request(
                 files,
                 links: Vec::new(),
             };
-            let (services, store) = (&context.services, &context.store);
-            opening::answer(connection, &services.starter, runs, store, &id, request).await;
+            let services = &context.services;
+            let packages = &services.packages;
+            opening::answer(connection, &services.starter, runs, packages, &id, request).await;
         }
         Request::Screenshot { id, window } => {
             dev_screenshot::answer(connection, runs, &context.asking, &id, window).await;
@@ -476,6 +476,7 @@ pub(crate) mod tests {
     use crate::logic::quit_question::every_program_agrees;
     use crate::logic::running_apps::RunningApps;
     use crate::logic::test_engine::{self, NoWindows, REFUSAL, WITHIN};
+    use crate::logic::test_installs;
 
     /// The development id of the program `id`: what `waos install` installs it as, and what a run
     /// of it runs as.
@@ -566,10 +567,11 @@ pub(crate) mod tests {
             let store =
                 waos_store::Store::open(&folder.join("store"), waos_store::SourceProxy::None)
                     .expect("a store");
+            let packages = test_installs::packages(&folder.join("store"), &store, &runs);
             let services = AppServices::new(
                 Arc::clone(&runs),
+                packages,
                 engine,
-                store.clone(),
                 ProgramEnvironments::new(waos_local::LocalCapabilities::new(), store.clone()),
                 ProgramPlaces::new(ProgramPlace::Windows),
             );
@@ -665,17 +667,9 @@ pub(crate) mod tests {
         /// Installs the test program at `component` as the program `id`'s development install,
         /// as [`install`](Self::install) would, with its code compiled already.
         pub(crate) fn install_compiled(&self, id: &str, component: &str) {
-            let manifest = development_manifest(id);
-            let bytes = fs::read(component).unwrap();
-            let build = waos_store::DevelopmentBuild {
-                manifest: &manifest,
-                component: &bytes,
-                icon: None,
-            };
-            crate::logic::test_installs::install_development(
-                &self.store,
-                &self.services.engine,
-                &build,
+            test_installs::install_development(
+                &self.services.packages,
+                development_manifest(id),
                 component,
             );
         }
@@ -697,6 +691,19 @@ pub(crate) mod tests {
             parts: usize,
             digest: [u8; 32],
         ) -> InstallAnswer {
+            let answers = self.install_answers(id, component, parts, digest).await;
+            answers.last().cloned().expect("an install's answer")
+        }
+
+        /// Every answer WaOS gives an install of `component` as the program `id`, from a `waos`
+        /// that reads `Compiling`, sent in parts of `parts` bytes.
+        pub(crate) async fn install_answers(
+            &self,
+            id: &str,
+            component: &[u8],
+            parts: usize,
+            digest: [u8; 32],
+        ) -> Vec<InstallAnswer> {
             let mut client = self.client().await;
             client
                 .send(&Request::Install(Install {
@@ -709,6 +716,7 @@ pub(crate) mod tests {
                     file_associations: Vec::new(),
                     length: component.len() as u64,
                     digest,
+                    compiling_answer: true,
                 }))
                 .await
                 .unwrap();
@@ -722,7 +730,15 @@ pub(crate) mod tests {
                         .unwrap();
                 }
             }
-            next(&mut client).await
+            let mut answers = Vec::new();
+            loop {
+                let answer = next::<InstallAnswer>(&mut client).await;
+                let last = answer != InstallAnswer::Compiling;
+                answers.push(answer);
+                if last {
+                    return answers;
+                }
+            }
         }
 
         /// What WaOS answers a launch of the installed program `id`, with `arguments` and
@@ -1056,7 +1072,7 @@ pub(crate) mod tests {
             .await;
         server.wait_for_runs(&[]).await;
         // What a compiler change leaves: no code of this engine's.
-        let code = server.store.installed_version(&id).unwrap().code();
+        let code = test_installs::installed_version(&server.services.packages, id.as_str()).code();
         fs::remove_dir_all(&code).unwrap();
         let optimized = server.launch(&id, Vec::new(), Vec::new()).await;
         assert_eq!(optimized, [LaunchAnswer::Compiling, LaunchAnswer::Launched]);
@@ -1098,6 +1114,25 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
+    async fn an_install_that_compiles_says_so_first() {
+        let server = TestServer::start("install-compiling");
+        let component = fs::read(waos_test_programs::FOREVER).unwrap();
+        let digest = component_digest(&component);
+        let answers = server
+            .install_answers(FOREVER, &component, component.len(), digest)
+            .await;
+        assert_eq!(
+            answers,
+            [
+                InstallAnswer::Compiling,
+                InstallAnswer::Installed {
+                    id: development(FOREVER)
+                }
+            ]
+        );
+    }
+
+    #[tokio::test]
     async fn a_component_the_development_install_holds_is_answered_have_and_nothing_is_sent() {
         let server = TestServer::start("have");
         let component = fs::read(waos_test_programs::FOREVER).unwrap();
@@ -1114,6 +1149,7 @@ pub(crate) mod tests {
                 file_associations: Vec::new(),
                 length: component.len() as u64,
                 digest: component_digest(&component),
+                compiling_answer: false,
             }))
             .await
             .unwrap();
@@ -1163,11 +1199,11 @@ pub(crate) mod tests {
         started(&mut running).await;
         server.install_compiled(OPENER, waos_test_programs::OPENER);
         // What a compiler change leaves: the launch compiles.
-        let code = server
-            .store
-            .installed_version(&development(OPENER))
-            .unwrap()
-            .code();
+        let code = test_installs::installed_version(
+            &server.services.packages,
+            development(OPENER).as_str(),
+        )
+        .code();
         fs::remove_dir_all(&code).unwrap();
         let launching = {
             let (socket, id) = (server.socket.clone(), development(OPENER));
@@ -1231,12 +1267,7 @@ pub(crate) mod tests {
         let component = fs::read(waos_test_programs::FOREVER).unwrap();
         let key = waos_package::SigningKey::generate();
         let package = write_package(&packages, FOREVER, "Forever", "1.0.0", &component, &key);
-        crate::logic::test_installs::install_package(
-            &server.store,
-            &server.services.engine,
-            waos_package::Package::open(&package).unwrap(),
-            waos_test_programs::FOREVER,
-        );
+        crate::logic::test_installs::install_package(&server.services.packages, &package);
         let mut client = server
             .run(FOREVER, Path::new(waos_test_programs::FOREVER))
             .await;
@@ -1250,7 +1281,8 @@ pub(crate) mod tests {
         let names = server.runs.programs().await;
         assert_eq!(names[0].name(), FOREVER_DEVELOPMENT);
         let development = server
-            .store
+            .services
+            .packages
             .installed_program(&development(FOREVER))
             .expect("its development install");
         assert!(development.is_development());
@@ -1259,7 +1291,10 @@ pub(crate) mod tests {
             Some(waos_package::Category::Productivity),
             "filed as its source says"
         );
-        let published = server.store.installed_program(&FOREVER.parse().unwrap());
+        let published = server
+            .services
+            .packages
+            .installed_program(&FOREVER.parse().unwrap());
         assert_eq!(
             published.and_then(|installed| installed.publisher()),
             Some(key.publisher()),
@@ -1284,7 +1319,7 @@ pub(crate) mod tests {
         let frames = frames_until(&mut client, |frame| matches!(frame, RunEvent::Ended(_))).await;
         assert_eq!(frames.last(), Some(&RunEvent::Ended(RunEnd::Stopped)));
         server.wait_for_runs(&[]).await;
-        assert!(server.store.installed().is_empty());
+        assert!(server.services.packages.installed().is_empty());
         assert!(
             !server
                 .folder
@@ -1314,12 +1349,7 @@ pub(crate) mod tests {
         let component = fs::read(waos_test_programs::FOREVER).unwrap();
         let key = waos_package::SigningKey::generate();
         let package = write_package(&packages, FOREVER, "Forever", "1.0.0", &component, &key);
-        crate::logic::test_installs::install_package(
-            &server.store,
-            &server.services.engine,
-            waos_package::Package::open(&package).unwrap(),
-            waos_test_programs::FOREVER,
-        );
+        crate::logic::test_installs::install_package(&server.services.packages, &package);
         let id: ProgramId = FOREVER.parse().unwrap();
         let opened = crate::logic::app_starter::StartRequest::open(
             id.clone(),
@@ -1410,12 +1440,7 @@ pub(crate) mod tests {
         let component = fs::read(waos_test_programs::FOREVER).unwrap();
         let key = waos_package::SigningKey::generate();
         let package = write_package(&packages, FOREVER, "Forever", "1.0.0", &component, &key);
-        crate::logic::test_installs::install_package(
-            &server.store,
-            &server.services.engine,
-            waos_package::Package::open(&package).unwrap(),
-            waos_test_programs::FOREVER,
-        );
+        crate::logic::test_installs::install_package(&server.services.packages, &package);
         let id: ProgramId = FOREVER.parse().unwrap();
         let set = Request::Set {
             id: id.clone(),
@@ -1694,7 +1719,10 @@ pub(crate) mod tests {
         };
         assert_eq!(refusal.kind, RefusalKind::Failed);
         assert!(refusal.message.contains("nonsense"), "{refusal:?}");
-        assert!(server.store.installed().is_empty(), "nothing installed");
+        assert!(
+            server.services.packages.installed().is_empty(),
+            "nothing installed"
+        );
         server.wait_for_runs(&[]).await;
     }
 
@@ -1724,7 +1752,7 @@ pub(crate) mod tests {
             panic!("refused");
         };
         assert!(refusal.message.contains("digest"), "{refusal:?}");
-        assert!(server.store.installed().is_empty());
+        assert!(server.services.packages.installed().is_empty());
     }
 
     #[tokio::test]
@@ -1778,12 +1806,7 @@ pub(crate) mod tests {
         let component = fs::read(waos_test_programs::OPENER).unwrap();
         let key = waos_package::SigningKey::generate();
         let package = write_package(&packages, OPENER, "Opener", "1.0.0", &component, &key);
-        crate::logic::test_installs::install_package(
-            &server.store,
-            &server.services.engine,
-            waos_package::Package::open(&package).unwrap(),
-            waos_test_programs::OPENER,
-        );
+        crate::logic::test_installs::install_package(&server.services.packages, &package);
         let file = file_to_open(&server, "my notes");
         let id = OPENER.parse().unwrap();
         let sent = open_command::send_to(&server.socket, &id, vec![file.clone()]).await;

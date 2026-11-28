@@ -78,11 +78,6 @@ impl OpenedPackage {
     pub(crate) fn publisher(&self) -> &PublisherKey {
         self.package.publisher()
     }
-
-    /// The package, to install.
-    pub(crate) fn into_package(self) -> Package {
-        self.package
-    }
 }
 
 #[cfg(test)]

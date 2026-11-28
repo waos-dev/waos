@@ -5,10 +5,10 @@ use waos::{RecordingDevice, Switch};
 use waos_package::Category;
 
 use crate::logic::app_starter::StartStage;
-use crate::logic::package_manager::PackageOperation;
 use crate::logic::permissions::Permission;
 use crate::logic::setting_changes::{SettingsOf, ShownSettings};
 use crate::state::library::AppDetail;
+use crate::state::library::PackageOperation;
 use crate::state::library::Question;
 
 /// The home's title.
@@ -568,19 +568,34 @@ pub(crate) fn category(category: Category) -> &'static str {
 }
 
 /// What WaOS is doing to an app, as its tile and its page say it: what the package manager does
-/// to it, `operation`, or Optimizing… while a start compiles its code again, `stage`; none while
-/// neither, and nothing while a start only starts it, which takes a moment.
+/// to it, `operation`, a download with how far it is where its size is known, or Optimizing…
+/// while a start compiles its code again, `stage`; none while neither, and nothing while a start
+/// only starts it, which takes a moment.
 pub(crate) fn status(
     operation: Option<PackageOperation>,
     stage: Option<StartStage>,
-) -> Option<&'static str> {
-    match (operation, stage) {
-        (Some(PackageOperation::Downloading { .. }), _) => Some(DOWNLOADING),
-        (Some(PackageOperation::Installing), _) => Some(INSTALLING),
-        (Some(PackageOperation::Removing), _) => Some(REMOVING),
-        (None, Some(StartStage::Optimizing)) => Some(OPTIMIZING),
-        (None, Some(StartStage::Starting) | None) => None,
-    }
+) -> Option<String> {
+    let said = match (operation, stage) {
+        (
+            Some(PackageOperation::Downloading {
+                received,
+                total: Some(total),
+            }),
+            _,
+        ) if total > 0 => return Some(downloaded(received, total)),
+        (Some(PackageOperation::Downloading { .. }), _) => DOWNLOADING,
+        (Some(PackageOperation::Installing), _) => INSTALLING,
+        (Some(PackageOperation::Removing), _) => REMOVING,
+        (None, Some(StartStage::Optimizing)) => OPTIMIZING,
+        (None, Some(StartStage::Starting) | None) => return None,
+    };
+    Some(said.to_owned())
+}
+
+/// A download `received` bytes into `total`: "Downloading… 45%".
+fn downloaded(received: u64, total: u64) -> String {
+    let percent = received.saturating_mul(100) / total;
+    format!("{DOWNLOADING} {}%", percent.min(100))
 }
 
 #[cfg(test)]

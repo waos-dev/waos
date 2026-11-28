@@ -24,7 +24,7 @@ use waos_store::Source;
 use super::words;
 use crate::logic::app_store::{CatalogApp, categories, looked_for};
 use crate::logic::offers::Offer;
-use crate::logic::package_manager::PackageOperation;
+use crate::state::library::PackageOperation;
 use crate::state::library::{Library, Listing, SourceListing, picks_packages};
 
 /// What the page's Install from file shows the system's file picker for a package with: the

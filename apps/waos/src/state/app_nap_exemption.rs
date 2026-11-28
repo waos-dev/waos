@@ -107,7 +107,7 @@ impl AppNapExemption {
 #[cfg(target_os = "macos")]
 mod host {
     use std::any::Any;
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, BTreeSet};
 
     use futures::StreamExt;
     use futures::channel::mpsc::UnboundedReceiver;
@@ -115,10 +115,10 @@ mod host {
     use tokio::sync::watch;
     use waft::{App, Entity};
     use waos_package::ProgramId;
+    use waos_package_manager::InstallSessionInfo;
 
     use super::{AppNapExemption, WindowKey};
     use crate::logic::app_starter::StartStage;
-    use crate::logic::package_manager::PackageOperation;
     use crate::logic::program_apps::WindowPresence;
     use crate::state::desktop_host::with_macos_platform;
 
@@ -136,18 +136,21 @@ mod host {
         app.new_entity(|_| AppNapExemption::new(begin))
     }
 
-    /// Keeps the activity while the package manager works on any program, as `operations` tells,
-    /// from now on.
-    pub(crate) fn follow_operations(
+    /// Keeps the activity while the package manager installs any app, as `sessions` tells, from
+    /// now on.
+    pub(crate) fn follow_sessions(
         app: &mut App,
         activity: Entity<AppNapExemption>,
-        mut operations: watch::Receiver<BTreeMap<ProgramId, PackageOperation>>,
+        mut sessions: watch::Receiver<Vec<InstallSessionInfo>>,
     ) {
-        let now = operations.borrow_and_update().keys().cloned().collect();
+        let apps_of = |sessions: &[InstallSessionInfo]| -> BTreeSet<ProgramId> {
+            sessions.iter().map(|session| session.app.clone()).collect()
+        };
+        let now = apps_of(&sessions.borrow_and_update());
         activity.update(app, |activity, _| activity.operated_changed(now));
         app.spawn(async move |cx| {
-            while operations.changed().await.is_ok() {
-                let now = operations.borrow_and_update().keys().cloned().collect();
+            while sessions.changed().await.is_ok() {
+                let now = apps_of(&sessions.borrow_and_update());
                 cx.update(|app| {
                     activity.update(app, |activity, _| activity.operated_changed(now));
                 });
@@ -200,7 +203,7 @@ mod host {
 }
 
 #[cfg(target_os = "macos")]
-pub(crate) use host::{follow_operations, follow_starts, follow_windows, start};
+pub(crate) use host::{follow_sessions, follow_starts, follow_windows, start};
 
 #[cfg(test)]
 mod tests {

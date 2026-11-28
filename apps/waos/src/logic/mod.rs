@@ -10,10 +10,9 @@
 //! (`noted_file_dialogs`); what each program
 //! runs with (`environments`): this computer's capabilities and the grants of the store's settings;
 //! the library's side of the store: a package opened with WaOS, what a source's listing offers
-//! against what is installed, the one place an installed program changes, its code compiled at
-//! its install and inside its version (`package_manager`), an installed app started however it
-//! is asked (`app_starter`), the apps running (`running_apps`) and the services that keep them put
-//! together (`app_services`), each installed program's shortcut on Android's home screen and WaOS's
+//! against what is installed, an installed app started however it is asked (`app_starter`), the
+//! apps running (`running_apps`) and the services that keep them put together with the package
+//! manager (`app_services`), each installed program's shortcut on Android's home screen and WaOS's
 //! icon's menu, made to match what is installed (`program_shortcuts`), and a settings
 //! page and what the user changes on it (`setting_changes`); when the desktop's launcher shows and
 //! goes (`launcher_rules`), and where it shows (`launcher_placement`); where the programs' prompts go (`prompts`), their questions
@@ -122,7 +121,6 @@ pub(crate) mod open_video_decoders;
 pub(crate) mod opened_package;
 pub(crate) mod opening;
 pub(crate) mod package_copies;
-pub(crate) mod package_manager;
 pub(crate) mod permissions;
 pub(crate) mod phone_files;
 pub(crate) mod placement;

@@ -164,7 +164,10 @@ impl LibraryDesktop {
         let copies = PackageCopies::clear(folder.path().join("package-copies")).unwrap();
         let runs = Arc::new(RunningApps::default());
         let store = Store::open(&folder.path().join("store"), SourceProxy::None).expect("a store");
-        let (placement, requests) = WindowsOnRequest::new(ProgramFaces::new(store.clone(), None));
+        let packages =
+            crate::logic::test_installs::packages(&folder.path().join("store"), &store, &runs);
+        let (placement, requests) =
+            WindowsOnRequest::new(ProgramFaces::new(Arc::clone(&packages), None));
         let (prompts, prompted) = PromptsOnRequest::new(crate::logic::asking_now::AskingNow::new());
         let output_picker = Arc::new(prompts.output_picker());
         let (phone_files_on_request, phone_files_followed) = (kind.phone_files.as_ref())
@@ -180,8 +183,8 @@ impl LibraryDesktop {
         );
         let services = AppServices::new(
             Arc::clone(&runs),
+            Arc::clone(&packages),
             Arc::new(engine),
-            store.clone(),
             ProgramEnvironments::with_audio(
                 waos_local::LocalCapabilities::new(),
                 Some(Arc::new(StatedOutputs)),
@@ -199,7 +202,7 @@ impl LibraryDesktop {
             let prompt_windows = questions::prompt_windows(
                 app,
                 view_windows.clone(),
-                ProgramFaces::new(store.clone(), None),
+                ProgramFaces::new(Arc::clone(&packages), None),
             );
             let phone_files = phone_files
                 .zip(phone_files_followed)
@@ -208,9 +211,9 @@ impl LibraryDesktop {
                 app,
                 prompted.questions,
                 prompt_windows.clone(),
-                store.clone(),
+                Arc::clone(&packages),
             );
-            let recordings = Recordings::listen(app, recording_changes, store.clone());
+            let recordings = Recordings::listen(app, recording_changes, Arc::clone(&packages));
             let library = open_library(
                 app,
                 store,
@@ -339,11 +342,9 @@ impl LibraryDesktop {
     /// its code compiled already (`logic::test_installs`), and frames until the library shows it.
     pub(crate) fn install_compiled(&mut self, id: &str, name: &str, component: &str) {
         let bytes = std::fs::read(component).unwrap();
-        let package =
-            waos_package::Package::open(&self.package(id, name, "1.0.0", &bytes)).unwrap();
-        let (store, engine) =
-            self.read(|library| (library.store.clone(), Arc::clone(&library.services.engine)));
-        crate::logic::test_installs::install_package(&store, &engine, package, component);
+        let package = self.package(id, name, "1.0.0", &bytes);
+        let packages = self.read(|library| Arc::clone(&library.services.packages));
+        crate::logic::test_installs::install_package(&packages, &package);
         let installed: waos_package::ProgramId = id.parse().unwrap();
         self.settle_until("the library shows the program", |desktop| {
             desktop.read(|library| library.installed_program(&installed).is_some())
@@ -351,28 +352,25 @@ impl LibraryDesktop {
     }
 
     /// The version of the program `id` installed now.
-    pub(crate) fn version_of(&self, id: &str) -> waos_store::InstalledVersion {
-        let id = id.parse().unwrap();
-        self.read(|library| library.store.installed_version(&id).unwrap())
+    pub(crate) fn version_of(&self, id: &str) -> waos_package_manager::InstalledVersion {
+        let packages = self.read(|library| Arc::clone(&library.services.packages));
+        crate::logic::test_installs::installed_version(&packages, id)
     }
 
-    /// The program `id` loaded, and its lock, held until the answer is dropped, as an open holds
-    /// it from its load to its start: an install or removal of it waits meanwhile.
-    pub(crate) fn hold_lock(&self, id: &str) -> crate::logic::package_manager::AppLock {
+    /// The lock of the program `id`, held until the answer is dropped, as an open holds it from
+    /// its load to its start: an install or removal of it waits meanwhile.
+    pub(crate) fn hold_lock(&self, id: &str) -> waos_package_manager::AppLock {
         let id = id.parse().unwrap();
         let (runtime, packages) =
             self.read(|library| (library.runtime(), Arc::clone(&library.services.packages)));
-        let (_program, lock) = runtime
-            .block_on(packages.load(&id, || {}))
-            .expect("the program loads");
-        lock
+        runtime.block_on(packages.lock(&id))
     }
 
     /// Frames until the package manager is done with every program, as after an install, its
-    /// code compiled.
+    /// code compiled, and every removal the library asked for is done.
     pub(crate) fn settle_until_operations_end(&mut self) {
         self.settle_until("the package manager's work", |desktop| {
-            desktop.read(|library| library.operations.borrow().is_empty())
+            desktop.read(Library::is_idle)
         });
     }
 
