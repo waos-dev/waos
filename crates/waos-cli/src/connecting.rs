@@ -68,10 +68,6 @@ async fn connect_or_start_at(socket: &Path, starter: &dyn WaOSStarter) -> Result
     eprintln!("waos: WaOS writes its log to {}", log.display());
     let deadline = Instant::now() + START_WAIT;
     loop {
-        #[allow(
-            clippy::disallowed_methods,
-            reason = "WaOS just started announces nothing; connecting again RETRY_EVERY apart"
-        )]
         tokio::time::sleep(RETRY_EVERY).await;
         match ClientConnection::connect(socket).await {
             Ok(connection) => return Ok(connection),

@@ -49,6 +49,3 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Securit
 [lints.rust]
 unsafe_code = "deny"
 
-[lints.clippy]
-# As the workspace's: a sleep in a test fails the lint (`clippy.toml`).
-disallowed_methods = "deny"

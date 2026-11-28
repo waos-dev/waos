@@ -118,10 +118,6 @@ pub fn poll_until(what: &str, mut done: impl FnMut() -> bool) {
     let deadline = Instant::now() + WITHIN;
     while !done() {
         assert!(Instant::now() < deadline, "never within {WITHIN:?}: {what}");
-        #[allow(
-            clippy::disallowed_methods,
-            reason = "what it waits for is announced by nothing; each use says what would"
-        )]
         thread::sleep(Duration::from_millis(5));
     }
 }

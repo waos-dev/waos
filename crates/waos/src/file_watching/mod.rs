@@ -74,10 +74,6 @@ fn batches(
         loop {
             arrivals.something_arrived().await;
             if !latency.is_zero() {
-                #[allow(
-                    clippy::disallowed_methods,
-                    reason = "changes are gathered for `latency` into one batch"
-                )]
                 tokio::time::sleep(latency).await;
             }
             let batch = arrivals.take();

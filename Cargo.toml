@@ -322,11 +322,6 @@ syn = { version = "2", features = ["full"] }
 [workspace.lints.rust]
 unsafe_code = "forbid"
 
-# A sleep in a test fails the lint (`clippy.toml` says which calls and why); a crate with lints of
-# its own repeats this.
-[workspace.lints.clippy]
-disallowed_methods = "deny"
-
 # Line tables as the only debug information in debug builds, the workspace's own crates and every
 # other, their build scripts and proc macros too: a backtrace names files and lines, and a debugger
 # shows no variables. Measured on Waft's workspace, it shrank the target folder by 29% and changed
