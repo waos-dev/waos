@@ -16,7 +16,7 @@ use waos_capabilities::AudioOutput;
 
 use crate::access::ProgramAccess;
 use crate::bindings::wasdk::platform::audio::{AudioError, MediaDeviceInfo};
-use crate::running::RunningProgram;
+use crate::running::AppInstance;
 use crate::set_or_shown::{self, Outcome};
 use crate::shell::ShellAudioOutputPicker;
 use crate::sync::locked;
@@ -29,7 +29,7 @@ struct OutputsParts {
     picker: Option<Arc<dyn ShellAudioOutputPicker>>,
     /// Where the output the user set as the picker's answer is read.
     access: ProgramAccess,
-    program: RunningProgram,
+    program: AppInstance,
     /// The ids of the outputs the user picked for the program.
     picked: Mutex<HashSet<String>>,
 }
@@ -40,7 +40,7 @@ impl ProgramOutputs {
     pub(super) fn new(
         picker: Option<Arc<dyn ShellAudioOutputPicker>>,
         access: ProgramAccess,
-        program: RunningProgram,
+        program: AppInstance,
     ) -> ProgramOutputs {
         ProgramOutputs(Arc::new(OutputsParts {
             picker,

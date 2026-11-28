@@ -15,14 +15,13 @@ use futures::channel::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use futures::channel::oneshot;
 use waos::bindings::wasdk::platform::notifications::NotificationError;
 use waos::{
-    Notification, NotificationFuture, RunningProgram, ShellNotificationScheduling,
-    ShellNotifications,
+    AppInstance, Notification, NotificationFuture, ShellNotificationScheduling, ShellNotifications,
 };
 
 /// One call of a program's, on its way to the main thread.
 pub(crate) struct NotificationCall {
     /// The program the notification is of.
-    pub(crate) program: RunningProgram,
+    pub(crate) program: AppInstance,
     pub(crate) request: NotificationRequest,
 }
 
@@ -67,7 +66,7 @@ impl NotificationsOnRequest {
     /// whether the system has it.
     fn show(
         &self,
-        program: &RunningProgram,
+        program: &AppInstance,
         notification: &Notification,
         at: Option<SystemTime>,
     ) -> NotificationFuture {
@@ -84,7 +83,7 @@ impl NotificationsOnRequest {
     }
 
     /// Sends `request` of `program`'s to the main thread; false once WaOS is quitting.
-    fn send(&self, program: &RunningProgram, request: NotificationRequest) -> bool {
+    fn send(&self, program: &AppInstance, request: NotificationRequest) -> bool {
         let call = NotificationCall {
             program: program.clone(),
             request,
@@ -98,11 +97,11 @@ impl NotificationsOnRequest {
 }
 
 impl ShellNotifications for NotificationsOnRequest {
-    fn post(&self, program: &RunningProgram, notification: &Notification) -> NotificationFuture {
+    fn post(&self, program: &AppInstance, notification: &Notification) -> NotificationFuture {
         self.show(program, notification, None)
     }
 
-    fn remove(&self, program: &RunningProgram, id: &str) {
+    fn remove(&self, program: &AppInstance, id: &str) {
         self.send(program, NotificationRequest::Remove { id: id.to_owned() });
     }
 
@@ -120,7 +119,7 @@ impl ShellNotifications for NotificationsOnRequest {
 impl ShellNotificationScheduling for NotificationsOnRequest {
     fn schedule(
         &self,
-        program: &RunningProgram,
+        program: &AppInstance,
         notification: &Notification,
         at: SystemTime,
     ) -> NotificationFuture {

@@ -19,7 +19,7 @@ use waft::ui::{Platform, PlatformRef};
 use waft::{Entity, Shell, Subscription};
 use waft_test::TestPlatform;
 use waos::{
-    EngineTime, ManualTime, OutputStream, ProgramOutput, RecordingDevice, RunningProgram,
+    AppInstance, EngineTime, ManualTime, OutputStream, ProgramOutput, RecordingDevice,
     ShellCompositor, ShellNotifications, ShellRecordingIndicator, ShellVideoFrameReaders,
 };
 use waos_dev_protocol::{OutputStream as AttachedStream, RunEvent};
@@ -206,7 +206,7 @@ impl TestSystem {
     /// Runs the test program at `component` as the app `id`, installed first where it is not, its
     /// instance opened as a developer opens it, with the store's settings for it and its own
     /// folders, what it writes to its standard output heard into `output`, as an attach hears it.
-    pub(crate) fn run_as(&self, component: &str, id: &str, output: &Arc<Lines>) -> RunningProgram {
+    pub(crate) fn run_as(&self, component: &str, id: &str, output: &Arc<Lines>) -> AppInstance {
         let app: ProgramId = id.parse().expect("an id");
         if self.packages.installed_program(&app).is_none() {
             self.install(component, id, id);

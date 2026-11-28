@@ -36,7 +36,7 @@ use waos::bindings::wasdk::platform::views::{
 };
 use waos::bindings::wasdk::platform::windows::{Point, Rect, Size};
 use waos::{
-    HardwareBuffer, OnRefresh, PlacedView, PlacedWindow, Presence, ProgramView, RunningProgram,
+    AppInstance, HardwareBuffer, OnRefresh, PlacedView, PlacedWindow, Presence, ProgramView,
     Screen, Shell, ShellCompositionLayer, ShellTextInput, ShellView, ShellWindow,
     ShellWindowSizeLimits, ViewPlacement, ViewRequest, VsyncWaiter, WeakProgramView, WindowConfig,
 };
@@ -151,7 +151,7 @@ impl HeadlessShell {
 
     /// Gives `program` a view for its request `request`, as the shell gives one for each request:
     /// what a test that places a view itself calls.
-    pub fn add_view(&self, program: &RunningProgram, request: ViewRequest) -> ProgramView {
+    pub fn add_view(&self, program: &AppInstance, request: ViewRequest) -> ProgramView {
         self.views.add_view(program, request)
     }
 }
@@ -420,7 +420,7 @@ struct GivenViews {
 }
 
 impl GivenViews {
-    fn add_view(&self, program: &RunningProgram, request: ViewRequest) -> ProgramView {
+    fn add_view(&self, program: &AppInstance, request: ViewRequest) -> ProgramView {
         let display = self.display;
         let window = display.windows.then(|| {
             Arc::new(HeadlessWindow {
@@ -486,11 +486,7 @@ impl GivenViews {
 }
 
 impl ViewPlacement for GivenViews {
-    fn view_requested(
-        &self,
-        program: &RunningProgram,
-        request: ViewRequest,
-    ) -> Result<(), ViewError> {
+    fn view_requested(&self, program: &AppInstance, request: ViewRequest) -> Result<(), ViewError> {
         self.add_view(program, request);
         Ok(())
     }

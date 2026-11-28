@@ -10,7 +10,7 @@ use futures::StreamExt;
 use futures::channel::mpsc::UnboundedReceiver;
 use std::sync::Arc;
 use waft::{App, Context, Entity, WeakEntity};
-use waos::{RecordingDevice, RunningProgram};
+use waos::{AppInstance, RecordingDevice};
 use waos_services::packages::PackageManager;
 
 use crate::logic::program_name::program_name;
@@ -77,7 +77,7 @@ impl Recordings {
 
 /// A program recording with a device.
 struct Recording {
-    program: RunningProgram,
+    program: AppInstance,
     device: RecordingDevice,
     /// The program's name as its user knows it.
     name: String,

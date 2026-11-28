@@ -7,7 +7,7 @@
 //! two notifications. What the user does to a notification reaches every stream of the program's
 //! activations, and one made before the program listens, as the click that starts it, waits for
 //! its first; an activation unfreezes a frozen program until it has read it, on time the test moves
-//! (`EngineTime::Manual`), the program frozen again once it reads on (`RunningProgram::frozen`). A
+//! (`EngineTime::Manual`), the program frozen again once it reads on (`AppInstance::frozen`). A
 //! shell without replies or scheduling offers neither, and one without notifications gives the
 //! program none. A system that keeps a permission of its own for each program, as macOS does for
 //! each program's app, is asked after WaOS, only once the user allowed the program notifications
@@ -21,8 +21,8 @@ use std::time::{Duration, UNIX_EPOCH};
 
 use waos::bindings::wasdk::platform::notifications::Activation;
 use waos::{
-    Answer, EngineTime, FreezePolicy, ManualTime, NotificationAction, ProgramEnvironment,
-    ProgramGrants, Question, RunningProgram, WaOS, WaOSConfig,
+    Answer, AppInstance, EngineTime, FreezePolicy, ManualTime, NotificationAction,
+    ProgramEnvironment, ProgramGrants, Question, WaOS, WaOSConfig,
 };
 use waos_capabilities::Setting;
 
@@ -364,7 +364,7 @@ fn run(
     name: &str,
     grants: Arc<dyn ProgramGrants>,
     output: &Arc<RecordedOutput>,
-) -> RunningProgram {
+) -> AppInstance {
     let environment = ProgramEnvironment {
         grants: Some(grants),
         ..printing_to(output)
@@ -408,7 +408,7 @@ fn action(id: &str, label: &str, reply_placeholder: Option<&str>) -> Notificatio
     }
 }
 
-fn stop(running: &RunningProgram) {
+fn stop(running: &AppInstance) {
     running.stop();
     within(running.ended());
 }

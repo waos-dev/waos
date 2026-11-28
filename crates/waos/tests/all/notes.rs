@@ -32,8 +32,8 @@ use waos::bindings::wasdk::platform::menus::{
 use waos::bindings::wasdk::platform::notifications::Activation;
 use waos::bindings::wasdk::platform::views::TextInputType;
 use waos::{
-    Answer, Keyboard, OpenRequest, ProgramEnd, ProgramEnvironment, ProgramGrants, ProgramOutput,
-    ProgramView, Question, RunningProgram, WaOS,
+    Answer, AppInstance, Keyboard, OpenRequest, ProgramEnd, ProgramEnvironment, ProgramGrants,
+    ProgramOutput, ProgramView, Question, WaOS,
 };
 use waos_capabilities::ProgramFolders;
 use waos_headless::HeadlessView;
@@ -491,7 +491,7 @@ fn launch(
     folders: &Folders,
     grants: &Arc<dyn ProgramGrants>,
 ) -> (
-    RunningProgram,
+    AppInstance,
     Arc<HeadlessView>,
     ProgramView,
     Arc<RecordedOutput>,
@@ -516,7 +516,7 @@ fn launch(
 }
 
 /// Closes the window, which quits the program, and waits for it to end.
-fn close(running: &RunningProgram, window: &ProgramView) {
+fn close(running: &AppInstance, window: &ProgramView) {
     window.close_requested();
     within(running.ended());
 }
@@ -526,7 +526,7 @@ fn close(running: &RunningProgram, window: &ProgramView) {
 fn type_new_note(
     engine: &WaOS,
     shell: &TestShell,
-    running: &RunningProgram,
+    running: &AppInstance,
     window: &ProgramView,
     text: &str,
     title: &str,

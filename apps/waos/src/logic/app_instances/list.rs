@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use tokio::sync::{OwnedMutexGuard, watch};
-use waos::{ProgramEnd, RunningProgram};
+use waos::{AppInstance, ProgramEnd};
 use waos_dev_protocol::RunEnd;
 use waos_package::ProgramId;
 
@@ -32,7 +32,7 @@ pub(super) struct InstanceList {
 /// One instance in the list.
 struct Listed {
     serial: u64,
-    instance: RunningProgram,
+    instance: AppInstance,
     /// Set before the instance is stopped for a later one of its app, or a new build of it.
     replaced: Arc<AtomicBool>,
 }
@@ -41,7 +41,7 @@ struct Listed {
 pub(super) struct Run {
     pub(super) app: ProgramId,
     serial: u64,
-    pub(super) instance: RunningProgram,
+    pub(super) instance: AppInstance,
     replaced: Arc<AtomicBool>,
 }
 
@@ -104,7 +104,7 @@ impl InstanceList {
     }
 
     /// Puts `instance` in the list as the instance of `id`. The caller holds the app's turn.
-    pub(super) fn list(&self, id: &ProgramId, instance: RunningProgram) -> Run {
+    pub(super) fn list(&self, id: &ProgramId, instance: AppInstance) -> Run {
         let mut running = self.listed();
         let serial = self.serials.fetch_add(1, Ordering::SeqCst);
         let replaced = Arc::new(AtomicBool::new(false));
@@ -144,14 +144,14 @@ impl InstanceList {
     }
 
     /// The instance of `id` running now, if one is.
-    pub(super) fn instance(&self, id: &ProgramId) -> Option<RunningProgram> {
+    pub(super) fn instance(&self, id: &ProgramId) -> Option<AppInstance> {
         self.listed()
             .get(id)
             .map(|current| current.instance.clone())
     }
 
     /// The instances running now, in no order.
-    pub(super) fn instances(&self) -> Vec<RunningProgram> {
+    pub(super) fn instances(&self) -> Vec<AppInstance> {
         (self.listed().values())
             .map(|current| current.instance.clone())
             .collect()

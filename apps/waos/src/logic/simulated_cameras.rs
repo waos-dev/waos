@@ -25,9 +25,9 @@ use waos::bindings::wasdk::media::cameras::{
 use waos::bindings::wasdk::platform::hardware_buffers::{AlphaType, PixelBuffer, PixelFormat};
 use waos::bindings::wasdk::platform::windows::Size;
 use waos::{
-    CameraChangeFuture, CameraListFuture, CameraOpenFuture, CameraOutputs, CaptureSessionReports,
-    CaptureStartFuture, OpenedCamera, PhotoFuture, RunningProgram, ShellCamera, ShellCameras,
-    ShellCaptureSession, ShellCompositionLayer, ShellImageCodecs, StartedSession,
+    AppInstance, CameraChangeFuture, CameraListFuture, CameraOpenFuture, CameraOutputs,
+    CaptureSessionReports, CaptureStartFuture, OpenedCamera, PhotoFuture, ShellCamera,
+    ShellCameras, ShellCaptureSession, ShellCompositionLayer, ShellImageCodecs, StartedSession,
 };
 
 use super::frame_readers::{FedFrames, ReaderOnRequest};
@@ -92,7 +92,7 @@ impl ShellCameras for SimulatedCameras {
         Box::pin(pending())
     }
 
-    fn open(&self, program: &RunningProgram, id: &str) -> CameraOpenFuture {
+    fn open(&self, program: &AppInstance, id: &str) -> CameraOpenFuture {
         if id != ID {
             return Box::pin(future::ready(Err(CameraError::Unplugged)));
         }

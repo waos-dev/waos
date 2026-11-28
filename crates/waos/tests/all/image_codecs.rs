@@ -19,7 +19,7 @@ use waos::bindings::wasdk::media::image_codecs::{
     ImagePage, ImagePages, ImagePictures, ImageRotation, Location,
 };
 use waos::bindings::wasdk::platform::windows::Size;
-use waos::{ProgramEnd, ProgramEnvironment, RunningProgram, WaOS};
+use waos::{AppInstance, ProgramEnd, ProgramEnvironment, WaOS};
 use waos_capabilities::ProgramFolders;
 
 use crate::test_shell::image_codecs::{
@@ -314,7 +314,7 @@ fn answers() -> ImageAnswers {
 /// `examples/image-codecs` running, the images it opens written in its `/data/sources`, beside a
 /// photo of its own, `/data/photo.jpg`.
 struct Run {
-    running: RunningProgram,
+    running: AppInstance,
     output: Arc<RecordedOutput>,
     folders: TempDir,
 }

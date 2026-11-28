@@ -78,7 +78,7 @@ use waft_cupertino::install_cupertino_icon_font;
 use waft_single_instance::LaterLaunches;
 use waft_winui::install_icon_font;
 use waos::{
-    Compiler, EngineTime, HttpProxy, OpenRequest, RunningProgram, Shell, ShellCompositor,
+    AppInstance, Compiler, EngineTime, HttpProxy, OpenRequest, Shell, ShellCompositor,
     ShellFileDialogs, ShellRecordingIndicator, ShellSystemPermissions, ShellVideoFrameReaders,
     VsyncWaiter,
 };
@@ -154,7 +154,7 @@ use video_decoders::VideoDecoders;
 use waos_tray::WaosTray;
 
 /// The windows WaOS shows in its own process for the programs running in it.
-pub(crate) type ViewWindows = waos_program_window::ViewWindows<RunningProgram>;
+pub(crate) type ViewWindows = waos_program_window::ViewWindows<AppInstance>;
 
 /// Whether WaOS.app's bundle declares why WaOS uses the microphone, its
 /// `NSMicrophoneUsageDescription`, without which macOS ends an app that opens it: it does, in

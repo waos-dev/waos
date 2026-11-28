@@ -7,7 +7,7 @@
 use std::sync::Arc;
 
 use waft::IntoWidget;
-use waos::{RecordingDevice, RunningProgram, ShellRecordingIndicator};
+use waos::{AppInstance, RecordingDevice, ShellRecordingIndicator};
 use waos_package::ProgramId;
 
 use super::LaidOutLibrary;
@@ -43,7 +43,7 @@ fn on_phone() -> LibraryDesktop {
 }
 
 /// Installs `examples/forever` as Forever and opens it, answering the program running.
-fn open_forever(desktop: &mut LibraryDesktop) -> RunningProgram {
+fn open_forever(desktop: &mut LibraryDesktop) -> AppInstance {
     desktop.install_compiled(FOREVER, "Forever", waos_test_programs::FOREVER_SHOWN);
     let id: ProgramId = FOREVER.parse().unwrap();
     desktop.update(|library, cx| library.open(&id, cx));
@@ -55,7 +55,7 @@ fn open_forever(desktop: &mut LibraryDesktop) -> RunningProgram {
 
 /// The indicator says `program` records with the microphone, then with the camera too, then that
 /// it stopped with each, and the library shows what it uses while it does.
-fn shown_while_recording(desktop: &mut LibraryDesktop, program: &RunningProgram) {
+fn shown_while_recording(desktop: &mut LibraryDesktop, program: &AppInstance) {
     let indicator = &desktop.recording_indicator;
     assert!(!desktop.shows(RECORDING), "nothing records yet");
     indicator.recording_changed(program, RecordingDevice::Microphone, true);

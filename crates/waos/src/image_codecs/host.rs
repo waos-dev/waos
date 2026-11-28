@@ -21,13 +21,13 @@ use crate::bindings::wasdk::platform::windows::Size;
 use crate::files::ProgramFiles;
 use crate::gpu::GpuInstance;
 use crate::hardware_buffers::ProgramHardwareBuffer;
-use crate::running::RunningProgram;
+use crate::running::AppInstance;
 use crate::shell::ShellImageCodecs;
 
 /// What the image codecs interface reads and writes in a program's store.
 pub(crate) struct ImageCodecsCtx<'a> {
     pub(crate) table: &'a mut ResourceTable,
-    pub(crate) program: &'a RunningProgram,
+    pub(crate) program: &'a AppInstance,
     /// The shell's image codecs; none where the shell has none.
     pub(crate) image_codecs: Option<&'a Arc<dyn ShellImageCodecs>>,
     /// The program's mounts, where a path it names is looked up.

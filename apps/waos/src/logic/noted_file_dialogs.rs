@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use waos::bindings::wasdk::platform::views::ViewId;
 use waos::{
-    FileDialogFuture, FolderOptions, OpenOptions, RunningProgram, SaveOptions, ShellFileDialogs,
+    AppInstance, FileDialogFuture, FolderOptions, OpenOptions, SaveOptions, ShellFileDialogs,
 };
 use waos_dev_protocol::{Asked, FileDialog};
 
@@ -26,7 +26,7 @@ impl NotedFileDialogs {
     /// `answer` to `program`'s `dialog`, noted as asked until it comes.
     fn noted<T: Send + 'static>(
         &self,
-        program: &RunningProgram,
+        program: &AppInstance,
         dialog: FileDialog,
         answer: FileDialogFuture<T>,
     ) -> FileDialogFuture<T> {
@@ -40,7 +40,7 @@ impl NotedFileDialogs {
 impl ShellFileDialogs for NotedFileDialogs {
     fn open_file(
         &self,
-        program: &RunningProgram,
+        program: &AppInstance,
         parent: Option<ViewId>,
         options: OpenOptions,
     ) -> FileDialogFuture<Option<PathBuf>> {
@@ -50,7 +50,7 @@ impl ShellFileDialogs for NotedFileDialogs {
 
     fn open_files(
         &self,
-        program: &RunningProgram,
+        program: &AppInstance,
         parent: Option<ViewId>,
         options: OpenOptions,
     ) -> FileDialogFuture<Vec<PathBuf>> {
@@ -60,7 +60,7 @@ impl ShellFileDialogs for NotedFileDialogs {
 
     fn open_folder(
         &self,
-        program: &RunningProgram,
+        program: &AppInstance,
         parent: Option<ViewId>,
         options: FolderOptions,
     ) -> FileDialogFuture<Option<PathBuf>> {
@@ -70,7 +70,7 @@ impl ShellFileDialogs for NotedFileDialogs {
 
     fn save_file(
         &self,
-        program: &RunningProgram,
+        program: &AppInstance,
         parent: Option<ViewId>,
         options: SaveOptions,
     ) -> FileDialogFuture<Option<PathBuf>> {

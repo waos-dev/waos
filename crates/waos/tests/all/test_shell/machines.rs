@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 
 use futures::FutureExt;
 use futures::channel::oneshot;
-use waos::{MachineChoice, MachinePickedFuture, RunningProgram, ShellMachinePicker};
+use waos::{AppInstance, MachineChoice, MachinePickedFuture, ShellMachinePicker};
 use waos_headless::testing::Changes;
 
 use super::announced_when_dropped;
@@ -60,7 +60,7 @@ impl TestMachinePicker {
 }
 
 impl ShellMachinePicker for TestMachinePicker {
-    fn pick(&self, program: &RunningProgram, machines: Vec<MachineChoice>) -> MachinePickedFuture {
+    fn pick(&self, program: &AppInstance, machines: Vec<MachineChoice>) -> MachinePickedFuture {
         self.asked
             .lock()
             .unwrap()

@@ -45,8 +45,8 @@ use waos::bindings::wasdk::platform::hardware_buffers::PixelBuffer;
 use waos::bindings::wasdk::platform::system::{Brightness, Locale};
 use waos::bindings::wasdk::platform::views::ViewError;
 use waos::{
-    Compiler, EngineTime, FreezePolicy, HttpProxy, PlacedView, PlatformState, Presence,
-    ProgramEnvironment, ProgramOutput, ProgramView, RunningProgram, Shell, ShellAudioOutputPicker,
+    AppInstance, Compiler, EngineTime, FreezePolicy, HttpProxy, PlacedView, PlatformState,
+    Presence, ProgramEnvironment, ProgramOutput, ProgramView, Shell, ShellAudioOutputPicker,
     ShellCameras, ShellClipboard, ShellCompositor, ShellContextMenus, ShellFileDialogs, ShellGpus,
     ShellImageCodecs, ShellMachinePicker, ShellMediaAssets, ShellMediaPlayers, ShellMenuBar,
     ShellNotifications, ShellOpener, ShellRecordingIndicator, ShellSystemPermissions,
@@ -213,8 +213,8 @@ pub fn config() -> WaOSConfig {
 
 // What the tests wait for with `poll_until` (`waos_headless::testing`), since no part announces
 // it, and what would let them wait on a change instead:
-// - a worker's end in `RunningProgram::stats` (`workers`): the engine announcing its workers'
-//   ends, as `RunningProgram::ended` does the program's;
+// - a worker's end in `AppInstance::stats` (`workers`): the engine announcing its workers'
+//   ends, as `AppInstance::ended` does the program's;
 // - a process of this computer gone (`machines`): the local processes' capability saying when a
 //   process it started has ended;
 // - the engine letting go of what the shell handed it (`Arc::strong_count` in `video_decoders`
@@ -291,11 +291,7 @@ struct SingleView {
 }
 
 impl ViewPlacement for SingleView {
-    fn view_requested(
-        &self,
-        program: &RunningProgram,
-        request: ViewRequest,
-    ) -> Result<(), ViewError> {
+    fn view_requested(&self, program: &AppInstance, request: ViewRequest) -> Result<(), ViewError> {
         let view = program.add_view(
             request.id,
             PlacedView {

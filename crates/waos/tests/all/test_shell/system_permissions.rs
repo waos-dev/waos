@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use waos::{
-    RunningProgram, ShellSystemPermissions, SystemPermission, SystemPermissionFuture,
+    AppInstance, ShellSystemPermissions, SystemPermission, SystemPermissionFuture,
     SystemPermissionState,
 };
 use waos_headless::testing::Changes;
@@ -83,7 +83,7 @@ impl ShellSystemPermissions for TestSystemPermissions {
     fn state(
         &self,
         permission: SystemPermission<'_>,
-        program: &RunningProgram,
+        program: &AppInstance,
     ) -> SystemPermissionState {
         match permission {
             SystemPermission::Notifications => self.notifications.permission_state(program),
@@ -94,7 +94,7 @@ impl ShellSystemPermissions for TestSystemPermissions {
     fn request(
         &self,
         permission: SystemPermission<'_>,
-        program: &RunningProgram,
+        program: &AppInstance,
     ) -> SystemPermissionFuture {
         let state = match permission {
             SystemPermission::Notifications => self.notifications.request_permission(program),

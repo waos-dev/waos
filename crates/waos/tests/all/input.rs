@@ -14,7 +14,7 @@ use waos::bindings::wasdk::platform::hardware_buffers::PixelBuffer;
 use waos::bindings::wasdk::platform::views::{
     PointerButtons, PointerChange, PointerDeviceKind, PointerEvent, PointerSignalKind,
 };
-use waos::{HeldModifiers, Keyboard, ProgramEnd, ProgramView, RunningProgram, WaOS};
+use waos::{AppInstance, HeldModifiers, Keyboard, ProgramEnd, ProgramView, WaOS};
 
 use crate::test_shell::{
     DISPLAY, RecordedOutput, TestShell, config, pixel_of, printing_to, within,
@@ -113,7 +113,7 @@ fn run(
     engine: &WaOS,
     shell: &TestShell,
     output: &Arc<RecordedOutput>,
-) -> (RunningProgram, ProgramView) {
+) -> (AppInstance, ProgramView) {
     let program = engine
         .load(
             Path::new(waos_test_programs::INPUT),
@@ -129,7 +129,7 @@ fn run(
 }
 
 /// Asks the program to close its window, and waits for it to end with its view.
-fn end(running: &RunningProgram, window: &ProgramView) {
+fn end(running: &AppInstance, window: &ProgramView) {
     window.close_requested();
     let end = within(running.ended());
     assert!(matches!(end, ProgramEnd::Returned(Ok(()))), "{end:?}");

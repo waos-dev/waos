@@ -34,7 +34,7 @@ use crate::bindings::wasdk::platform::views::{
 };
 use crate::gpu::{Finishing, GpuInstance};
 use crate::hardware_buffers::{Canvases, ProgramHardwareBuffer, SubmittedWork, ViewCanvas};
-use crate::running::RunningProgram;
+use crate::running::AppInstance;
 use crate::screens::{Screen, Screens};
 use crate::shell::{
     ShellCompositionLayer, ShellCompositor, ShellSystemBars, ViewPlacement, ViewRequest,
@@ -114,7 +114,7 @@ impl CompositionLayer {
 /// What the views interface reads and writes in a program's store.
 pub(crate) struct ViewsCtx<'a> {
     pub(crate) table: &'a mut ResourceTable,
-    pub(crate) program: &'a RunningProgram,
+    pub(crate) program: &'a AppInstance,
     pub(crate) screens: &'a Screens,
     /// What places the program's views, and so whether this instance has them: none in a
     /// worker, which lists no view, hears of none and has its requests refused as `unsupported`.

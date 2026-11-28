@@ -29,7 +29,7 @@ fn file_dialogs_id() -> ProgramId {
 fn file_dialogs_through(
     window_processes: &Arc<WindowProcesses>,
     printed: &Arc<Printed>,
-) -> RunningProgram {
+) -> AppInstance {
     let mut shell = test_engine::shell(Arc::new(NoWindows));
     shell.file_dialogs = Some(Arc::clone(window_processes) as Arc<dyn ShellFileDialogs>);
     let engine = test_engine::engine_over(shell, EngineTime::Real);

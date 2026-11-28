@@ -22,7 +22,7 @@ use futures::channel::oneshot;
 use futures::future::Shared;
 use waft::ui::AppExitResponse;
 use waft::{App, AppLifecycleListener, AsyncApp, Task};
-use waos::{RunningProgram, WaOS};
+use waos::{AppInstance, WaOS};
 
 use crate::logic::app_instances::AppInstances;
 use crate::logic::dev_server::DevServer;
@@ -54,7 +54,7 @@ fn answer_quit(
     let (runs, stop) = (Arc::clone(runs), Rc::clone(stop));
     app.spawn(async move |cx| {
         let programs = runs.instances();
-        let asked = programs.iter().map(RunningProgram::request_exit);
+        let asked = programs.iter().map(AppInstance::request_exit);
         if !every_program_agrees(asked).await {
             tracing::info!("a program refused: WaOS stays");
             return AppExitResponse::Cancel;

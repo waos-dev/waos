@@ -168,7 +168,7 @@ pub(crate) fn said_hello(
 
 /// Survey, under its id, its windows placed by `window_processes`, as the engine places an app's
 /// on macOS.
-fn survey_through(window_processes: &Arc<WindowProcesses>) -> RunningProgram {
+fn survey_through(window_processes: &Arc<WindowProcesses>) -> AppInstance {
     let placement = Arc::clone(window_processes) as Arc<dyn ViewPlacement>;
     let engine = test_engine::engine(placement);
     let survey = engine
@@ -192,7 +192,7 @@ fn survey_id() -> ProgramId {
 /// over, once they do.
 fn asked(
     window_processes: &WindowProcesses,
-    program: &RunningProgram,
+    program: &AppInstance,
 ) -> impl Future<Output = ReachedApp> + use<> {
     window_processes.of_instance(program)
 }

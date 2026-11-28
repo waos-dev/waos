@@ -10,7 +10,7 @@
 
 use futures::channel::oneshot;
 use futures::stream::BoxStream;
-use waos::{RunningProgram, Shell};
+use waos::{AppInstance, Shell};
 use waos_package::ProgramId;
 
 /// WaOS on one system: how it shows apps, lists them, and hears what the user does there.
@@ -26,5 +26,5 @@ pub(crate) trait SystemShell {
 /// An open nobody answers is refused as one WaOS could not open.
 pub(crate) struct UserOpen {
     pub(crate) app: ProgramId,
-    pub(crate) opened: oneshot::Sender<Result<RunningProgram, String>>,
+    pub(crate) opened: oneshot::Sender<Result<AppInstance, String>>,
 }

@@ -1,7 +1,7 @@
 //! An input `waos ui tap`, `press`, `drag`, `type`, `key` or `scroll` sends, given to a window of a
 //! program running, however it was installed or started, as its user would give it: through the
 //! engine's view, as the shell reports its user's input, so the program cannot tell the two apart:
-//! the program's own mouse (`RunningProgram::mouse`), a US keyboard and an input method's text
+//! the program's own mouse (`AppInstance::mouse`), a US keyboard and an input method's text
 //! (`Keyboard`), a press and a drag taking the time they say before the answer. This is the
 //! protocol's side alone: the window the input goes to, what is refused, and the answer. The
 //! connection is answered once the input is handed over, saying whether the window was in sight;

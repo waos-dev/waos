@@ -1,5 +1,5 @@
 //! WaOS's in-process link: a program running in this process is reached through the engine's own
-//! types, [`RunningProgram`] for the program and [`ProgramView`] for each of its views, under the
+//! types, [`AppInstance`] for the program and [`ProgramView`] for each of its views, under the
 //! names the link's methods share with them. Its hardware buffers go to the canvas's surface from
 //! the engine's frame threads, and its calls on a view to the view's queue on the main thread.
 
@@ -12,23 +12,22 @@ use waos::bindings::wasdk::platform::views::{
 };
 use waos::bindings::wasdk::platform::windows::{Rect, TitleBarAction};
 use waos::{
-    HeldModifiers, KeyHandledFuture, PlacedView, PlacedWindow, Presence, ProgramView,
-    RunningProgram,
+    AppInstance, HeldModifiers, KeyHandledFuture, PlacedView, PlacedWindow, Presence, ProgramView,
 };
 
 use crate::link::{OpenedView, ProgramLink, ViewLink};
 use crate::logic::canvas_view::CanvasView;
 use crate::logic::view_calls::{ViewCalls, WindowCalls};
 
-impl ProgramLink for RunningProgram {
+impl ProgramLink for AppInstance {
     type View = ProgramView;
 
     fn name(&self) -> &str {
-        RunningProgram::name(self)
+        AppInstance::name(self)
     }
 
     fn ended(&self) -> impl Future<Output = ()> + 'static {
-        let ended = RunningProgram::ended(self);
+        let ended = AppInstance::ended(self);
         async move {
             ended.await;
         }
@@ -37,15 +36,15 @@ impl ProgramLink for RunningProgram {
     /// The view, its hardware buffers presented to the canvas's surface and its calls queued for
     /// its window, carrying `request`.
     fn add_view(&self, request: RequestId, opened: OpenedView) -> ProgramView {
-        RunningProgram::add_view(self, request, placed_view(opened))
+        AppInstance::add_view(self, request, placed_view(opened))
     }
 
     fn view_request_failed(&self, request: RequestId, error: ViewError) {
-        RunningProgram::view_request_failed(self, request, error);
+        AppInstance::view_request_failed(self, request, error);
     }
 
     fn remove_view(&self, view: &ProgramView) {
-        RunningProgram::remove_view(self, view.id());
+        AppInstance::remove_view(self, view.id());
     }
 }
 

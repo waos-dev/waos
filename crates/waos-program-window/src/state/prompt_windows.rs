@@ -23,7 +23,7 @@ use waft::{
     App, Context, Entity, IntoWidget, LinuxWindowConfig, WeakEntity, WidgetRef, WidgetsBinding,
     WidgetsBindingObserver, WindowConfig,
 };
-use waos::RunningProgram;
+use waos::AppInstance;
 use waos_package::ProgramId;
 
 use crate::link::ProgramFace;
@@ -48,7 +48,7 @@ type PromptId = u64;
 
 /// The prompts shown, in the order shown.
 pub(crate) struct ShownPrompts {
-    view_windows: Entity<ViewWindows<RunningProgram>>,
+    view_windows: Entity<ViewWindows<AppInstance>>,
     /// What a prompt's window of its own shows of its app: its name, as its user knows it, its
     /// icon and its identity.
     face_of: Rc<dyn Fn(&ProgramId) -> ProgramFace>,
@@ -82,7 +82,7 @@ impl PromptWindows {
     /// the app as `face_of` says.
     pub fn new(
         app: &mut App,
-        view_windows: Entity<ViewWindows<RunningProgram>>,
+        view_windows: Entity<ViewWindows<AppInstance>>,
         face_of: Rc<dyn Fn(&ProgramId) -> ProgramFace>,
     ) -> PromptWindows {
         let shown = app.new_entity(|_| ShownPrompts {
@@ -133,7 +133,7 @@ impl PromptWindows {
 
     /// What `ProgramWindows` puts over each of an app's windows: its prompt shown, if any, found
     /// by the name its instance runs under.
-    pub fn over_window(&self) -> OverWindow<RunningProgram> {
+    pub fn over_window(&self) -> OverWindow<AppInstance> {
         let shown = self.shown.clone();
         Rc::new(move |_app, program| {
             PromptOver {

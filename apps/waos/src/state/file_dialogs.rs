@@ -103,7 +103,7 @@ impl FileDialogs {
 
 impl DialogCall {
     /// The program and its view the dialog is a sheet on.
-    fn parent_of(&self) -> Option<(waos::RunningProgram, u64)> {
+    fn parent_of(&self) -> Option<(waos::AppInstance, u64)> {
         self.parent.map(|view| (self.program.clone(), view))
     }
 }
@@ -113,8 +113,8 @@ impl DialogCall {
 fn parent_view(
     app: &App,
     view_windows: &Entity<ViewWindows>,
-    program: &waos::RunningProgram,
-    parent: Option<(waos::RunningProgram, u64)>,
+    program: &waos::AppInstance,
+    parent: Option<(waos::AppInstance, u64)>,
 ) -> Option<ViewId> {
     let windows = view_windows.read(app);
     let named = parent.and_then(|(program, view)| {
@@ -132,7 +132,7 @@ fn parent_view(
 fn screen_of_its_own(
     app: &mut App,
     prompt_windows: &PromptWindows,
-    program: &waos::RunningProgram,
+    program: &waos::AppInstance,
 ) -> (ShownPrompt, oneshot::Receiver<ViewId>) {
     let Ok(id) = program.name().parse::<ProgramId>() else {
         let (_none, arrived) = oneshot::channel();

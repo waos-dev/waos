@@ -19,9 +19,9 @@ use waos::bindings::wasdk::media::cameras::{
 };
 use waos::bindings::wasdk::platform::windows::Size;
 use waos::{
-    CameraChangeFuture, CameraListFuture, CameraOpenFuture, CameraOutputs, CaptureSessionReports,
-    CaptureStartFuture, OpenedCamera, PhotoFuture, RunningProgram, ShellCamera, ShellCameras,
-    ShellCaptureSession, StartedSession,
+    AppInstance, CameraChangeFuture, CameraListFuture, CameraOpenFuture, CameraOutputs,
+    CaptureSessionReports, CaptureStartFuture, OpenedCamera, PhotoFuture, ShellCamera,
+    ShellCameras, ShellCaptureSession, StartedSession,
 };
 use waos_headless::testing::Changes;
 
@@ -178,7 +178,7 @@ impl ShellCameras for TestCameras {
         Box::pin(heard.map(|_heard| ()))
     }
 
-    fn open(&self, program: &RunningProgram, id: &str) -> CameraOpenFuture {
+    fn open(&self, program: &AppInstance, id: &str) -> CameraOpenFuture {
         self.opened
             .lock()
             .unwrap()

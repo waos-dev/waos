@@ -4,7 +4,7 @@
 //!
 //! The invariant: an instance is reached by its app's id, the one the app instances list it under.
 
-use waos::{ProgramView, RunningProgram};
+use waos::{AppInstance, ProgramView};
 use waos_dev_protocol::{Refusal, WindowId};
 use waos_package::ProgramId;
 
@@ -16,7 +16,7 @@ use crate::logic::dev_refusal;
 #[derive(Clone)]
 pub(crate) struct DrivenProgram {
     pub(crate) id: ProgramId,
-    pub(crate) program: RunningProgram,
+    pub(crate) program: AppInstance,
 }
 
 impl DrivenProgram {

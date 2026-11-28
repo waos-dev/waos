@@ -460,7 +460,7 @@ pub(crate) mod tests {
     use std::time::{Duration, Instant};
 
     use serde::de::DeserializeOwned;
-    use waos::{PlatformState, RunningProgram, Shell};
+    use waos::{AppInstance, PlatformState, Shell};
 
     use waos_dev_protocol::{
         Answer, Asked, ClientConnection, Component, DeviceAddress, FileDialog, Fingerprint, Hello,
@@ -948,7 +948,7 @@ pub(crate) mod tests {
         }
 
         /// The programs running now, in no order.
-        pub(crate) async fn programs(&self) -> Vec<RunningProgram> {
+        pub(crate) async fn programs(&self) -> Vec<AppInstance> {
             self.instances.instances()
         }
 
@@ -1781,7 +1781,7 @@ pub(crate) mod tests {
         started(&mut client).await;
         let programs = server.instances.instances();
         assert_eq!(programs.len(), 1);
-        let asked = programs.iter().map(RunningProgram::request_exit);
+        let asked = programs.iter().map(AppInstance::request_exit);
         let agreed = tokio::time::timeout(WITHIN, every_program_agrees(asked)).await;
         assert_eq!(agreed, Ok(true));
     }

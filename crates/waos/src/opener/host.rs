@@ -10,13 +10,13 @@ use super::{LinkSchemes, Opener, scheme_of};
 use crate::access::Cause;
 use crate::bindings::wasdk::platform::opener::{self, HostOpener, HostOpenerWithStore, OpenError};
 use crate::files::ProgramFiles;
-use crate::running::RunningProgram;
+use crate::running::AppInstance;
 use crate::shell::{OpenFuture, ShellOpener};
 
 /// What the opener interface reads and writes in a program's store.
 pub(crate) struct OpenerCtx<'a> {
     pub(crate) table: &'a mut ResourceTable,
-    pub(crate) program: &'a RunningProgram,
+    pub(crate) program: &'a AppInstance,
     /// The shell's opener; none where the shell has none.
     pub(crate) opener: Option<&'a Arc<dyn ShellOpener>>,
     /// The program's mounts, where a file it names is looked up.
@@ -109,7 +109,7 @@ fn with_machine_path(
     context: OpenerCtx<'_>,
     opener: &Resource<Opener>,
     path: &str,
-    call: impl FnOnce(&dyn ShellOpener, &RunningProgram, &Path) -> OpenFuture,
+    call: impl FnOnce(&dyn ShellOpener, &AppInstance, &Path) -> OpenFuture,
 ) -> wasmtime::Result<OpenFuture> {
     let Some(machine_path) = context.files.machine_path(Path::new(path), Cause::Opener) else {
         let failed = OpenError::Failed(format!("no file at {path} among the program's"));

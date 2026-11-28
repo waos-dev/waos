@@ -39,7 +39,7 @@ use futures::channel::mpsc;
 use super::AccessParts;
 use crate::files::{MountKind, OpenMode};
 use crate::network::{Counts, Datagrams};
-use crate::running::RunningProgram;
+use crate::running::AppInstance;
 use crate::shell::{RecordingDevice, ShellRecordingIndicator};
 use crate::sync::locked;
 
@@ -110,7 +110,7 @@ pub(crate) enum TcpOrigin {
 /// Who shows a program's recordings: the shell's indicator, which names the program.
 pub(crate) struct ShownRecordings {
     pub(crate) indicator: Arc<dyn ShellRecordingIndicator>,
-    pub(crate) program: RunningProgram,
+    pub(crate) program: AppInstance,
 }
 
 /// A use active from its start until this is dropped.

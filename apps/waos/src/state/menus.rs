@@ -25,7 +25,7 @@ use waft::{App, Entity, WidgetsBinding};
 use waos::bindings::wasdk::platform::menus::{self, MenuEntry, TrayIconError};
 use waos::bindings::wasdk::platform::views::ViewId;
 use waos::bindings::wasdk::platform::windows::Point;
-use waos::{RunningProgram, ShellContextMenus, ShellTrayIcons, TrayIconReports};
+use waos::{AppInstance, ShellContextMenus, ShellTrayIcons, TrayIconReports};
 use waos_program_window::{waft_image, waft_menu};
 
 use crate::logic::menu_bar::waos_bar;
@@ -129,7 +129,7 @@ fn take(app: &mut App, shown: &Entity<ShownMenus>, call: MenuCall) {
 fn open_context_menu(
     app: &mut App,
     shown: &Entity<ShownMenus>,
-    program: &RunningProgram,
+    program: &AppInstance,
     view: ViewId,
     (x, y): (f64, f64),
     entries: &[MenuEntry],

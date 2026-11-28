@@ -12,8 +12,8 @@
 //!
 //! Freezing is the app's suspension, on time the test moves (`EngineTime::Manual`): a suspended
 //! program is frozen at once, and again as soon as it has answered what unfrozen it, which the test
-//! sees as it happens (`RunningProgram::frozen`); and a frozen program woken by an event stands at
-//! its next epoch check before it hears the event (`RunningProgram::stopped_at_freeze`,
+//! sees as it happens (`AppInstance::frozen`); and a frozen program woken by an event stands at
+//! its next epoch check before it hears the event (`AppInstance::stopped_at_freeze`,
 //! `freezing`), once a tick has passed since it last ran.
 
 use std::fs;
@@ -27,7 +27,7 @@ use waos::bindings::wasdk::platform::menus::{
 use waos::bindings::wasdk::platform::views::{EditCommand, KeyDevice, KeyEvent, KeyKind};
 use waos::bindings::wasdk::platform::windows::Point;
 use waos::{
-    EngineTime, FreezePolicy, ManualTime, ProgramEnd, ProgramView, RunningProgram, WaOS, WaOSConfig,
+    AppInstance, EngineTime, FreezePolicy, ManualTime, ProgramEnd, ProgramView, WaOS, WaOSConfig,
 };
 
 use crate::test_shell::clipboard::{CopiedFile, CopiedText};
@@ -344,7 +344,7 @@ fn a_shell_without_menus_gives_the_program_none() {
 /// window `command`, which wakes it, and waits until it stands at its freeze: at the epoch check
 /// it reaches before it can hear the command.
 fn edit_while_frozen(
-    running: &RunningProgram,
+    running: &AppInstance,
     time: &ManualTime,
     window: &ProgramView,
     command: EditCommand,
@@ -366,7 +366,7 @@ fn run(
     engine: &WaOS,
     shell: &TestShell,
     output: &Arc<RecordedOutput>,
-) -> (RunningProgram, ProgramView) {
+) -> (AppInstance, ProgramView) {
     let program = engine
         .load(
             Path::new(waos_test_programs::MENUS),

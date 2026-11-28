@@ -54,7 +54,7 @@ use futures::future::BoxFuture;
 use futures::{FutureExt as _, StreamExt as _};
 use tokio::sync::watch;
 use tracing::Instrument;
-use waos::{HeldProgram, Program, ProgramEnvironment, ProgramOutput, Role, RunningProgram, WaOS};
+use waos::{AppInstance, HeldProgram, Program, ProgramEnvironment, ProgramOutput, Role, WaOS};
 use waos_capabilities::InspectedApps;
 use waos_package::{ProgramId, ProgramKind};
 use waos_services::app_storage::AppStorage;
@@ -134,15 +134,15 @@ impl OpenConfiguration {
 pub(crate) enum Opened {
     /// Its instance started now; held, where the configuration asked, until `held` is dropped.
     Started {
-        instance: RunningProgram,
+        instance: AppInstance,
         held: Option<HeldProgram>,
     },
     /// Its instance was running already, and is left as it is.
-    RunningAlready(RunningProgram),
+    RunningAlready(AppInstance),
 }
 
 impl Opened {
-    pub(crate) fn instance(&self) -> &RunningProgram {
+    pub(crate) fn instance(&self) -> &AppInstance {
         match self {
             Opened::Started { instance, .. } | Opened::RunningAlready(instance) => instance,
         }
@@ -343,7 +343,7 @@ impl AppInstances {
         id: &ProgramId,
         configuration: &OpenConfiguration,
         program: &Program,
-    ) -> Result<(RunningProgram, Option<HeldProgram>, Arc<LaunchOutput>), OpenError> {
+    ) -> Result<(AppInstance, Option<HeldProgram>, Arc<LaunchOutput>), OpenError> {
         if configuration.opened_for == OpenedFor::User && self.kind_of(id) != ProgramKind::App {
             return Err(OpenError::Tool(id.clone()));
         }
@@ -384,7 +384,7 @@ impl AppInstances {
     }
 
     /// The instance of the app `id` running now, if one is.
-    pub(crate) fn instance(&self, id: &ProgramId) -> Option<RunningProgram> {
+    pub(crate) fn instance(&self, id: &ProgramId) -> Option<AppInstance> {
         self.list.instance(id)
     }
 
@@ -398,7 +398,7 @@ impl AppInstances {
     /// The instances running now, in no order: what a quit asks, which a phone's system never
     /// does.
     #[cfg(desktop)]
-    pub(crate) fn instances(&self) -> Vec<RunningProgram> {
+    pub(crate) fn instances(&self) -> Vec<AppInstance> {
         self.list.instances()
     }
 

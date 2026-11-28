@@ -23,7 +23,7 @@ use futures::channel::mpsc;
 use crate::bindings::wasdk::platform::menus::MenuEntry;
 use crate::lifecycle::Lifecycle;
 use crate::news::{Inhibiting, News};
-use crate::running::RunningProgram;
+use crate::running::AppInstance;
 use crate::shell::{Shell, ShellContextMenus, ShellMenuBar, ShellTrayIcons};
 use crate::sync::locked;
 pub use tray_icons::TrayIconReports;
@@ -104,7 +104,7 @@ pub struct MenuBar(Arc<dyn ShellMenuBar>);
 
 impl MenuBar {
     /// `program`'s menu bar is `entries` from now on: kept, then told to the shell.
-    fn set(&self, program: &RunningProgram, entries: Vec<MenuEntry>) {
+    fn set(&self, program: &AppInstance, entries: Vec<MenuEntry>) {
         let bar = program.menus().set_bar(entries);
         self.0.set(program, &bar);
     }

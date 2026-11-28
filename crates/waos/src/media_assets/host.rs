@@ -17,14 +17,14 @@ use crate::bindings::wasdk::media::media_players::{
 use crate::bindings::wasdk::platform::windows::Size;
 use crate::files::ProgramFiles;
 use crate::network::ProgramNetwork;
-use crate::running::RunningProgram;
+use crate::running::AppInstance;
 use crate::shell::ShellMediaAssets;
 use crate::video_frames::ProgramVideoFrame;
 
 /// What the media assets interface reads and writes in a program's store.
 pub(crate) struct MediaAssetsCtx<'a> {
     pub(crate) table: &'a mut ResourceTable,
-    pub(crate) program: &'a RunningProgram,
+    pub(crate) program: &'a AppInstance,
     /// The shell's reading of media; none where the shell has none.
     pub(crate) media_assets: Option<&'a Arc<dyn ShellMediaAssets>>,
     /// The program's mounts, where a path it names is looked up.

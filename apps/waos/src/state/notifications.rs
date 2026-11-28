@@ -28,7 +28,7 @@ use futures::{FutureExt, StreamExt};
 use waft::ui::{self, NotificationActivation, Platform, PlatformRef};
 use waft::{App, AsyncApp};
 use waos::bindings::wasdk::platform::notifications::NotificationError;
-use waos::{Notification, RunningProgram, ShellNotifications};
+use waos::{AppInstance, Notification, ShellNotifications};
 use waos_services::packages::PackageManager;
 
 use crate::logic::notification_calls::{
@@ -155,7 +155,7 @@ impl Serving {
     /// Shows `program`'s `notification` through the system's notifications, now or at `at`.
     fn show(
         &mut self,
-        program: &RunningProgram,
+        program: &AppInstance,
         notification: &Notification,
         at: Option<SystemTime>,
     ) -> Shown {
@@ -185,7 +185,7 @@ impl Serving {
 
     /// The notifications `program`'s are posted as it through, where it is installed and the
     /// system lets WaOS post as it; none where they are WaOS's, titled after the program.
-    fn posted_as(&mut self, program: &RunningProgram) -> Option<Rc<dyn ui::Notifications>> {
+    fn posted_as(&mut self, program: &AppInstance) -> Option<Rc<dyn ui::Notifications>> {
         let (_, app_id) = installed_app_id(&self.packages, program.name())?;
         self.notifications_as(&app_id)
     }
@@ -296,7 +296,7 @@ mod tests {
     /// printed.
     fn run_notifications(
         notifications: &MockNotifications,
-    ) -> (TestSystem, RunningProgram, Arc<Lines>) {
+    ) -> (TestSystem, AppInstance, Arc<Lines>) {
         let system = with_notifications_installed(notifications);
         let lines = Arc::new(Lines::default());
         let program = system.run_as(waos_test_programs::NOTIFICATIONS, NOTIFICATIONS, &lines);

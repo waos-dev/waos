@@ -37,7 +37,7 @@ use super::bindings::wasdk::inspect::trace::{
 };
 use super::{Device, ProgramStorage, day_of};
 use crate::access::{Days, ProgramAccess, TraceEvent, TraceKind};
-use crate::running::{Programs, RunningProgram};
+use crate::running::{AppInstance, Programs};
 use crate::stream::stream_of;
 
 /// What an inspector reaches: the apps its run's environment gives, those the engine runs, the
@@ -60,7 +60,7 @@ impl InspectorReach {
     }
 
     /// The program the engine runs under `id`, while the role is held.
-    fn running(&self, id: &str) -> Option<RunningProgram> {
+    fn running(&self, id: &str) -> Option<AppInstance> {
         self.programs()?;
         self.running.named(id)
     }

@@ -9,7 +9,7 @@
 
 use futures::StreamExt;
 use futures::stream::{self, BoxStream};
-use waos::{RunningProgram, TraceKind, WaOS};
+use waos::{AppInstance, TraceKind, WaOS};
 use waos_dev_protocol::{InspectAnswer, Inspection, ServerConnection, TracedCapability};
 use waos_package::ProgramId;
 
@@ -33,7 +33,7 @@ pub(crate) async fn answer(
     let running = context.runs.instance(id);
     let answered = match asked {
         Inspection::Summary { days } => Ok(summary(context.engine, id, days)),
-        Inspection::ActiveUses => match running.as_ref().and_then(RunningProgram::active_uses) {
+        Inspection::ActiveUses => match running.as_ref().and_then(AppInstance::active_uses) {
             Some((now, changes)) => {
                 let changes = changes.map(|change| json(&change)).boxed();
                 send_lines(connection, vec![json(&now)], changes).await;
@@ -81,7 +81,7 @@ fn summary(engine: &WaOS, id: &ProgramId, days: u32) -> Vec<String> {
 
 /// Sends each event of `program`'s uses of `kinds` as it comes, until the connection closes or
 /// the program ends.
-async fn trace(connection: ServerConnection, program: &RunningProgram, kinds: &[TraceKind]) {
+async fn trace(connection: ServerConnection, program: &AppInstance, kinds: &[TraceKind]) {
     let streams: Vec<BoxStream<'static, waos::TraceEvent>> = kinds
         .iter()
         .filter_map(|kind| program.trace(*kind))

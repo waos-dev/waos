@@ -20,7 +20,7 @@ use std::thread::{self, JoinHandle};
 
 use futures::channel::mpsc::UnboundedSender;
 use futures::channel::oneshot;
-use waos::{OpenRequest, RunningProgram};
+use waos::{AppInstance, OpenRequest};
 use waos_package::ProgramId;
 use waos_window_messages::os::macos::{Arrival, ReceiveRight, Received, SendRight};
 use waos_window_messages::{
@@ -154,7 +154,7 @@ impl Hellos {
     /// launched, which the instance that asked for it attaches to, if one did; for a window process
     /// the user opened or a click on one of its app's notifications launched, the instance opening
     /// it answers.
-    fn instance_for(&self, hello: &Hello) -> Result<Option<RunningProgram>, String> {
+    fn instance_for(&self, hello: &Hello) -> Result<Option<AppInstance>, String> {
         match &hello.launched_for {
             LaunchReason::ProgramRunning if self.table.launching(&hello.program) => Ok(None),
             LaunchReason::ProgramRunning => {
@@ -168,7 +168,7 @@ impl Hellos {
 
     /// The instance the user's open of `app` answers, once it does; the hellos after this one
     /// wait.
-    fn opened_by_the_user(&self, app: &ProgramId) -> Result<RunningProgram, String> {
+    fn opened_by_the_user(&self, app: &ProgramId) -> Result<AppInstance, String> {
         let (opened, answered) = oneshot::channel();
         let open = UserOpen {
             app: app.clone(),
@@ -184,12 +184,7 @@ impl Hellos {
     /// Welcomes the window process `app` with a port of the connection's, serves it as its app's,
     /// `instance` attached where the hello came of opening it, hands the instance what the hello
     /// carried, and carries out what the window process sends on a thread of its own.
-    fn serve(
-        &self,
-        hello: Hello,
-        instance: Option<RunningProgram>,
-        app: SendRight,
-    ) -> io::Result<()> {
+    fn serve(&self, hello: Hello, instance: Option<AppInstance>, app: SendRight) -> io::Result<()> {
         let Hello {
             program: id,
             launched_for,
@@ -253,7 +248,7 @@ fn refuse(app: &SendRight, reason: &str) {
 /// with, and the click on one of its notifications the app was launched for, each heard once the
 /// program listens.
 pub(super) fn deliver_hello(
-    program: &RunningProgram,
+    program: &AppInstance,
     launched_for: LaunchReason,
     opened: OpenRequest,
 ) {

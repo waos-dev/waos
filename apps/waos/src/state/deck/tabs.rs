@@ -37,7 +37,7 @@ use waft::{
     WidgetsBindingObserver,
 };
 use waos::bindings::wasdk::platform::views::ViewError;
-use waos::{PlacedView, Presence, ProgramEnd, ProgramView, RunningProgram, ViewRequest};
+use waos::{AppInstance, PlacedView, Presence, ProgramEnd, ProgramView, ViewRequest};
 use waos_package::ProgramId;
 use waos_program_window::ShownView;
 
@@ -127,7 +127,7 @@ impl Tabs {
     /// where the program has no tab, or the deck can show none.
     fn view_requested(
         &mut self,
-        program: RunningProgram,
+        program: AppInstance,
         request: ViewRequest,
         cx: &mut Context<Tabs>,
     ) {
@@ -302,7 +302,7 @@ impl Tabs {
         &mut self,
         tab: TabId,
         tab_view: TabView,
-        program: RunningProgram,
+        program: AppInstance,
         view: ProgramView,
         cx: &mut Context<Tabs>,
     ) {
@@ -546,7 +546,7 @@ fn answer_requests(
 
 /// Marks `tab` ended, with no picture, once `program` ends on its own while the tab waits for its
 /// first request.
-fn end_while_waiting(cx: &mut Context<Tabs>, tab: TabId, program: &RunningProgram) {
+fn end_while_waiting(cx: &mut Context<Tabs>, tab: TabId, program: &AppInstance) {
     let ended = program.ended();
     let tabs = cx.weak_entity();
     cx.spawn(async move |cx| {
@@ -566,7 +566,7 @@ fn end_while_waiting(cx: &mut Context<Tabs>, tab: TabId, program: &RunningProgra
 fn end_when_ended(
     cx: &mut Context<Tabs>,
     tab: TabId,
-    program: &RunningProgram,
+    program: &AppInstance,
     shown: WeakEntity<ShownView>,
 ) {
     let ended = program.ended();

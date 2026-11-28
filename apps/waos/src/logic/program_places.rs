@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 
 use futures::channel::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use waos::bindings::wasdk::platform::views::ViewError;
-use waos::{RunningProgram, ViewPlacement, ViewRequest};
+use waos::{AppInstance, ViewPlacement, ViewRequest};
 use waos_package::ProgramId;
 
 /// Where a program's views go.
@@ -73,7 +73,7 @@ impl ProgramPlaces {
 
 /// One request of a program in the deck, for a tab of its own, on its way to the main thread.
 pub(crate) struct TabRequest {
-    pub(crate) program: RunningProgram,
+    pub(crate) program: AppInstance,
     pub(crate) request: ViewRequest,
 }
 
@@ -92,11 +92,7 @@ impl TabsOnRequest {
 }
 
 impl ViewPlacement for TabsOnRequest {
-    fn view_requested(
-        &self,
-        program: &RunningProgram,
-        request: ViewRequest,
-    ) -> Result<(), ViewError> {
+    fn view_requested(&self, program: &AppInstance, request: ViewRequest) -> Result<(), ViewError> {
         let program = program.clone();
         let name = program.name().to_owned();
         match self.0.unbounded_send(TabRequest { program, request }) {
@@ -118,11 +114,7 @@ pub(crate) struct PlacedWhereOpened {
 }
 
 impl ViewPlacement for PlacedWhereOpened {
-    fn view_requested(
-        &self,
-        program: &RunningProgram,
-        request: ViewRequest,
-    ) -> Result<(), ViewError> {
+    fn view_requested(&self, program: &AppInstance, request: ViewRequest) -> Result<(), ViewError> {
         match self.places.of(program.name()) {
             ProgramPlace::Tab => self.tabs.view_requested(program, request),
             ProgramPlace::Windows => self.windows.view_requested(program, request),
@@ -147,7 +139,7 @@ mod tests {
     const SURVEY: &str = "dev.example.survey";
 
     /// Runs survey, which asks for a view as it starts, as `SURVEY`, on `engine`.
-    fn run_survey(engine: &WaOS) -> RunningProgram {
+    fn run_survey(engine: &WaOS) -> AppInstance {
         let survey = engine
             .load(
                 Path::new(waos_test_programs::SURVEY),

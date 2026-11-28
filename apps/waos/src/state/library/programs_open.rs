@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use waft::ui::ViewRef;
 use waft::{Context, Entity};
-use waos::RunningProgram;
+use waos::AppInstance;
 use waos_package::ProgramId;
 
 use super::{Library, WantsToBeSeen};
@@ -104,7 +104,7 @@ impl Library {
             close_window_of(&view);
             let name = id.as_str().to_owned();
             windows.update(cx, |windows, _| {
-                windows.bring_forward(|running: &RunningProgram| running.name() == name);
+                windows.bring_forward(|running: &AppInstance| running.name() == name);
             });
             return;
         }

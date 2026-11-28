@@ -15,14 +15,14 @@ use crate::bindings::wasdk::media::media_players::{
 };
 use crate::files::ProgramFiles;
 use crate::network::ProgramNetwork;
-use crate::running::RunningProgram;
+use crate::running::AppInstance;
 use crate::shell::{self, ShellMediaPlayers};
 use crate::stream::stream_of;
 
 /// What the media players interface reads and writes in a program's store.
 pub(crate) struct MediaPlayersCtx<'a> {
     pub(crate) table: &'a mut ResourceTable,
-    pub(crate) program: &'a RunningProgram,
+    pub(crate) program: &'a AppInstance,
     /// The shell's players; none where the shell has none.
     pub(crate) media_players: Option<&'a Arc<dyn ShellMediaPlayers>>,
     /// The program's mounts, where a path it names is looked up.

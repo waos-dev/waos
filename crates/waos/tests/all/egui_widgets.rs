@@ -9,7 +9,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use waos::{Keyboard, ProgramEnd, ProgramView, RunningProgram, WaOS};
+use waos::{AppInstance, Keyboard, ProgramEnd, ProgramView, WaOS};
 
 use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, within};
 
@@ -54,7 +54,7 @@ fn run(
     engine: &WaOS,
     shell: &TestShell,
     output: &Arc<RecordedOutput>,
-) -> (RunningProgram, ProgramView) {
+) -> (AppInstance, ProgramView) {
     let program = engine
         .load(
             Path::new(waos_test_programs::EGUI_WIDGETS),

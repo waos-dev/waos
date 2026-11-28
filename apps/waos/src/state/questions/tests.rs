@@ -19,9 +19,9 @@ use waft::ui::{View as _, ViewId};
 use waft_test::TestWindow;
 use waos::bindings::wasdk::platform::notifications::Activation;
 use waos::{
-    Answer, AnswerFuture, AudioOutput, AudioOutputPickedFuture, MachineChoice, Question,
-    RunningProgram, ShellAudioOutputPicker, ShellMachinePicker, ShellSystemPermissions,
-    SystemPermission, SystemPermissionState,
+    Answer, AnswerFuture, AppInstance, AudioOutput, AudioOutputPickedFuture, MachineChoice,
+    Question, ShellAudioOutputPicker, ShellMachinePicker, ShellSystemPermissions, SystemPermission,
+    SystemPermissionState,
 };
 use waos_package::ProgramId;
 use waos_services::permissions::{App, Prompts, Setting};
@@ -86,7 +86,7 @@ fn view_of(window: &TestWindow) -> ViewId {
 }
 
 /// The one program running.
-fn the_program(desktop: &LibraryDesktop) -> RunningProgram {
+fn the_program(desktop: &LibraryDesktop) -> AppInstance {
     let programs = desktop.runs.instances();
     assert_eq!(programs.len(), 1);
     programs.into_iter().next().unwrap()

@@ -15,7 +15,7 @@ use crate::bindings::wasdk::platform::screens::ScreenId;
 use crate::sync::locked;
 use crate::views::Refresh;
 
-use super::{Running, RunningProgram};
+use super::{AppInstance, Running};
 
 /// The programs running now. Every clone reaches the same list.
 #[derive(Clone, Default)]
@@ -30,7 +30,7 @@ struct Roster {
 impl Programs {
     /// `program` joins: told what every program is told from now on, and paused and frozen at
     /// once while WaOS is suspended.
-    pub(crate) fn add(&self, program: &RunningProgram) {
+    pub(crate) fn add(&self, program: &AppInstance) {
         let mut roster = locked(&self.0);
         roster.programs.push(Arc::downgrade(&program.0));
         if roster.waos_is_suspended {
@@ -40,7 +40,7 @@ impl Programs {
 
     /// The program running under `name`, the one that started last where an earlier one is still
     /// ending; none once it ended.
-    pub(crate) fn named(&self, name: &str) -> Option<RunningProgram> {
+    pub(crate) fn named(&self, name: &str) -> Option<AppInstance> {
         let programs = locked(&self.0).live();
         programs
             .into_iter()
@@ -93,12 +93,12 @@ impl Programs {
 
 impl Roster {
     /// The programs still held, the gone ones forgotten.
-    fn live(&mut self) -> Vec<RunningProgram> {
+    fn live(&mut self) -> Vec<AppInstance> {
         self.programs.retain(|program| program.strong_count() > 0);
         self.programs
             .iter()
             .filter_map(Weak::upgrade)
-            .map(RunningProgram)
+            .map(AppInstance)
             .collect()
     }
 }

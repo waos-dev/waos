@@ -61,8 +61,8 @@ use waos::bindings::wasdk::platform::menus::MenuEntry;
 use waos::bindings::wasdk::platform::notifications::NotificationError;
 use waos::bindings::wasdk::platform::views::{KeyEvent, Metrics, RequestId, ViewError, ViewId};
 use waos::{
-    FileDialogFuture, HeldModifiers, MenuChosenFuture, Notification, NotificationFuture,
-    PlacedView, PlacedWindow, ProgramView, RunningProgram, SystemPermissionState, ViewRequest,
+    AppInstance, FileDialogFuture, HeldModifiers, MenuChosenFuture, Notification,
+    NotificationFuture, PlacedView, PlacedWindow, ProgramView, SystemPermissionState, ViewRequest,
 };
 use waos_package::ProgramId;
 use waos_program_window::{CanvasLayer, CanvasView, ViewCalls, WindowCalls};
@@ -133,7 +133,7 @@ pub(crate) type WindowPresences = UnboundedSender<WindowPresence>;
 pub(crate) struct WindowProcess {
     app: ProgramId,
     /// The app's instance it serves, once that reached it; never another after.
-    instance: OnceLock<RunningProgram>,
+    instance: OnceLock<AppInstance>,
     send: SendToWindow,
     canvases: Arc<CanvasesOnRequest>,
     /// Where a key's reply is awaited.
@@ -273,18 +273,18 @@ impl WindowProcess {
     }
 
     /// The app's instance it serves, once that reached it.
-    pub(crate) fn instance(&self) -> Option<&RunningProgram> {
+    pub(crate) fn instance(&self) -> Option<&AppInstance> {
         self.instance.get()
     }
 
     /// Whether it serves `program`.
-    pub(crate) fn serves(&self, program: &RunningProgram) -> bool {
+    pub(crate) fn serves(&self, program: &AppInstance) -> bool {
         self.instance() == Some(program)
     }
 
     /// `program`, the app's instance, reached it: it serves `program` from now on, unless it
     /// serves another already.
-    pub(crate) fn attach(&self, program: RunningProgram) {
+    pub(crate) fn attach(&self, program: AppInstance) {
         if let Err(program) = self.instance.set(program)
             && !self.serves(&program)
         {
@@ -294,7 +294,7 @@ impl WindowProcess {
 
     /// Hands `hear` the instance it serves; nothing where none reached it, which then has nothing
     /// to hear.
-    fn to_instance(&self, hear: impl FnOnce(&RunningProgram)) {
+    fn to_instance(&self, hear: impl FnOnce(&AppInstance)) {
         match self.instance() {
             Some(instance) => hear(instance),
             None => tracing::info!(app = %self.app, "no instance of the app runs to hear it"),
@@ -309,7 +309,7 @@ impl WindowProcess {
             .menu_bar_sending
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
-        if let Some(bar) = self.instance().and_then(RunningProgram::menu_bar) {
+        if let Some(bar) = self.instance().and_then(AppInstance::menu_bar) {
             self.send.send(ToWindow::SetMenuBar(bar.to_vec()));
         }
     }

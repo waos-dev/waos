@@ -25,8 +25,8 @@ use futures::channel::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use futures::channel::oneshot;
 use futures::future::BoxFuture;
 use waos::{
-    Answer, AnswerFuture, AudioOutput, AudioOutputPickedFuture, MachineChoice, MachinePickedFuture,
-    Question, Role, RunningProgram, SettingsClosedFuture, ShellAudioOutputPicker,
+    Answer, AnswerFuture, AppInstance, AudioOutput, AudioOutputPickedFuture, MachineChoice,
+    MachinePickedFuture, Question, Role, SettingsClosedFuture, ShellAudioOutputPicker,
     ShellMachinePicker, Switch,
 };
 use waos_dev_protocol::Asked as AskedNow;
@@ -219,7 +219,7 @@ pub(crate) struct PhoneFilesOffNotice {
 
 impl PhoneFilesOffNotice {
     /// Tells the user of `program`'s app, and resolves once they have read it, or nobody can.
-    pub(crate) fn tell(&self, program: &RunningProgram) -> impl Future<Output = ()> + Send + use<> {
+    pub(crate) fn tell(&self, program: &AppInstance) -> impl Future<Output = ()> + Send + use<> {
         let (read, reading) = oneshot::channel();
         let wait = send_and_wait_for(
             &self.questions,
@@ -278,7 +278,7 @@ pub(crate) struct OutputPickerOnRequest {
 }
 
 impl ShellAudioOutputPicker for OutputPickerOnRequest {
-    fn pick(&self, program: &RunningProgram, outputs: Vec<AudioOutput>) -> AudioOutputPickedFuture {
+    fn pick(&self, program: &AppInstance, outputs: Vec<AudioOutput>) -> AudioOutputPickedFuture {
         let (picked, picking) = oneshot::channel();
         let asking = Asking::Output { outputs, picked };
         let wait = send_and_wait_for(&self.questions, program, asking, picking);
@@ -301,7 +301,7 @@ pub(crate) struct MachinePickerOnRequest {
 }
 
 impl ShellMachinePicker for MachinePickerOnRequest {
-    fn pick(&self, program: &RunningProgram, machines: Vec<MachineChoice>) -> MachinePickedFuture {
+    fn pick(&self, program: &AppInstance, machines: Vec<MachineChoice>) -> MachinePickedFuture {
         let (picked, picking) = oneshot::channel();
         let asking = Asking::Machine { machines, picked };
         let wait = send_and_wait_for(&self.questions, program, asking, picking);
@@ -323,7 +323,7 @@ impl ShellMachinePicker for MachinePickerOnRequest {
 /// none at once for a program the engine runs under no app's id, which no app's place shows.
 fn send_and_wait_for<T: Send + 'static>(
     questions: &UnboundedSender<Asked>,
-    program: &RunningProgram,
+    program: &AppInstance,
     asking: Asking,
     received: oneshot::Receiver<Option<T>>,
 ) -> BoxFuture<'static, Option<T>> {

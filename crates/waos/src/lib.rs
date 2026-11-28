@@ -122,7 +122,7 @@ pub use notifications::{Notification, NotificationAction};
 pub use program::Program;
 /// What the user lets a program use, as its environment's grants give it and ask its user for.
 pub use roles::RoleNotGranted;
-pub use running::{HeldProgram, IncompatibleProgram, ProgramEnd, RunningProgram};
+pub use running::{AppInstance, HeldProgram, IncompatibleProgram, ProgramEnd};
 pub use screens::Screen;
 pub use service_extensions::{ExtensionAnswer, ExtensionError, ProgramServiceExtensions};
 pub use shell::{

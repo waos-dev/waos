@@ -43,7 +43,7 @@ fn notifications_through(
     permissions: &NotificationPermissions,
     store: &Domains,
     printed: &Arc<Printed>,
-) -> RunningProgram {
+) -> AppInstance {
     let mut shell = test_engine::shell(Arc::new(NoWindows));
     let in_apps = Arc::new(AppNotifications::new(
         Arc::clone(window_processes),

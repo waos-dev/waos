@@ -54,7 +54,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use futures::channel::mpsc::UnboundedSender;
 use waos::bindings::wasdk::platform::views::ViewError;
-use waos::{RunningProgram, ViewPlacement, ViewRequest};
+use waos::{AppInstance, ViewPlacement, ViewRequest};
 use waos_services::packages::PackageManager;
 use waos_window_messages::bootstrap_name;
 
@@ -124,7 +124,7 @@ impl NoWindowProcesses {
 impl ViewPlacement for NoWindowProcesses {
     fn view_requested(
         &self,
-        _program: &RunningProgram,
+        _program: &AppInstance,
         _request: ViewRequest,
     ) -> Result<(), ViewError> {
         Err(ViewError::Failed(format!(

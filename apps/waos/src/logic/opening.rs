@@ -3,7 +3,7 @@
 //! notifications. Each goes to the app the id names (`program_named`), its instance running,
 //! whether `waos launch` started it or the library opened it, or else the installed app, opened as
 //! the library opens it; the program hears it once it listens
-//! (`RunningProgram::open_requested`, `RunningProgram::notification_activated`). And opening each
+//! (`AppInstance::open_requested`, `AppInstance::notification_activated`). And opening each
 //! app the user opened through the system (`open_each`), as the library opens one the user opens
 //! there.
 //!
@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use waos::bindings::wasdk::platform::notifications::Activation;
-use waos::{OpenRequest, RunningProgram};
+use waos::{AppInstance, OpenRequest};
 #[cfg(desktop)]
 use waos_dev_protocol::{OpenAnswer, Refusal, RefusalKind, ServerConnection};
 use waos_package::ProgramId;
@@ -69,7 +69,7 @@ pub(crate) async fn program_named(
     instances: &Arc<AppInstances>,
     packages: &PackageManager,
     id: &ProgramId,
-) -> Result<Option<RunningProgram>> {
+) -> Result<Option<AppInstance>> {
     if packages.installed_program(id).is_none() {
         return Ok(instances.instance(id));
     }

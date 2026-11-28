@@ -43,7 +43,7 @@ pub(crate) struct Served {
 
 /// The window process of `program`'s app, as WaOS serves it once it said hello, `program` attached
 /// to it as the app's instance.
-pub(crate) fn window_process(program: RunningProgram) -> Served {
+pub(crate) fn window_process(program: AppInstance) -> Served {
     let (notification_permissions, _readings) = NotificationPermissions::new();
     window_process_keeping(program, notification_permissions)
 }
@@ -51,7 +51,7 @@ pub(crate) fn window_process(program: RunningProgram) -> Served {
 /// The same, what it says macOS said of the app's notifications kept in
 /// `notification_permissions`.
 pub(crate) fn window_process_keeping(
-    program: RunningProgram,
+    program: AppInstance,
     notification_permissions: NotificationPermissions,
 ) -> Served {
     let app = program
@@ -100,7 +100,7 @@ fn window_process_of_keeping(
 }
 
 /// Survey, running, and the window it asks for as it starts.
-async fn survey() -> (RunningProgram, ViewRequest) {
+async fn survey() -> (AppInstance, ViewRequest) {
     let folder = tempfile::tempdir().unwrap();
     let (placement, mut requests) =
         WindowsOnRequest::new(ProgramFaces::new(packages_in(folder.path()), None));
@@ -803,7 +803,7 @@ async fn a_prompts_dialog_reports_to_the_main_thread_until_its_app_goes() {
 struct AppMenus(Arc<OnceLock<Arc<WindowProcess>>>);
 
 impl ShellMenuBar for AppMenus {
-    fn set(&self, _program: &RunningProgram, _entries: &[MenuEntry]) {
+    fn set(&self, _program: &AppInstance, _entries: &[MenuEntry]) {
         if let Some(process) = self.0.get() {
             process.show_menu_bar();
         }
@@ -813,7 +813,7 @@ impl ShellMenuBar for AppMenus {
 impl ShellContextMenus for AppMenus {
     fn show(
         &self,
-        _program: &RunningProgram,
+        _program: &AppInstance,
         view: ViewId,
         x: f64,
         y: f64,
@@ -865,7 +865,7 @@ impl Printed {
 
 /// Menus, running with its app's menus, what it prints into `printed`, and the window it asks for
 /// as it starts.
-async fn menus(app_menus: &AppMenus, printed: &Arc<Printed>) -> (RunningProgram, ViewRequest) {
+async fn menus(app_menus: &AppMenus, printed: &Arc<Printed>) -> (AppInstance, ViewRequest) {
     let folder = tempfile::tempdir().unwrap();
     let (placement, mut requests) =
         WindowsOnRequest::new(ProgramFaces::new(packages_in(folder.path()), None));

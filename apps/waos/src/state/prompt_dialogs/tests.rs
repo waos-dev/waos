@@ -6,7 +6,7 @@ use waft::ui::PlatformRef;
 use waft::ui::{EmbedderClient, View as _};
 use waft::{IntoWidget, Shell, SizedBox};
 use waft_test::{TestPlatform, TestWindows};
-use waos::{ProgramEnvironment, RunningProgram, WaOS};
+use waos::{AppInstance, ProgramEnvironment, WaOS};
 use waos_package::ProgramId;
 use waos_window_messages::ToWindow;
 
@@ -20,7 +20,7 @@ use crate::logic::test_engine::{self, NoWindows};
 const FOREVER: &str = "dev.example.forever";
 
 /// Forever, which has no window and runs until stopped, under its id.
-fn forever(engine: &WaOS) -> RunningProgram {
+fn forever(engine: &WaOS) -> AppInstance {
     let forever = engine
         .load(
             Path::new(waos_test_programs::FOREVER),

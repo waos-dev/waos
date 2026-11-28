@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use waos::bindings::wasdk::media::media_players::{Cue, MediaMetadata, PlayerState, SeekTolerance};
-use waos::{MediaPlayerReports, RunningProgram, ShellMediaPlayer, ShellMediaPlayers, VideoOutput};
+use waos::{AppInstance, MediaPlayerReports, ShellMediaPlayer, ShellMediaPlayers, VideoOutput};
 use waos_headless::testing::Changes;
 
 use super::composition::TestLayer;
@@ -113,7 +113,7 @@ impl OpenedPlayer {
 impl ShellMediaPlayers for TestMediaPlayers {
     fn open(
         &self,
-        program: &RunningProgram,
+        program: &AppInstance,
         url: &str,
         reports: MediaPlayerReports,
     ) -> Box<dyn ShellMediaPlayer> {

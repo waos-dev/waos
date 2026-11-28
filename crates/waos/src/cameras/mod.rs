@@ -34,7 +34,7 @@ use crate::bindings::wasdk::platform::permissions::State;
 use crate::bindings::wasdk::platform::windows::Size;
 use crate::lifecycle::Lifecycle;
 use crate::permissions::{Permission, state_of};
-use crate::running::RunningProgram;
+use crate::running::AppInstance;
 use crate::shell::{
     CaptureStartFuture, OpenedCamera, RecordingDevice, ShellCamera, ShellCameras,
     ShellCompositionLayer, ShellVideoFrameReader,
@@ -113,7 +113,7 @@ impl Cameras {
     /// of.
     fn open<Asked: Future<Output = ()> + Send + 'static>(
         &self,
-        program: &RunningProgram,
+        program: &AppInstance,
         asked: Asked,
         id: String,
     ) -> impl Future<Output = Result<Camera, CameraError>> + Send + 'static + use<Asked> {

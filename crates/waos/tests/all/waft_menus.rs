@@ -21,8 +21,8 @@ use waos::bindings::wasdk::platform::notifications::Activation;
 use waos::bindings::wasdk::platform::views::{EditCommand, KeyDevice, KeyEvent, KeyKind};
 use waos::bindings::wasdk::platform::windows::Point;
 use waos::{
-    Answer, OpenRequest, ProgramEnd, ProgramEnvironment, ProgramGrants, ProgramOutput, ProgramView,
-    Question, RunningProgram, WaOS,
+    Answer, AppInstance, OpenRequest, ProgramEnd, ProgramEnvironment, ProgramGrants, ProgramOutput,
+    ProgramView, Question, WaOS,
 };
 
 use crate::asking::app;
@@ -282,7 +282,7 @@ fn run(
     engine: &WaOS,
     shell: &TestShell,
     output: &Arc<RecordedOutput>,
-) -> (RunningProgram, ProgramView) {
+) -> (AppInstance, ProgramView) {
     run_with(engine, shell, output, None)
 }
 
@@ -292,7 +292,7 @@ fn run_with(
     shell: &TestShell,
     output: &Arc<RecordedOutput>,
     grants: Option<Arc<dyn ProgramGrants>>,
-) -> (RunningProgram, ProgramView) {
+) -> (AppInstance, ProgramView) {
     let program = engine
         .load(
             Path::new(waos_test_programs::WAFT_MENUS),
@@ -312,7 +312,7 @@ fn run_with(
 }
 
 /// Asks the window to close, which quits the app, and waits for its end.
-fn close(running: &RunningProgram, window: &ProgramView) {
+fn close(running: &AppInstance, window: &ProgramView) {
     window.close_requested();
     let end = within(running.ended());
     assert!(matches!(end, ProgramEnd::Returned(Ok(()))), "{end:?}");

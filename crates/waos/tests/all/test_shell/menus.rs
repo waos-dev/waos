@@ -19,7 +19,7 @@ use futures::channel::oneshot;
 use waos::bindings::wasdk::platform::menus::{Image, MenuEntry, TrayIconError, TrayIconEvent};
 use waos::bindings::wasdk::platform::views::ViewId;
 use waos::{
-    MenuChosenFuture, RunningProgram, ShellAttachedMenu, ShellContextMenus, ShellMenuAtIcon,
+    AppInstance, MenuChosenFuture, ShellAttachedMenu, ShellContextMenus, ShellMenuAtIcon,
     ShellMenuBar, ShellTrayIcon, ShellTrayIcons, TrayIconAddFuture, TrayIconReports,
 };
 
@@ -166,7 +166,7 @@ impl OpenedMenus {
 }
 
 impl ShellMenuBar for TestMenus {
-    fn set(&self, program: &RunningProgram, entries: &[MenuEntry]) {
+    fn set(&self, program: &AppInstance, entries: &[MenuEntry]) {
         let set = (program.name().to_owned(), entries.to_vec());
         self.bars.lock().unwrap().push(set);
         self.changes.announce();
@@ -176,7 +176,7 @@ impl ShellMenuBar for TestMenus {
 impl ShellContextMenus for TestMenus {
     fn show(
         &self,
-        program: &RunningProgram,
+        program: &AppInstance,
         view: ViewId,
         x: f64,
         y: f64,
@@ -195,7 +195,7 @@ impl ShellContextMenus for TestMenus {
 impl ShellTrayIcons for TestMenus {
     fn add(
         &self,
-        program: &RunningProgram,
+        program: &AppInstance,
         image: &Image,
         tooltip: Option<&str>,
         reports: TrayIconReports,

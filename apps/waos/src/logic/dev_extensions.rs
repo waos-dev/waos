@@ -1,6 +1,6 @@
 //! What `waos ext` asks (Waft's CLI through it): a call of a service
 //! extension of any program running, however it was installed or started, carried to the program
-//! through the engine (`RunningProgram::service_extensions`) and answered with its JSON text, or
+//! through the engine (`AppInstance::service_extensions`) and answered with its JSON text, or
 //! refused with why: the program does not run, serves none, serves none of that name (with the
 //! names it serves), takes no such parameters, or failed; and the programs running that serve
 //! extensions, each with the name its user sees, for a tool's list of what it can call.
@@ -8,7 +8,7 @@
 //! The invariant: WaOS only carries the call; what an extension is and answers is the program's,
 //! so nothing here reads the JSON it carries.
 
-use waos::{ExtensionError, RunningProgram};
+use waos::{AppInstance, ExtensionError};
 use waos_dev_protocol::{
     ExtensionAnswer, Refusal, RefusalKind, ServerConnection, ServingProgram, ServingPrograms,
     ServingProgramsAnswer,
@@ -66,7 +66,7 @@ pub(crate) async fn serving(
 
 /// `program` as a tool lists it: its id, the name its user sees, its id's where it is installed
 /// no longer.
-fn serving_program(program: &RunningProgram, packages: &PackageManager) -> Option<ServingProgram> {
+fn serving_program(program: &AppInstance, packages: &PackageManager) -> Option<ServingProgram> {
     let id: ProgramId = program.name().parse().ok()?;
     let name = packages
         .installed_program(&id)

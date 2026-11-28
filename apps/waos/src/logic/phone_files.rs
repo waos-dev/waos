@@ -21,7 +21,7 @@ use std::sync::{Arc, PoisonError, RwLock};
 use futures::channel::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use futures::channel::oneshot;
 use waos::{
-    RunningProgram, ShellSystemPermissions, SystemPermission, SystemPermissionFuture,
+    AppInstance, ShellSystemPermissions, SystemPermission, SystemPermissionFuture,
     SystemPermissionState,
 };
 use waos_local::THIS_COMPUTER;
@@ -111,7 +111,7 @@ impl SharedStorage {
 /// One request to let WaOS reach the phone's files, for something `program`'s user gave it, on its
 /// way to the main thread.
 pub(crate) struct PhoneFilesRequest {
-    pub(crate) program: RunningProgram,
+    pub(crate) program: AppInstance,
     /// Where whether WaOS may reach them goes, once the user is back from the system's page.
     pub(crate) reachable: oneshot::Sender<bool>,
 }
@@ -145,7 +145,7 @@ impl PhoneFilesOnRequest {
     /// it may once its user is back; as it stands where nobody answers.
     pub(crate) fn request(
         &self,
-        program: &RunningProgram,
+        program: &AppInstance,
     ) -> impl Future<Output = bool> + Send + use<> {
         let (reachable, answered) = oneshot::channel();
         let request = PhoneFilesRequest {
@@ -167,7 +167,7 @@ impl ShellSystemPermissions for PhoneFilesOnRequest {
     fn state(
         &self,
         permission: SystemPermission<'_>,
-        _program: &RunningProgram,
+        _program: &AppInstance,
     ) -> SystemPermissionState {
         match permission {
             SystemPermission::Path(path) if self.storage.keeps_from(path) => {
@@ -182,7 +182,7 @@ impl ShellSystemPermissions for PhoneFilesOnRequest {
     fn request(
         &self,
         permission: SystemPermission<'_>,
-        program: &RunningProgram,
+        program: &AppInstance,
     ) -> SystemPermissionFuture {
         if self.state(permission, program) == SystemPermissionState::Allowed {
             return Box::pin(ready(SystemPermissionState::Allowed));

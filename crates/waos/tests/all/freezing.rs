@@ -13,7 +13,7 @@
 //! the epoch right after a fuel yield too. So once a freeze has taken, forever, which only runs,
 //! stands at its freeze at its next check; survey, which waits in a host call, stands there once
 //! an event has woken it and it has reached one. A test sees that through
-//! `RunningProgram::stopped_at_freeze` rather than watching for a while. Each test reads only its
+//! `AppInstance::stopped_at_freeze` rather than watching for a while. Each test reads only its
 //! own programs' outputs.
 
 use std::path::Path;
@@ -23,7 +23,7 @@ use std::time::Duration;
 use waos::bindings::wasdk::platform::lifecycle::AppExitResponse;
 use waos::bindings::wasdk::platform::views::Metrics;
 use waos::{
-    EngineTime, FreezePolicy, ManualTime, Presence, ProgramEnd, ProgramView, RunningProgram, WaOS,
+    AppInstance, EngineTime, FreezePolicy, ManualTime, Presence, ProgramEnd, ProgramView, WaOS,
     WaOSConfig,
 };
 use waos_headless::{Display, HeadlessShell, Refreshes};
@@ -425,7 +425,7 @@ fn run_forever_shown(
     engine: &WaOS,
     shell: &TestShell,
     view_index: usize,
-) -> (RunningProgram, ProgramView, Arc<RecordedOutput>) {
+) -> (AppInstance, ProgramView, Arc<RecordedOutput>) {
     let forever = engine
         .load(
             Path::new(waos_test_programs::FOREVER_SHOWN),
@@ -446,7 +446,7 @@ fn run_survey_shown(
     engine: &WaOS,
     shell: &TestShell,
     view_index: usize,
-) -> (RunningProgram, ProgramView, Arc<RecordedOutput>) {
+) -> (AppInstance, ProgramView, Arc<RecordedOutput>) {
     let survey = engine
         .load(
             Path::new(waos_test_programs::SURVEY),
@@ -471,7 +471,7 @@ fn run_survey_shown(
 /// then changes its view's metrics to `changed`, which wakes it, and waits until it stands at its
 /// freeze: at the epoch check it reaches before it can hear of the change.
 fn freeze_then_change(
-    survey: &RunningProgram,
+    survey: &AppInstance,
     time: &ManualTime,
     view: &ProgramView,
     changed: Metrics,

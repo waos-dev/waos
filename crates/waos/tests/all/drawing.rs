@@ -12,7 +12,7 @@
 //! The tests of spares and of freezing move the engine's time (`EngineTime::Manual`) rather than
 //! wait for it: a 300 ms delay, a freeze taking at a tick, every 100 ms, and spares going a second
 //! after the view's last frame. A frozen triangle stands still once it runs nothing and its frames
-//! in flight have landed (`RunningProgram::idle`): a freeze stops its next submission, so no frame
+//! in flight have landed (`AppInstance::idle`): a freeze stops its next submission, so no frame
 //! comes after that.
 
 use std::path::Path;

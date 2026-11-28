@@ -55,7 +55,7 @@ use futures::future::BoxFuture;
 use waos::bindings::wasdk::platform::menus::MenuEntry;
 use waos::bindings::wasdk::platform::views::{ViewError, ViewId};
 use waos::{
-    MenuChosenFuture, RunningProgram, ShellContextMenus, ShellMenuBar, ViewPlacement, ViewRequest,
+    AppInstance, MenuChosenFuture, ShellContextMenus, ShellMenuBar, ViewPlacement, ViewRequest,
 };
 use waos_package::ProgramId;
 use waos_window_messages::os::macos::AuditToken;
@@ -170,7 +170,7 @@ impl WindowProcesses {
     /// instance: at once while it runs; otherwise launched with no window and not brought forward
     /// the first time something asks, everything that asks while it comes answered in the order it
     /// asked; or why it never came.
-    pub(crate) fn of_instance(&self, program: &RunningProgram) -> AppFuture {
+    pub(crate) fn of_instance(&self, program: &AppInstance) -> AppFuture {
         let (answer, answered) = oneshot::channel();
         self.table.with_instance(program, move |app| {
             let _ = answer.send(app);
@@ -184,7 +184,7 @@ impl WindowProcesses {
     /// it, on the thread that answers: this one where it runs.
     pub(crate) fn with_instance(
         &self,
-        program: &RunningProgram,
+        program: &AppInstance,
         then: impl FnOnce(ReachedApp) + Send + 'static,
     ) {
         self.table.with_instance(program, then);
@@ -192,7 +192,7 @@ impl WindowProcesses {
 
     /// `program`'s window process while it runs and serves `program`, once it said hello; none
     /// before, or after it went. Never launches it.
-    pub(crate) fn running(&self, program: &RunningProgram) -> Option<Arc<WindowProcess>> {
+    pub(crate) fn running(&self, program: &AppInstance) -> Option<Arc<WindowProcess>> {
         self.table.running(program)
     }
 
@@ -283,7 +283,7 @@ enum App {
 struct Launching {
     /// The app's instance that reached it first, attached to it once it is there; none where it
     /// was launched for a prompt alone.
-    instance: Option<RunningProgram>,
+    instance: Option<AppInstance>,
     /// What asked for it meanwhile, in the order it asked.
     waiting: Vec<Waiting>,
     /// WaOS's prompts to show there once it is there, in the order asked.
@@ -304,7 +304,7 @@ impl Launching {
     /// A first launch, for `instance` where an instance asked, waited for by `waiting`, showing
     /// `prompts` once it is there.
     fn first(
-        instance: Option<RunningProgram>,
+        instance: Option<AppInstance>,
         waiting: Vec<Waiting>,
         prompts: Vec<PromptShown>,
     ) -> App {
@@ -326,7 +326,7 @@ impl ProcessTable {
     /// ending with it, is left to end, and another is launched.
     fn with_instance(
         self: &Arc<Self>,
-        program: &RunningProgram,
+        program: &AppInstance,
         then: impl FnOnce(ReachedApp) + Send + 'static,
     ) {
         let id = match app_id(program) {
@@ -370,7 +370,7 @@ impl ProcessTable {
     }
 
     /// `program`'s window process while it runs and serves `program`, once it said hello.
-    fn running(&self, program: &RunningProgram) -> Option<Arc<WindowProcess>> {
+    fn running(&self, program: &AppInstance) -> Option<Arc<WindowProcess>> {
         let id = app_id(program).ok()?;
         self.connected_process(&id)
             .filter(|process| process.serves(program))
@@ -544,7 +544,7 @@ impl ProcessTable {
     pub(super) fn connect(
         self: &Arc<Self>,
         id: &ProgramId,
-        instance: Option<RunningProgram>,
+        instance: Option<AppInstance>,
         send: SendToWindow,
     ) -> Arc<WindowProcess> {
         let routes = &self.routes;
@@ -615,7 +615,7 @@ impl ProcessTable {
         self: &Arc<Self>,
         id: ProgramId,
         process: Arc<WindowProcess>,
-        instance: RunningProgram,
+        instance: AppInstance,
     ) {
         let (table, ended) = (Arc::clone(self), instance.ended());
         self.runtime.spawn(async move {
@@ -678,11 +678,7 @@ impl ProcessTable {
 /// The engine's placement on macOS: an app's windows open in its window process, a window that
 /// takes the focus bringing it forward as it opens.
 impl ViewPlacement for WindowProcesses {
-    fn view_requested(
-        &self,
-        program: &RunningProgram,
-        request: ViewRequest,
-    ) -> Result<(), ViewError> {
+    fn view_requested(&self, program: &AppInstance, request: ViewRequest) -> Result<(), ViewError> {
         if request.config.visible && request.config.activating {
             let_come_forward(program);
         }
@@ -699,7 +695,7 @@ impl ViewPlacement for WindowProcesses {
 /// keeps it, the `entries` the app just set, while the window process runs; it is shown the bar as
 /// it connects.
 impl ShellMenuBar for WindowProcesses {
-    fn set(&self, program: &RunningProgram, _entries: &[MenuEntry]) {
+    fn set(&self, program: &AppInstance, _entries: &[MenuEntry]) {
         if let Some(app) = self.running(program) {
             app.show_menu_bar();
         }
@@ -711,7 +707,7 @@ impl ShellMenuBar for WindowProcesses {
 impl ShellContextMenus for WindowProcesses {
     fn show(
         &self,
-        program: &RunningProgram,
+        program: &AppInstance,
         view: ViewId,
         x: f64,
         y: f64,
@@ -725,7 +721,7 @@ impl ShellContextMenus for WindowProcesses {
 }
 
 /// The id of `program`'s app; why it has none.
-pub(super) fn app_id(program: &RunningProgram) -> Result<ProgramId, String> {
+pub(super) fn app_id(program: &AppInstance) -> Result<ProgramId, String> {
     program
         .name()
         .parse()
@@ -733,7 +729,7 @@ pub(super) fn app_id(program: &RunningProgram) -> Result<ProgramId, String> {
 }
 
 /// Lets `program`'s window process take WaOS's activation as what the user must see shows there.
-pub(super) fn let_come_forward(program: &RunningProgram) {
+pub(super) fn let_come_forward(program: &AppInstance) {
     if let Ok(id) = app_id(program) {
         yield_activation_to(&id);
     }

@@ -5,7 +5,7 @@
 //! without types of its own.
 //!
 //! The engine's own values are made `wasdk:inspect`'s in [`values`]: a day of a program's audit
-//! summary ([`day_of`]), and what it uses now and each change to it (`RunningProgram::active_uses`).
+//! summary ([`day_of`]), and what it uses now and each change to it (`AppInstance::active_uses`).
 //! A program's storage ([`ProgramStorage`]) is its mounts and a folder's entries, resolved through
 //! its own mount table. The package is served
 //! to a program holding the inspector role in [`host`], over the apps its run's environment gives

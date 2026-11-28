@@ -13,7 +13,7 @@ use std::rc::Rc;
 use waft::Entity;
 use waft::ui::ViewRef;
 use waft::{App, IntoWidget, MultiViewApp, ViewCloseHandler, WidgetRef};
-use waos::RunningProgram;
+use waos::AppInstance;
 use waos_program_window::{ProgramWindows, PromptWindows};
 
 use crate::state::ViewWindows;
@@ -34,7 +34,7 @@ pub(crate) struct LibraryWindow {
 /// the programs' apps, where `prompt_views` builds any.
 pub(crate) fn every_window(
     library: Option<LibraryWindow>,
-    program_windows: ProgramWindows<RunningProgram>,
+    program_windows: ProgramWindows<AppInstance>,
     prompt_windows: Rc<PromptWindows>,
     prompt_views: Option<ViewContent>,
 ) -> WidgetRef {
@@ -55,7 +55,7 @@ pub(crate) fn every_window(
 pub(crate) fn program_windows(
     view_windows: &Entity<ViewWindows>,
     prompt_windows: &PromptWindows,
-) -> ProgramWindows<RunningProgram> {
+) -> ProgramWindows<AppInstance> {
     ProgramWindows {
         view_windows: view_windows.clone(),
         over_each: prompt_windows.over_window(),
@@ -64,7 +64,7 @@ pub(crate) fn program_windows(
 
 struct EveryWindow {
     library: Option<LibraryWindow>,
-    program_windows: ProgramWindows<RunningProgram>,
+    program_windows: ProgramWindows<AppInstance>,
     prompt_windows: Rc<PromptWindows>,
     prompt_views: Option<ViewContent>,
 }

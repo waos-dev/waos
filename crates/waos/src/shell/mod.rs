@@ -23,7 +23,7 @@
 //! needs the platform. Every call here may come from any thread, the program's among them, and
 //! nothing here blocks on the shell's thread: a method is a request the shell carries out on its
 //! own loop, an answer that needs that loop is a future, and what it reports back comes through the
-//! view's `ProgramView`, a program's `RunningProgram`, a tray icon's `TrayIconReports`, a player's
+//! view's `ProgramView`, a program's `AppInstance`, a tray icon's `TrayIconReports`, a player's
 //! `MediaPlayerReports` or a capture session's `CaptureSessionReports`, or for a screen's refresh
 //! through the `OnRefresh` the engine handed over with its ask. No GPU object crosses here: a hardware
 //! buffer and a video's frame are the platform's own types, an image the hardware codecs decoded
@@ -75,7 +75,7 @@ use crate::lifecycle::Presence;
 use crate::media_players::MediaPlayerReports;
 use crate::menus::TrayIconReports;
 use crate::notifications::Notification;
-use crate::running::RunningProgram;
+use crate::running::AppInstance;
 use crate::windows::WindowConfig;
 
 /// The embedding app's parts, one per job.
@@ -169,11 +169,7 @@ pub type OnRefresh = Box<dyn FnOnce(Instant, Instant) + Send>;
 pub trait ViewPlacement: Send + Sync {
     /// `program` asks for a view as `request` says. `Ok` promises exactly one later answer:
     /// `program.add_view` with `request.id`, or `program.view_request_failed` with it. `Err` refuses at once, and nothing follows. Called from the program's thread.
-    fn view_requested(
-        &self,
-        program: &RunningProgram,
-        request: ViewRequest,
-    ) -> Result<(), ViewError>;
+    fn view_requested(&self, program: &AppInstance, request: ViewRequest) -> Result<(), ViewError>;
 }
 
 /// One request for a view, made with `views.request-view`.
@@ -535,13 +531,13 @@ pub type FileWriteFuture = Pin<Box<dyn Future<Output = io::Result<()>> + Send>>;
 
 /// The shell's side of `menus.menu-bar`, minus what the engine keeps (each program's bar as it
 /// set it last, and the streams of its choices): the platform's menu bar. Which program's bar it
-/// shows is the app's to choose, reading the bar with `RunningProgram::menu_bar`; a choice in it
-/// reaches the program through `RunningProgram::menu_chosen`.
+/// shows is the app's to choose, reading the bar with `AppInstance::menu_bar`; a choice in it
+/// reaches the program through `AppInstance::menu_chosen`.
 pub trait ShellMenuBar: Send + Sync {
-    /// `program` set its menu bar to `entries`, whole, as `RunningProgram::menu_bar` answers from
+    /// `program` set its menu bar to `entries`, whole, as `AppInstance::menu_bar` answers from
     /// now on: shown in place of the one before wherever the shell shows the program's. Called
     /// from the program's thread.
-    fn set(&self, program: &RunningProgram, entries: &[MenuEntry]);
+    fn set(&self, program: &AppInstance, entries: &[MenuEntry]);
 }
 
 /// The shell's side of `menus.context-menus`: the platform's menus opened at a point of a view.
@@ -551,7 +547,7 @@ pub trait ShellContextMenus: Send + Sync {
     /// choice, or the view is gone. Called from the program's thread.
     fn show(
         &self,
-        program: &RunningProgram,
+        program: &AppInstance,
         view: ViewId,
         x: f64,
         y: f64,
@@ -570,7 +566,7 @@ pub trait ShellTrayIcons: Send + Sync {
     /// thread. Called from the program's thread.
     fn add(
         &self,
-        program: &RunningProgram,
+        program: &AppInstance,
         image: &Image,
         tooltip: Option<&str>,
         reports: TrayIconReports,
@@ -619,7 +615,7 @@ pub trait ShellAudioOutputPicker: Send + Sync {
     /// Shows `outputs` to the user for `program`, and resolves to the id of the one picked; to
     /// none when the user dismissed the picker, or the program ended first. Called from the
     /// program's thread.
-    fn pick(&self, program: &RunningProgram, outputs: Vec<AudioOutput>) -> AudioOutputPickedFuture;
+    fn pick(&self, program: &AppInstance, outputs: Vec<AudioOutput>) -> AudioOutputPickedFuture;
 }
 
 /// What [`ShellAudioOutputPicker::pick`] answers: the id of the output picked, or none.
@@ -632,7 +628,7 @@ pub trait ShellMachinePicker: Send + Sync {
     /// Shows `machines` to the user for `program`, and resolves to the id of the one picked; to
     /// none when the user cancelled, or the program ended first. Called from the program's
     /// thread.
-    fn pick(&self, program: &RunningProgram, machines: Vec<MachineChoice>) -> MachinePickedFuture;
+    fn pick(&self, program: &AppInstance, machines: Vec<MachineChoice>) -> MachinePickedFuture;
 }
 
 /// What [`ShellMachinePicker::pick`] answers: the id of the machine picked, or none.
@@ -644,7 +640,7 @@ pub trait ShellRecordingIndicator: Send + Sync {
     /// `program` records with `device` from now on, or no longer does: told once as its first
     /// microphone opens, or its first capture session starts, and once as its last is let go, the
     /// program ending among the ways. Called from any thread.
-    fn recording_changed(&self, program: &RunningProgram, device: RecordingDevice, recording: bool);
+    fn recording_changed(&self, program: &AppInstance, device: RecordingDevice, recording: bool);
 }
 
 /// What a program records with.
@@ -670,7 +666,7 @@ pub trait ShellFileDialogs: Send + Sync {
     /// Asks for one file to open; none if the user cancelled.
     fn open_file(
         &self,
-        program: &RunningProgram,
+        program: &AppInstance,
         parent: Option<ViewId>,
         options: OpenOptions,
     ) -> FileDialogFuture<Option<PathBuf>>;
@@ -678,7 +674,7 @@ pub trait ShellFileDialogs: Send + Sync {
     /// Asks for files to open; none if the user cancelled.
     fn open_files(
         &self,
-        program: &RunningProgram,
+        program: &AppInstance,
         parent: Option<ViewId>,
         options: OpenOptions,
     ) -> FileDialogFuture<Vec<PathBuf>>;
@@ -686,7 +682,7 @@ pub trait ShellFileDialogs: Send + Sync {
     /// Asks for a folder; none if the user cancelled.
     fn open_folder(
         &self,
-        program: &RunningProgram,
+        program: &AppInstance,
         parent: Option<ViewId>,
         options: FolderOptions,
     ) -> FileDialogFuture<Option<PathBuf>>;
@@ -694,7 +690,7 @@ pub trait ShellFileDialogs: Send + Sync {
     /// Asks where to save a file, which may not exist yet; none if the user cancelled.
     fn save_file(
         &self,
-        program: &RunningProgram,
+        program: &AppInstance,
         parent: Option<ViewId>,
         options: SaveOptions,
     ) -> FileDialogFuture<Option<PathBuf>>;
@@ -710,13 +706,13 @@ pub type FileDialogFuture<T> = Pin<Box<dyn Future<Output = Result<T, DialogError
 /// is the engine's. Called from the program's thread.
 pub trait ShellOpener: Send + Sync {
     /// Opens `link`, which the program may open, in the app the system picks for its scheme.
-    fn open_link(&self, program: &RunningProgram, link: &str) -> OpenFuture;
+    fn open_link(&self, program: &AppInstance, link: &str) -> OpenFuture;
 
     /// Opens the file at `path` on the machine in the app the system picks for its type.
-    fn open_file(&self, program: &RunningProgram, path: &Path) -> OpenFuture;
+    fn open_file(&self, program: &AppInstance, path: &Path) -> OpenFuture;
 
     /// Shows the file at `path` on the machine in the system's file manager, selected.
-    fn reveal_file(&self, program: &RunningProgram, path: &Path) -> OpenFuture;
+    fn reveal_file(&self, program: &AppInstance, path: &Path) -> OpenFuture;
 }
 
 /// What a [`ShellOpener`] call answers.
@@ -726,25 +722,25 @@ pub type OpenFuture = Pin<Box<dyn Future<Output = Result<(), OpenError>> + Send>
 /// notification as the program builds it, whether the program may post, and the streams of its
 /// activations): the system's notifications, as Waft's `Notifications` is. Every call names the
 /// program the notification is of, whose ids are its own: the shell keeps two programs' same id
-/// apart, by the program's name (`RunningProgram::name`, the id an embedder names it by), which
+/// apart, by the program's name (`AppInstance::name`, the id an embedder names it by), which
 /// also finds a program's notifications, shown and scheduled, when the app removes the program.
 /// Until a program has an identity of its own with the system, the shell posts under the app's and
 /// puts the program's name in the notification. Where it has one, as each program's app of its own
 /// on macOS, the system keeps a permission of its own for the program
 /// ([`ShellSystemPermissions`]), which may refuse it its notifications whatever its user said in
 /// WaOS. What the user does to a notification, at launch or while the
-/// program runs, the shell reports with `RunningProgram::notification_activated`, starting the
+/// program runs, the shell reports with `AppInstance::notification_activated`, starting the
 /// program first when it is not running. Called from the program's thread.
 pub trait ShellNotifications: Send + Sync {
     /// Posts `notification` of `program`'s, in place of one of its own under the same id, and
     /// resolves once the system has it, or to why not: `failed`, or `denied` where the system
     /// refuses the program's notifications, never for the program's own permission, which is the
     /// engine's.
-    fn post(&self, program: &RunningProgram, notification: &Notification) -> NotificationFuture;
+    fn post(&self, program: &AppInstance, notification: &Notification) -> NotificationFuture;
 
     /// Takes `program`'s notification `id` away, shown or scheduled; nothing for an id it has
     /// none of.
-    fn remove(&self, program: &RunningProgram, id: &str);
+    fn remove(&self, program: &AppInstance, id: &str);
 
     /// Whether a notification may carry an action the user answers by typing; false where the
     /// system has none.
@@ -794,7 +790,7 @@ pub trait ShellSystemPermissions: Send + Sync {
     fn state(
         &self,
         permission: SystemPermission<'_>,
-        program: &RunningProgram,
+        program: &AppInstance,
     ) -> SystemPermissionState;
 
     /// Asks the system for `permission` for `program` in the system's own way: its prompt, which
@@ -804,7 +800,7 @@ pub trait ShellSystemPermissions: Send + Sync {
     fn request(
         &self,
         permission: SystemPermission<'_>,
-        program: &RunningProgram,
+        program: &AppInstance,
     ) -> SystemPermissionFuture;
 }
 
@@ -815,7 +811,7 @@ pub trait ShellNotificationScheduling: Send + Sync {
     /// Called from the program's thread.
     fn schedule(
         &self,
-        program: &RunningProgram,
+        program: &AppInstance,
         notification: &Notification,
         at: SystemTime,
     ) -> NotificationFuture;
@@ -838,7 +834,7 @@ pub trait ShellMediaPlayers: Send + Sync {
     /// at each of its changes, a jump of its position among them. Called from any thread.
     fn open(
         &self,
-        program: &RunningProgram,
+        program: &AppInstance,
         url: &str,
         reports: MediaPlayerReports,
     ) -> Box<dyn ShellMediaPlayer>;
@@ -882,7 +878,7 @@ pub trait ShellMediaAssets: Send + Sync {
     /// The media at `url` for `program`, read as it is asked: an `http` or `https` link the
     /// program may reach, or the `file:` URL of a file on the machine the program can read, as the
     /// engine checked, as a player is opened. Called from any thread.
-    fn open(&self, program: &RunningProgram, url: &str) -> Box<dyn ShellMediaAsset>;
+    fn open(&self, program: &AppInstance, url: &str) -> Box<dyn ShellMediaAsset>;
 }
 
 /// The shell's side of `media-assets.media-asset`: one piece of media the system reads. Each
@@ -923,11 +919,11 @@ pub trait ShellImageCodecs: Send + Sync {
     fn encoded_formats(&self) -> Vec<String>;
 
     /// The image `data` encodes, for `program`, with what it says of itself.
-    fn open(&self, program: &RunningProgram, data: Vec<u8>) -> ImageFuture<OpenedImage>;
+    fn open(&self, program: &AppInstance, data: Vec<u8>) -> ImageFuture<OpenedImage>;
 
     /// The image in the file at `path` on the machine, for `program`: a file inside the program's
     /// mounts, as the engine checked.
-    fn open_file(&self, program: &RunningProgram, path: &Path) -> ImageFuture<OpenedImage>;
+    fn open_file(&self, program: &AppInstance, path: &Path) -> ImageFuture<OpenedImage>;
 
     /// `pixels` encoded in `format`, a MIME type, at `quality` from 0 to 1 where given; pixels
     /// whose bytes hold their rows and a quality from 0 to 1, as the engine checked.
@@ -1111,7 +1107,7 @@ pub trait ShellCameras: Send + Sync {
     /// Opens the camera `id` for `program`, whose user allowed it the cameras, as the engine
     /// checked first; `unplugged` for a camera no longer attached. Called from the program's
     /// thread.
-    fn open(&self, program: &RunningProgram, id: &str) -> CameraOpenFuture;
+    fn open(&self, program: &AppInstance, id: &str) -> CameraOpenFuture;
 }
 
 /// What [`ShellCameras::list`] answers.

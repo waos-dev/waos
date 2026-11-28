@@ -15,7 +15,7 @@ use futures::FutureExt;
 use waft::App;
 use waft::ui::{self, Platform, PlatformRef};
 use waos::bindings::wasdk::platform::opener::OpenError;
-use waos::{OpenFuture, RunningProgram, ShellOpener};
+use waos::{AppInstance, OpenFuture, ShellOpener};
 
 use super::app_thread_bound::{AppThreadBound, AppThreadCalls};
 
@@ -75,19 +75,19 @@ impl OpenerOnRequest {
 }
 
 impl ShellOpener for OpenerOnRequest {
-    fn open_link(&self, program: &RunningProgram, link: &str) -> OpenFuture {
+    fn open_link(&self, program: &AppInstance, link: &str) -> OpenFuture {
         tracing::info!(program = program.name(), link, "a program opens a link");
         let link = link.to_owned();
         self.ask(move |opener| opener.open_link(&link))
     }
 
-    fn open_file(&self, program: &RunningProgram, path: &Path) -> OpenFuture {
+    fn open_file(&self, program: &AppInstance, path: &Path) -> OpenFuture {
         tracing::info!(program = program.name(), ?path, "a program opens a file");
         let path = path.to_owned();
         self.ask(move |opener| opener.open_file(&path))
     }
 
-    fn reveal_file(&self, program: &RunningProgram, path: &Path) -> OpenFuture {
+    fn reveal_file(&self, program: &AppInstance, path: &Path) -> OpenFuture {
         tracing::info!(program = program.name(), ?path, "a program reveals a file");
         let path = path.to_owned();
         self.ask(move |opener| opener.reveal_file(&path))

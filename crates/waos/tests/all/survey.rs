@@ -11,7 +11,7 @@ use std::sync::Arc;
 use waos::bindings::wasdk::platform::lifecycle::AppExitResponse;
 use waos::bindings::wasdk::platform::views::{PointerButtons, PointerChange};
 use waos::bindings::wasdk::platform::windows::{MacosTitleBar, Size, TitleBarAction};
-use waos::{HeldModifiers, ProgramEnd, ProgramView, RunningProgram, WaOS};
+use waos::{AppInstance, HeldModifiers, ProgramEnd, ProgramView, WaOS};
 use waos_headless::HeadlessView;
 
 use crate::test_shell::{RecordedOutput, TestShell, config, metrics, mouse, printing_to, within};
@@ -30,7 +30,7 @@ const MS: u64 = 1_000_000;
 struct Survey {
     shell: TestShell,
     _engine: WaOS,
-    running: RunningProgram,
+    running: AppInstance,
     shown: Arc<HeadlessView>,
     view: ProgramView,
     output: Arc<RecordedOutput>,

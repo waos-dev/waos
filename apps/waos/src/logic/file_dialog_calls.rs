@@ -15,13 +15,13 @@ use waft::ui;
 use waos::bindings::wasdk::platform::file_dialogs::DialogError;
 use waos::bindings::wasdk::platform::views::ViewId;
 use waos::{
-    FileDialogFuture, FolderOptions, OpenOptions, RunningProgram, SaveOptions, ShellFileDialogs,
+    AppInstance, FileDialogFuture, FolderOptions, OpenOptions, SaveOptions, ShellFileDialogs,
 };
 use waos_program_window::{waft_folder_options, waft_open_options, waft_save_options};
 
 /// One dialog a program asks for, on its way to the main thread.
 pub(crate) struct DialogCall {
-    pub(crate) program: RunningProgram,
+    pub(crate) program: AppInstance,
     /// The program's view whose window the dialog is a sheet on.
     pub(crate) parent: Option<ViewId>,
     pub(crate) dialog: Dialog,
@@ -53,7 +53,7 @@ impl FileDialogsOnRequest {
     /// Sends `dialog` to the main thread, and answers the paths chosen in it.
     fn ask(
         &self,
-        program: &RunningProgram,
+        program: &AppInstance,
         parent: Option<ViewId>,
         dialog: Dialog,
     ) -> impl Future<Output = Result<Vec<PathBuf>, DialogError>> + Send + use<> {
@@ -76,7 +76,7 @@ impl FileDialogsOnRequest {
 impl ShellFileDialogs for FileDialogsOnRequest {
     fn open_file(
         &self,
-        program: &RunningProgram,
+        program: &AppInstance,
         parent: Option<ViewId>,
         options: OpenOptions,
     ) -> FileDialogFuture<Option<PathBuf>> {
@@ -87,7 +87,7 @@ impl ShellFileDialogs for FileDialogsOnRequest {
 
     fn open_files(
         &self,
-        program: &RunningProgram,
+        program: &AppInstance,
         parent: Option<ViewId>,
         options: OpenOptions,
     ) -> FileDialogFuture<Vec<PathBuf>> {
@@ -97,7 +97,7 @@ impl ShellFileDialogs for FileDialogsOnRequest {
 
     fn open_folder(
         &self,
-        program: &RunningProgram,
+        program: &AppInstance,
         parent: Option<ViewId>,
         options: FolderOptions,
     ) -> FileDialogFuture<Option<PathBuf>> {
@@ -108,7 +108,7 @@ impl ShellFileDialogs for FileDialogsOnRequest {
 
     fn save_file(
         &self,
-        program: &RunningProgram,
+        program: &AppInstance,
         parent: Option<ViewId>,
         options: SaveOptions,
     ) -> FileDialogFuture<Option<PathBuf>> {

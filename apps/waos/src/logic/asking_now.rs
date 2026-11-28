@@ -15,7 +15,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use tokio::sync::{broadcast, watch};
-use waos::RunningProgram;
+use waos::AppInstance;
 #[cfg(desktop)]
 use waos::{Question, Switch};
 use waos_dev_protocol::Asked;
@@ -72,7 +72,7 @@ impl AskingNow {
     /// Waits for `answer`, which `program`'s user gives to `asked`, noting it as asked meanwhile.
     pub(crate) fn while_asked<T>(
         self: &Arc<AskingNow>,
-        program: &RunningProgram,
+        program: &AppInstance,
         asked: Asked,
         answer: impl Future<Output = T> + Send + 'static,
     ) -> impl Future<Output = T> + Send + 'static {

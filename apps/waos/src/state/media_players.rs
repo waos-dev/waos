@@ -23,7 +23,7 @@ use std::time::Duration;
 use waft::ui::{self, MediaPlayer, Platform};
 use waft::{App, AsyncApp};
 use waos::bindings::wasdk::media::media_players::SeekTolerance;
-use waos::{MediaPlayerReports, RunningProgram, ShellMediaPlayer, ShellMediaPlayers, VideoOutput};
+use waos::{AppInstance, MediaPlayerReports, ShellMediaPlayer, ShellMediaPlayers, VideoOutput};
 use waos_program_window::waft_layer;
 
 use super::app_thread_bound::{AppThreadBound, AppThreadCalls};
@@ -80,7 +80,7 @@ struct PlayersOnRequest {
 impl ShellMediaPlayers for PlayersOnRequest {
     fn open(
         &self,
-        program: &RunningProgram,
+        program: &AppInstance,
         url: &str,
         reports: MediaPlayerReports,
     ) -> Box<dyn ShellMediaPlayer> {

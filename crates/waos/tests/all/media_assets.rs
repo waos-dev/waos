@@ -19,7 +19,7 @@ use url::Url;
 use waos::bindings::wasdk::media::media_players::{
     MediaMetadata, MediaTrack, MediaTrackKind, PlayerError, PlayerErrorKind,
 };
-use waos::{ProgramEnd, ProgramEnvironment, ProgramGrants, RunningProgram, WaOS};
+use waos::{AppInstance, ProgramEnd, ProgramEnvironment, ProgramGrants, WaOS};
 use waos_capabilities::ProgramFolders;
 
 use crate::reaching::{TestGrants, off};
@@ -159,7 +159,7 @@ fn track(id: &str, kind: MediaTrackKind, language: &str, selected: bool) -> Medi
 /// `examples/media-assets` running with grants of the test's, the sources it reads written in its
 /// `/data/sources`, beside a clip of its own, `/data/clip.mp4`.
 struct Run {
-    running: RunningProgram,
+    running: AppInstance,
     output: Arc<RecordedOutput>,
     folders: TempDir,
 }

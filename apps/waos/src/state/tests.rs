@@ -46,8 +46,8 @@ use waft_test::{
     TestPlatform, TestWindows,
 };
 use waos::{
-    EngineTime, FreezePolicy, HttpProxy, ProgramEnd, ProgramEnvironment, ProgramOutput,
-    RunningProgram, WaOS, WaOSConfig,
+    AppInstance, EngineTime, FreezePolicy, HttpProxy, ProgramEnd, ProgramEnvironment,
+    ProgramOutput, WaOS, WaOSConfig,
 };
 use waos_package::ProgramId;
 use waos_program_window::WaftCompositor;
@@ -193,7 +193,7 @@ impl Desktop {
     }
 
     /// Runs the test program at `component`, its output into `output`.
-    fn run(&self, component: &str, output: &Arc<Lines>) -> RunningProgram {
+    fn run(&self, component: &str, output: &Arc<Lines>) -> AppInstance {
         let program = self
             .engine
             .load(
@@ -217,7 +217,7 @@ impl Desktop {
 
     /// Runs the test program at `component` as the program `id`, with the store's settings for it,
     /// which start as the design's defaults, and its own folders, its output into `output`.
-    fn run_as(&self, component: &str, id: &str, output: &Arc<Lines>) -> RunningProgram {
+    fn run_as(&self, component: &str, id: &str, output: &Arc<Lines>) -> AppInstance {
         let program = self
             .engine
             .load(
@@ -629,7 +629,7 @@ impl CompositionLayer for TestLayer {
     }
 }
 
-fn has_ended(program: &RunningProgram) -> Option<ProgramEnd> {
+fn has_ended(program: &AppInstance) -> Option<ProgramEnd> {
     program.ended().now_or_never()
 }
 
