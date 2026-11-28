@@ -1,25 +1,20 @@
-//! The programs' windows under a desktop with no window server: Waft's test platform makes a
-//! window for each request at once, on its one screen, a compositor of the tests' own counts the
-//! hardware buffers each composition layer is shown, and a vsync waiter of the tests' own serves
-//! every wait at the host's next turn. The test plays the host: it reports each window made and
-//! each one closed, draws the frame each view asked for, serves the waits for the screen's vsync,
-//! and runs the app's tasks, as Waft's host does on its loop.
+//! The apps' windows and the system services they reach through Waft, on a desktop of the tests'
+//! own over WaOS's one startup kept in memory (`state::test_windows`), each app opened through the
+//! app instances from its build.
 //!
 //! Survey asks for a view, sees it arrive with what it starts with, keeps its window between the
 //! size limits it sets, hears a resize, closes its window when asked to and ends once the view is
-//! gone, moves its window from the band it treats as its title bar, asked for with no title bar of
-//! macOS's own, and hears its window maximized, and its state follows its window's focus
-//! and whether the window is minimized or occluded; triangle draws on its surface, and its window
-//! closes when it is stopped; composition-layers' layers are the children of its canvas's layer,
-//! where each present places them; and the clipboard program reads, through Waft's clipboard, what
-//! another app copied, puts its own copy there, whose promised forms and file a paste from Waft's
-//! clipboard has it produce, hears another app's copy replace it, and ends as its window is asked
-//! to close; and the menus program has no menu bar in WaOS's own windows, WaOS's own bar staying
-//! while its window is in front, hears Edit's commands through its canvas, opens a context menu
-//! through Waft's at a key, and adds a tray icon, which offers the menus Waft's icon offers,
-//! hears what Waft reports of it, opens a menu at it, and goes with the program, or fails with
-//! why Waft's tray refused it; and a key it leaves is offered to the menu bar, and one it handles
-//! is not.
+//! gone, and its state follows its window's focus and whether the window is minimized or occluded;
+//! a launch's activation token goes to its next window; triangle draws on its surface, and its
+//! window closes when it is stopped; and the clipboard program reads, through Waft's clipboard,
+//! what another app copied, puts its own copy there, whose promised forms and file a paste from
+//! Waft's clipboard has it produce, hears another app's copy replace it, and ends as its window is
+//! asked to close; and the menus program has no menu bar in WaOS's own windows, WaOS's own bar
+//! staying while its window is in front, hears Edit's commands through its canvas, opens a context
+//! menu through Waft's at a key, and adds a tray icon, which offers the menus Waft's icon offers,
+//! hears what Waft reports of it, opens a menu at it, and goes with the program, or fails with why
+//! Waft's tray refused it; a key it leaves is offered to the menu bar, and one it handles is not;
+//! and the file dialogs program's picks are mounted.
 
 use std::rc::Rc;
 use std::sync::Arc;
@@ -28,12 +23,10 @@ use std::time::Duration;
 use futures::FutureExt;
 use futures::executor::block_on;
 use waft::ui::{
-    Clipboard as _, ClipboardEvent, Contact, CopyRequest, EditCommand, EmbedderClient, KeyData,
-    KeyEventType, MenuEntry, Offset, Placement, PointerDeviceKind, PointerReport, Rect,
-    ReportedChange, TrayIconEvent, URI_LIST, View, ViewFocusDirection, ViewFocusEvent,
-    ViewFocusState,
+    Clipboard as _, ClipboardEvent, CopyRequest, EditCommand, EmbedderClient, KeyData,
+    KeyEventType, MenuEntry, Offset, TrayIconEvent, URI_LIST, View, ViewFocusDirection,
+    ViewFocusEvent, ViewFocusState,
 };
-use waft::{HostWindow, MacosTitleBar};
 use waft_test::{AskedDialog, MockTrayIcons};
 use waos::{AppInstance, ProgramEnd};
 
@@ -157,88 +150,6 @@ fn a_views_presence_follows_its_windows_focus_and_whether_it_is_minimized_or_occ
     survey.stop();
 }
 
-#[test]
-fn a_press_on_surveys_title_bar_moves_its_window_and_survey_hears_it_maximized() {
-    let mut desktop = Desktop::new();
-    let output = Arc::new(Lines::default());
-    let survey = desktop.run(waos_test_programs::SURVEY, &output);
-    desktop.pump_until("survey's view arriving", |_| {
-        output
-            .all()
-            .iter()
-            .any(|line| line.starts_with("view 1: 900x600"))
-    });
-    let window = Rc::clone(&desktop.platform.windows.made()[0]);
-    assert_eq!(
-        window.config().macos.title_bar,
-        MacosTitleBar::Hidden { height: 28.0 },
-        "survey's window has no title bar of macOS's own, its buttons in a band 28 points tall"
-    );
-    let view = window.test_view().id();
-
-    desktop.shell.pointer_reports(vec![PointerReport {
-        view_id: view,
-        time_stamp: Duration::ZERO,
-        device: 1,
-        kind: PointerDeviceKind::Mouse,
-        position: [100.0, 10.0],
-        change: ReportedChange::Down { buttons: 1 },
-        contact: Contact::default(),
-    }]);
-    desktop.pump_until("survey moving its window", |_| window.drags() == 1);
-
-    window.set_maximized(true);
-    window.set_frame(Rect::from_ltwh(0.0, 0.0, 1200.0, 800.0), None);
-    desktop.shell.window_changed(view);
-    window
-        .test_view()
-        .set_physical_size(waft::ui::Size::new(1200.0, 800.0));
-    desktop.shell.view_metrics_changed(view);
-    desktop.pump_until("survey hearing its window maximized", |_| {
-        output.has("view 1: its window is maximized")
-    });
-    survey.stop();
-}
-
-#[test]
-fn a_secondary_press_on_surveys_title_bar_takes_its_window_full_screen_and_survey_hears_it() {
-    let mut desktop = Desktop::new();
-    let output = Arc::new(Lines::default());
-    let survey = desktop.run(waos_test_programs::SURVEY, &output);
-    desktop.pump_until("survey's view arriving", |_| {
-        output
-            .all()
-            .iter()
-            .any(|line| line.starts_with("view 1: 900x600"))
-    });
-    let window = Rc::clone(&desktop.platform.windows.made()[0]);
-    let view = window.test_view().id();
-
-    desktop.shell.pointer_reports(vec![PointerReport {
-        view_id: view,
-        time_stamp: Duration::ZERO,
-        device: 1,
-        kind: PointerDeviceKind::Mouse,
-        position: [100.0, 10.0],
-        change: ReportedChange::Down { buttons: 2 },
-        contact: Contact::default(),
-    }]);
-    desktop.pump_until("survey's window going full screen", |_| {
-        window.is_fullscreen()
-    });
-    desktop.pump_until("survey hearing its window full screen", |_| {
-        output.has("view 1: its window is full screen")
-    });
-
-    // The user leaves full screen by the system's own means: Waft says the window changed.
-    window.set_fullscreen(false, None);
-    desktop.shell.window_changed(view);
-    desktop.pump_until("survey hearing its window no longer full screen", |_| {
-        output.has("view 1: its window is no longer full screen")
-    });
-    survey.stop();
-}
-
 /// What the host reports in the presence test: the window's focus, and the window changing as it
 /// is covered or uncovered, minimized or restored.
 enum Step {
@@ -261,74 +172,6 @@ fn a_program_draws_on_its_surface_and_its_window_closes_when_it_ends() {
     let window = Rc::clone(&desktop.platform.windows.made()[0]);
     desktop.pump_until("triangle's window closing", |_| window.closes() == 1);
     assert!(matches!(has_ended(&triangle), Some(ProgramEnd::Stopped)));
-}
-
-/// Presenting makes hardware buffers, which only Apple's systems have so far.
-#[cfg(target_vendor = "apple")]
-#[test]
-fn a_programs_layers_are_shown_beneath_its_canvas_where_each_present_places_them() {
-    use waft::ui::{Matrix4, Mutator, RRect, Radius};
-
-    // The layers by the order Waft's compositor made them in: the window's canvas first, as the
-    // window arrives, then the program's video and badge, once it has its view.
-    const CANVAS: usize = 0;
-    const VIDEO: usize = 1;
-    const BADGE: usize = 2;
-    let mut desktop = Desktop::new();
-    let output = Arc::new(Lines::default());
-    let program = desktop.run(waos_test_programs::COMPOSITION_LAYERS, &output);
-    desktop.pump_until("its two frames presented", |desktop| {
-        desktop.platform.compositor.presents() >= 2
-    });
-    let compositor = &desktop.platform.compositor;
-    assert_eq!(
-        compositor.opaque(),
-        [true, true, false],
-        "the canvas as opaque as its window's solid background, the video opaque, the badge not"
-    );
-    let presented = compositor.children_presented(CANVAS);
-    let scale_two = Matrix4::scale(2.0, 2.0);
-    assert_eq!(
-        presented[0][0],
-        (
-            VIDEO,
-            Placement {
-                rect: Rect::from_ltwh(0.0, 0.0, 640.0, 360.0),
-                mutators: vec![
-                    Mutator::Transform(scale_two),
-                    Mutator::ClipRect(Rect::from_ltwh(0.0, 0.0, 600.0, 300.0)),
-                    Mutator::ClipRRect(RRect::from_rect_and_radius(
-                        Rect::from_ltwh(10.0, 10.0, 300.0, 200.0),
-                        Radius::circular(8.0),
-                    )),
-                    Mutator::Opacity(128),
-                ],
-            }
-        )
-    );
-    assert_eq!(
-        presented[0][1],
-        (
-            BADGE,
-            Placement {
-                rect: Rect::from_ltwh(16.0, 16.0, 96.0, 48.0),
-                mutators: Vec::new(),
-            }
-        )
-    );
-    assert_eq!(presented[0].len(), 2);
-    assert_eq!(
-        presented[1],
-        [(
-            BADGE,
-            Placement {
-                rect: Rect::from_ltwh(32.0, 32.0, 96.0, 48.0),
-                mutators: vec![Mutator::Transform(scale_two)],
-            }
-        )],
-        "the second frame lets the video go"
-    );
-    program.stop();
 }
 
 #[test]

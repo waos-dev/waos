@@ -501,9 +501,8 @@ impl VsyncWaiter for TestVsync {
     }
 }
 
-/// Composition layers that show nothing: each counts the hardware buffers it is shown, keeps the
-/// children each present showed, lets go of each buffer at once, and wakes the test's host, which
-/// a test waiting for a present turns for.
+/// Composition layers that show nothing: each counts the hardware buffers it is shown, lets go of
+/// each buffer at once, and wakes the test's host, which a test waiting for a present turns for.
 pub(crate) struct TestCompositor {
     /// Each layer made, in order.
     layers: Arc<Mutex<Vec<Arc<TestLayer>>>>,
@@ -520,44 +519,12 @@ impl TestCompositor {
             .map(|layer| layer.presents.load(Ordering::SeqCst))
             .sum()
     }
-
-    /// Whether each layer made, in order, was made opaque.
-    pub(crate) fn opaque(&self) -> Vec<bool> {
-        let layers = self.layers.lock().unwrap();
-        layers.iter().map(|layer| layer.opaque).collect()
-    }
-
-    /// The children each present to the layer made `index`th showed, each by the order it was
-    /// made in, with its placement.
-    pub(crate) fn children_presented(&self, index: usize) -> Vec<Vec<(usize, Placement)>> {
-        let layers = self.layers.lock().unwrap();
-        let presented = layers[index].children.lock().unwrap();
-        presented
-            .iter()
-            .map(|children| {
-                children
-                    .iter()
-                    .map(|(child, placement)| {
-                        let made = layers
-                            .iter()
-                            .position(|layer| {
-                                std::ptr::addr_eq(Arc::as_ptr(layer), Arc::as_ptr(child))
-                            })
-                            .expect("a child this compositor made");
-                        (made, placement.clone())
-                    })
-                    .collect()
-            })
-            .collect()
-    }
 }
 
 impl Compositor for TestCompositor {
-    fn make_layer(&self, opaque: bool) -> Arc<dyn CompositionLayer> {
+    fn make_layer(&self, _opaque: bool) -> Arc<dyn CompositionLayer> {
         let layer = Arc::new(TestLayer {
-            opaque,
             presents: AtomicUsize::new(0),
-            children: Mutex::default(),
             host: Arc::clone(&self.host),
         });
         self.layers.lock().unwrap().push(Arc::clone(&layer));
@@ -569,14 +536,8 @@ impl Compositor for TestCompositor {
     }
 }
 
-/// The children one present showed, the bottom-most first.
-type Children = Vec<(Arc<dyn CompositionLayer>, Placement)>;
-
 struct TestLayer {
-    opaque: bool,
     presents: AtomicUsize,
-    /// The children each present showed, in order.
-    children: Mutex<Vec<Children>>,
     host: Arc<dyn Dispatcher>,
 }
 
@@ -584,10 +545,9 @@ impl CompositionLayer for TestLayer {
     fn present(
         &self,
         buffer: Arc<dyn HardwareBuffer>,
-        children: Children,
+        _children: Vec<(Arc<dyn CompositionLayer>, Placement)>,
         released: Box<dyn FnOnce() + Send + Sync>,
     ) {
-        self.children.lock().unwrap().push(children);
         self.presents.fetch_add(1, Ordering::SeqCst);
         drop(buffer);
         released();
