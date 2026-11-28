@@ -1,9 +1,7 @@
 //! What the embedding app supplies: where a program's views go ([`ViewPlacement`]), the screens'
 //! refreshes ([`VsyncWaiter`]), the system's compositor, which makes the layers a program places
 //! beneath its drawing ([`ShellCompositor`], each layer a [`ShellCompositionLayer`], answering what
-//! it shows now as a [`LayerPicture`]), what asks the
-//! user for what a program may use ([`Prompts`], with [`NoPrompts`] for a shell with nobody to
-//! ask), the shell's side of each WIT resource minus what the engine keeps ([`ShellView`],
+//! it shows now as a [`LayerPicture`]), the shell's side of each WIT resource minus what the engine keeps ([`ShellView`],
 //! [`ShellTextInput`], [`ShellWindow`], [`ShellWindowSizeLimits`], [`ShellClipboard`],
 //! [`ShellClipboardItem`],
 //! [`ShellMenuBar`], [`ShellContextMenus`], [`ShellTrayIcons`], [`ShellTrayIcon`],
@@ -33,7 +31,7 @@
 //! reader are the shell's own values, which the engine holds and hands back and never looks into.
 
 use std::any::Any;
-use std::future::{Future, ready};
+use std::future::Future;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
@@ -43,7 +41,7 @@ use std::time::{Duration, Instant, SystemTime};
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
 
-use waos_capabilities::{Answer, AudioOutput, MachineChoice, Question, Role, Switch};
+use waos_capabilities::{AudioOutput, MachineChoice};
 
 use crate::bindings::wasdk::media::cameras::{CameraError, CameraFormat, CameraInfo, Photo};
 use crate::bindings::wasdk::media::image_codecs::{ImageMetadata, ImageOrientation, ImagePictures};
@@ -89,8 +87,6 @@ pub struct Shell {
     /// The system's compositor, which makes the layers a program places beneath its drawing;
     /// none for a shell without one, and then a program's `get-compositor` answers none.
     pub compositor: Option<Arc<dyn ShellCompositor>>,
-    /// What asks the user for what a program may use.
-    pub prompts: Arc<dyn Prompts>,
     /// What the system itself allows of what a program's user allowed it; none for a shell whose
     /// system guards nothing beyond what the user allowed in WaOS.
     pub system_permissions: Option<Arc<dyn ShellSystemPermissions>>,
@@ -149,62 +145,6 @@ pub struct Shell {
     /// The picker of a machine for a program; none for a shell without one, and then a
     /// program's `pick` answers none, as when the user cancels.
     pub machine_picker: Option<Arc<dyn ShellMachinePicker>>,
-}
-
-/// What asks the user for what a program may use: the question put at its first use, the
-/// question put at its first link of a scheme of its own, and a switch's page in the app's
-/// settings, opened for the user, as an iOS app sends its user to its page in Settings. The engine
-/// keeps what the user answers through the program's grants.
-pub trait Prompts: Send + Sync {
-    /// Puts `question` to the user for `program`, and resolves to the answer; to none when nobody
-    /// answered, as when the program ended first. The engine puts one question to the user at a
-    /// time for a program, however often the program asks. Called from the program's thread.
-    fn ask(&self, program: &RunningProgram, question: Question) -> AnswerFuture;
-
-    /// Asks the user whether `program` may open links of `scheme`, any but `http`, `https` and
-    /// `mailto`, which open freely, in lower case (`zoommtg`), and resolves to the answer; to none
-    /// when nobody answered. The engine asks once at a time for a scheme of a program's, however
-    /// often the program opens its links. Called from the program's thread.
-    fn ask_to_open_links(&self, program: &RunningProgram, scheme: &str) -> AnswerFuture;
-
-    /// Asks the user whether `program` may hold `role`, which it asks for by importing the
-    /// role's interfaces, saying what the role sees, and resolves to the answer, Allow or Don't
-    /// allow; to none when nobody answered. Asked at the program's start, before any of it runs,
-    /// while the user has not answered. Called from the program's thread.
-    fn ask_for_role(&self, program: &RunningProgram, role: Role) -> AnswerFuture;
-
-    /// Opens `switch`'s page in `program`'s settings for the user, and resolves once the user
-    /// leaves it. Called from the program's thread.
-    fn open_settings(&self, program: &RunningProgram, switch: Switch) -> SettingsClosedFuture;
-}
-
-/// What [`Prompts::ask`] answers.
-pub type AnswerFuture = Pin<Box<dyn Future<Output = Option<Answer>> + Send>>;
-
-/// What [`Prompts::open_settings`] answers.
-pub type SettingsClosedFuture = Pin<Box<dyn Future<Output = ()> + Send>>;
-
-/// Prompts for a shell with nobody to ask, as a headless runner has: every question is refused,
-/// links of every scheme and every role asked about with it, and no settings open, so asking for a switch
-/// answers at once.
-pub struct NoPrompts;
-
-impl Prompts for NoPrompts {
-    fn ask(&self, _program: &RunningProgram, _question: Question) -> AnswerFuture {
-        Box::pin(ready(Some(Answer::Denied)))
-    }
-
-    fn ask_to_open_links(&self, _program: &RunningProgram, _scheme: &str) -> AnswerFuture {
-        Box::pin(ready(Some(Answer::Denied)))
-    }
-
-    fn ask_for_role(&self, _program: &RunningProgram, _role: Role) -> AnswerFuture {
-        Box::pin(ready(Some(Answer::Denied)))
-    }
-
-    fn open_settings(&self, _program: &RunningProgram, _switch: Switch) -> SettingsClosedFuture {
-        Box::pin(ready(()))
-    }
 }
 
 /// The screens' refreshes: Flutter's `VsyncWaiter`, for any screen. The engine decides which

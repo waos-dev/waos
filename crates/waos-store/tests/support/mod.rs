@@ -20,7 +20,7 @@ use waos_package_manager::{
     Caller, CodeCompiler, InstallError, InstalledProgram, PackageChange, PackageContent,
     PackageManager, StopApp,
 };
-use waos_permissions::{NothingInstalled, Permissions, SettingsFiles};
+use waos_permissions::{NoPrompts, NothingInstalled, Permissions, SettingsFiles};
 use waos_store::{Source, SourceProxy, Store};
 
 /// A compiler that compiles nothing, and finds nothing to compile.
@@ -95,7 +95,8 @@ pub async fn remove(store: &Store, packages: &PackageManager, id: &ProgramId) {
 
 /// The store in `directory`, its apps' activity recorded as the settings files there say.
 pub fn open_store(directory: &Path) -> Store {
-    let permissions = Permissions::open(Arc::new(SettingsFiles::new(directory)), &NothingInstalled);
+    let settings = Arc::new(SettingsFiles::new(directory));
+    let permissions = Permissions::open(settings, Arc::new(NoPrompts), Arc::new(NothingInstalled));
     Store::open(directory, SourceProxy::None, permissions).unwrap()
 }
 

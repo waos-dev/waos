@@ -11,9 +11,8 @@
 //! refuses leaves the app running without one. It is a debug build of Waft, slow to start, and
 //! draws, so it runs where the engine makes hardware buffers, on Apple's systems.
 
-use std::future::pending;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use waos::bindings::wasdk::platform::menus::{
     MenuEntry, MenuEntryKind, Provided, ProvidedItem, Submenu, TrayIconEvent,
@@ -25,8 +24,8 @@ use waos::{
     Answer, OpenRequest, ProgramEnd, ProgramEnvironment, ProgramGrants, ProgramOutput, ProgramView,
     Question, RunningProgram, WaOS,
 };
-use waos_capabilities::{ChangedFuture, DomainRule, FileSystemGrant, NetworkGrant};
 
+use crate::asking::app;
 use crate::test_shell::clipboard::CopiedText;
 use crate::test_shell::menus::{OpenedAt, TestMenus};
 use crate::test_shell::opener::Opened;
@@ -104,7 +103,7 @@ fn it_opens_a_link_and_posts_a_notification_through_waos_and_hears_its_click_and
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let output = Arc::new(RecordedOutput::default());
-    let grants = Arc::new(NotificationsAsked::default());
+    let grants = shell.permissions().of(&app());
     let (running, window) = run_with(&engine, &shell, &output, Some(grants));
     let bar = wait_for_bar(&shell.menus, "Open Link");
 
@@ -358,60 +357,5 @@ fn key(kind: KeyKind, (physical, logical): (u64, u64), character: Option<&str>) 
         logical,
         character: character.map(str::to_owned),
         synthesized: false,
-    }
-}
-
-/// Grants that give nothing but notifications, asked of the user and kept as an app keeps the
-/// answer.
-#[derive(Default)]
-struct NotificationsAsked {
-    notifications: Mutex<Option<Answer>>,
-}
-
-impl ProgramGrants for NotificationsAsked {
-    fn network(&self) -> NetworkGrant {
-        NetworkGrant {
-            on: false,
-            domains: DomainRule::Any,
-        }
-    }
-
-    fn local_network(&self) -> bool {
-        false
-    }
-
-    fn clipboard_read(&self) -> bool {
-        false
-    }
-
-    fn clipboard_write(&self) -> bool {
-        false
-    }
-
-    fn file_system(&self) -> FileSystemGrant {
-        FileSystemGrant::default()
-    }
-
-    fn answer(&self, question: Question) -> Option<Answer> {
-        match question {
-            Question::Notifications => *self.notifications.lock().unwrap(),
-            Question::Camera | Question::Microphone => Some(Answer::Denied),
-        }
-    }
-
-    fn set_answer(&self, question: Question, answer: Answer) {
-        if question == Question::Notifications {
-            *self.notifications.lock().unwrap() = Some(answer);
-        }
-    }
-
-    fn link_scheme_answer(&self, _scheme: &str) -> Option<Answer> {
-        Some(Answer::Denied)
-    }
-
-    fn set_link_scheme_answer(&self, _scheme: &str, _answer: Answer) {}
-
-    fn changed(&self) -> ChangedFuture {
-        Box::pin(pending())
     }
 }

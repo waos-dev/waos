@@ -3,8 +3,9 @@
 //! no display (`waos_headless`) with no `winit`, Wayland, X11, or `waft-single-instance`. Used on headless Linux
 //! servers/CI and whenever `waos --headless` is invoked.
 //!
-//! The invariant: every `ask` permission prompt stays open through `PromptsOnRequest` + `AskingNow`
-//! until answered via `waos settings set` (or the program ends), identically to desktop WaOS.
+//! The invariant: every question Permissions asks stays open through `PromptsOnRequest` until
+//! answered via `waos settings set` (or the program ends), listed among what Permissions asks,
+//! identically to desktop WaOS.
 //! When `idle_timeout` is non-zero, the daemon exits cleanly once no programs are running and no
 //! dev-server connections are active for that duration, dropping `DevServer` so the socket file is
 //! removed.
@@ -21,6 +22,7 @@ use waos::inspection::InspectedPrograms;
 use waos::{Compiler, EngineTime, FreezePolicy, HttpProxy, PlatformState, WaOS, WaOSConfig};
 use waos_headless::{Display, HeadlessShell, Refreshes};
 use waos_local::LocalCapabilities;
+use waos_permissions::Prompts;
 use waos_store::SourceProxy;
 
 use crate::logic::app_services::{AppServices, Domains, EngineCompiler, open_domains};
@@ -111,17 +113,9 @@ struct HeadlessDaemon {
 
 impl HeadlessDaemon {
     fn start(config: HeadlessConfig, runtime: tokio::runtime::Handle) -> Result<HeadlessDaemon> {
-        let asking = AskingNow::new();
-        let (prompts, prompted) = PromptsOnRequest::new(Arc::clone(&asking));
-        let output_picker = prompts.output_picker();
-        let machine_picker = prompts.machine_picker(None);
-        let headless = HeadlessShell::new(config.display, Refreshes::Every(REFRESH_INTERVAL));
-        let mut shell = headless.shell(Arc::new(prompts));
-        shell.audio_output_picker = Some(Arc::new(output_picker));
-        shell.machine_picker = Some(Arc::new(machine_picker));
-        shell.gpus = video_decoder_thread::start();
-
         let runs = Arc::new(RunningApps::default());
+        let (prompts, prompted) = PromptsOnRequest::new(Arc::clone(&runs));
+        let prompts = Arc::new(prompts);
         let compiler =
             Compiler::new(native_unwind_info_asked()).context("starting the compiler")?;
         let Domains {
@@ -133,7 +127,16 @@ impl HeadlessDaemon {
             Arc::new(EngineCompiler(compiler.clone())),
             &runs,
             SourceProxy::System,
+            Arc::clone(&prompts) as Arc<dyn Prompts>,
         )?;
+        let asking = AskingNow::new(permissions.asking());
+        let output_picker = prompts.output_picker(Arc::clone(&asking));
+        let machine_picker = prompts.machine_picker(Arc::clone(&asking), None);
+        let headless = HeadlessShell::new(config.display, Refreshes::Every(REFRESH_INTERVAL));
+        let mut shell = headless.shell();
+        shell.audio_output_picker = Some(Arc::new(output_picker));
+        shell.machine_picker = Some(Arc::new(machine_picker));
+        shell.gpus = video_decoder_thread::start();
         let inspected = Arc::new(ProgramsOnThisComputer::new(
             store.clone(),
             permissions.clone(),
@@ -632,8 +635,15 @@ mod tests {
         {
             let running = Arc::new(RunningApps::default());
             let compiler = Arc::new(crate::logic::test_installs::MarkerCompiler);
-            let domains = open_domains(&folders.store, compiler, &running, SourceProxy::System)
-                .expect("open the store");
+            let prompts = Arc::new(waos_permissions::NoPrompts);
+            let domains = open_domains(
+                &folders.store,
+                compiler,
+                &running,
+                SourceProxy::System,
+                prompts,
+            )
+            .expect("open the store");
             let data = domains
                 .store
                 .folders(&id.development())

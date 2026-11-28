@@ -22,9 +22,9 @@ use waos::{
     Answer, ProgramEnd, ProgramEnvironment, ProgramGrants, Question, RecordingDevice,
     RunningProgram, WaOS,
 };
-use waos_capabilities::ProgramFolders;
+use waos_capabilities::{ProgramFolders, Setting};
 
-use crate::asking::QuestionsAsked;
+use crate::asking::{app, permissions_with};
 use crate::test_shell::cameras::{Started, formats, listed};
 use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, wait_until, within};
 
@@ -44,7 +44,7 @@ const FORMATS: [&str; 2] = [
 fn a_camera_opens_once_allowed_and_runs_on_the_shells_own_layer_and_reader_until_it_ends() {
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
-    let run = Run::start(&engine, Run::asking());
+    let run = Run::start(&engine, Run::asking(&shell));
     for line in LISTED {
         run.output.wait_for(line);
     }
@@ -53,7 +53,7 @@ fn a_camera_opens_once_allowed_and_runs_on_the_shells_own_layer_and_reader_until
     });
     assert_eq!(
         shell.prompts.questions(),
-        [("cameras".to_owned(), Question::Camera)],
+        [(app().to_string(), Question::Camera)],
         "listing asks nothing; opening asks once"
     );
     assert!(shell.cameras.opened().is_empty(), "nothing opens before");
@@ -124,7 +124,7 @@ fn a_camera_opens_once_allowed_and_runs_on_the_shells_own_layer_and_reader_until
 fn a_simulated_answer_opens_the_shells_own_camera_unasked_and_shows_it_simulated() {
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
-    let run = Run::start(&engine, Run::answered(Answer::Simulated));
+    let run = Run::start(&engine, Run::answered(&shell, Answer::Simulated));
     run.output
         .wait_for("camera waos-test-pattern: WaOS test pattern (external)");
     run.output.wait_for("state: running");
@@ -153,7 +153,7 @@ fn a_simulated_answer_on_a_shell_without_cameras_of_its_own_lists_none() {
     let mut parts = shell.shell();
     parts.simulated_cameras = None;
     let engine = WaOS::new(config(), parts, shell.platform()).unwrap();
-    let run = Run::start(&engine, Run::answered(Answer::Simulated));
+    let run = Run::start(&engine, Run::answered(&shell, Answer::Simulated));
     within(run.running.ended());
     assert!(
         !run.output
@@ -170,7 +170,7 @@ fn a_simulated_answer_on_a_shell_without_cameras_of_its_own_lists_none() {
 fn the_program_hears_the_list_again_each_time_a_camera_comes_or_goes() {
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
-    let run = Run::start(&engine, Run::allowed());
+    let run = Run::start(&engine, Run::allowed(&shell));
     run.output.wait_for("state: running");
     let cameras = listed();
     shell.cameras.set_listed(vec![cameras[1].clone()]);
@@ -185,7 +185,7 @@ fn the_program_hears_the_list_again_each_time_a_camera_comes_or_goes() {
 fn a_running_camera_keeps_its_program_from_freezing_until_it_lets_the_session_go() {
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
-    let run = Run::start(&engine, Run::allowed());
+    let run = Run::start(&engine, Run::allowed(&shell));
     run.output.wait_for("state: running");
     within(engine.suspend());
     assert!(
@@ -203,7 +203,7 @@ fn a_running_camera_keeps_its_program_from_freezing_until_it_lets_the_session_go
 fn a_refused_camera_opens_nothing_and_the_program_hears_why() {
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
-    let run = Run::start(&engine, Run::asking());
+    let run = Run::start(&engine, Run::asking(&shell));
     wait_until("the camera question is put", || {
         !shell.prompts.questions().is_empty()
     });
@@ -219,7 +219,7 @@ fn a_session_on_a_camera_running_for_someone_else_says_the_format_it_joined() {
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     shell.cameras.run_elsewhere_in(formats()[0].clone());
-    let run = Run::start(&engine, Run::allowed());
+    let run = Run::start(&engine, Run::allowed(&shell));
     run.output.wait_for("started in 1920x1080");
     let session = started(&shell);
     assert_eq!(sizes(&[session.picked.size]), ["640x480"], "the one picked");
@@ -236,7 +236,7 @@ fn a_session_on_a_camera_running_for_someone_else_says_the_format_it_joined() {
 fn a_format_the_camera_does_not_list_traps_the_program() {
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
-    let run = Run::start_with(&engine, Run::allowed(), &["unlisted"]);
+    let run = Run::start_with(&engine, Run::allowed(&shell), &["unlisted"]);
     let end = within(run.running.ended());
     let ProgramEnd::Failed(trap) = end else {
         panic!("starting in an unlisted format traps: {end:?}");
@@ -264,7 +264,7 @@ fn a_shell_without_cameras_or_without_an_indicator_gives_the_program_none() {
         let mut parts = shell.shell();
         adjust(&mut parts);
         let engine = WaOS::new(config(), parts, shell.platform()).unwrap();
-        let run = Run::start(&engine, Run::allowed());
+        let run = Run::start(&engine, Run::allowed(&shell));
         assert!(matches!(
             within(run.running.ended()),
             ProgramEnd::Returned(Ok(()))
@@ -297,12 +297,12 @@ struct Run {
 }
 
 impl Run {
-    fn start(engine: &WaOS, grants: Arc<QuestionsAsked>) -> Run {
+    fn start(engine: &WaOS, grants: Arc<dyn ProgramGrants>) -> Run {
         Run::start_with(engine, grants, &[])
     }
 
     /// [`start`](Self::start), with an empty file of each of `files` in its `/data` first.
-    fn start_with(engine: &WaOS, grants: Arc<QuestionsAsked>, files: &[&str]) -> Run {
+    fn start_with(engine: &WaOS, grants: Arc<dyn ProgramGrants>, files: &[&str]) -> Run {
         let folders = TempDir::new().unwrap();
         let own = ProgramFolders {
             data: folders.path().join("data"),
@@ -315,7 +315,7 @@ impl Run {
         }
         let output = Arc::new(RecordedOutput::default());
         let environment = ProgramEnvironment {
-            grants: Some(grants as Arc<dyn ProgramGrants>),
+            grants: Some(grants),
             folders: Some(own),
             ..printing_to(&output)
         };
@@ -333,20 +333,21 @@ impl Run {
         }
     }
 
-    /// Grants whose user has not answered the camera question yet.
-    fn asking() -> Arc<QuestionsAsked> {
-        Arc::default()
+    /// Grants whose user, `shell`'s, has not answered the camera question yet.
+    fn asking(shell: &TestShell) -> Arc<dyn ProgramGrants> {
+        shell.permissions().of(&app())
     }
 
     /// Grants whose user allowed the camera before.
-    fn allowed() -> Arc<QuestionsAsked> {
-        Run::answered(Answer::Granted)
+    fn allowed(shell: &TestShell) -> Arc<dyn ProgramGrants> {
+        Run::answered(shell, Answer::Granted)
     }
 
     /// Grants whose user answered the camera question `answer` before.
-    fn answered(answer: Answer) -> Arc<QuestionsAsked> {
-        let grants = Arc::new(QuestionsAsked::default());
-        grants.set_answer(Question::Camera, answer);
-        grants
+    fn answered(shell: &TestShell, answer: Answer) -> Arc<dyn ProgramGrants> {
+        let permissions = permissions_with(shell, |own| {
+            own.answers.set(Question::Camera, Setting::Own(answer));
+        });
+        permissions.of(&app())
     }
 }

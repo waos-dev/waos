@@ -14,7 +14,6 @@ use wasmtime::component::{Accessor, HasData, Linker, Resource, ResourceTable};
 
 use super::{FileDialogs, FileType, FolderOptions, OpenOptions, SaveOptions, set_answers};
 use crate::access::Cause;
-use crate::asking::{self, Outcome};
 use crate::bindings::wasdk::platform::file_dialogs::{
     self, DialogError, HostFileDialogs, HostFileDialogsWithStore, HostFolderOptions,
     HostOpenOptions, HostSaveOptions,
@@ -22,6 +21,7 @@ use crate::bindings::wasdk::platform::file_dialogs::{
 use crate::files::{Picks, ProgramFiles};
 use crate::permissions::ProgramSystemPermissions;
 use crate::running::RunningProgram;
+use crate::set_or_shown::{self, Outcome};
 use crate::shell::{FileDialogFuture, ShellFileDialogs, SystemPermission, SystemPermissionState};
 use crate::views::ProgramView;
 
@@ -332,7 +332,7 @@ fn dialog_answer<T: Send + 'static>(
 ) -> FileDialogFuture<T> {
     let grants = picks.grants();
     Box::pin(async move {
-        match asking::stored_or_shown(
+        match set_or_shown::stored_or_shown(
             grants,
             move |grants| grants.file_dialog_answer(dialog),
             show,

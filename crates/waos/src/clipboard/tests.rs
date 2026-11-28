@@ -147,13 +147,9 @@ impl ProgramGrants for Switches {
         None
     }
 
-    fn set_answer(&self, _question: Question, _answer: Answer) {}
-
     fn link_scheme_answer(&self, _scheme: &str) -> Option<Answer> {
         None
     }
-
-    fn set_link_scheme_answer(&self, _scheme: &str, _answer: Answer) {}
 
     fn changed(&self) -> ChangedFuture {
         Box::pin(pending())

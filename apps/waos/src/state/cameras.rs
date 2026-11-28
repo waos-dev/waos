@@ -450,6 +450,7 @@ mod tests {
     use waft_test::{MockCameras, MockCompositor, MockVideoFrameReaders, TestPlatform};
     use waos::{Answer, ProgramEnd, Question, RecordingDevice};
     use waos_package::ProgramId;
+    use waos_permissions::Setting;
 
     use super::*;
     use crate::state::test_system::{Lines, TestSystem};
@@ -497,10 +498,11 @@ mod tests {
         let system = TestSystem::new(platform);
         system.install(waos_test_programs::CAMERAS, CAMERAS, "Cameras");
         let id: ProgramId = CAMERAS.parse().unwrap();
-        system
-            .permissions
-            .of(&id)
-            .set_answer(Question::Camera, Answer::Granted);
+        let answered = system.permissions.change_app_settings(&id, |own| {
+            own.answers
+                .set(Question::Camera, Setting::Own(Answer::Granted));
+        });
+        answered.expect("the answer kept");
         let lines = Arc::new(Lines::default());
         let running = system.run_as(waos_test_programs::CAMERAS, CAMERAS, &lines);
 
@@ -587,10 +589,11 @@ mod tests {
         let system = TestSystem::new(platform);
         system.install(waos_test_programs::CAMERAS, CAMERAS, "Cameras");
         let id: ProgramId = CAMERAS.parse().unwrap();
-        system
-            .permissions
-            .of(&id)
-            .set_answer(Question::Camera, Answer::Simulated);
+        let answered = system.permissions.change_app_settings(&id, |own| {
+            own.answers
+                .set(Question::Camera, Setting::Own(Answer::Simulated));
+        });
+        answered.expect("the answer kept");
         let lines = Arc::new(Lines::default());
         let running = system.run_as(waos_test_programs::CAMERAS, CAMERAS, &lines);
 

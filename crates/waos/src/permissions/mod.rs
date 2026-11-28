@@ -1,7 +1,7 @@
 //! `wasdk:platform/permissions`: what the user lets a program use of what is guarded, read live
-//! from the program's grants at each call, and asked of the user through the shell's
-//! [`Prompts`]: a question is put once, its answer kept through the grants, and a switch's page
-//! opened in the user's settings, each told through the program's access (`access`). The system
+//! from the program's grants at each call, and asked of the user through them: whoever keeps the
+//! grants asks a question once and keeps its answer, and opens a switch's page in the user's
+//! settings, each told through the program's access (`access`). The system
 //! may guard a thing with a permission of its own too, as macOS does each program's notifications
 //! ([`ShellSystemPermissions`](crate::shell::ShellSystemPermissions)): a request for
 //! notifications the user allowed asks the system after WaOS, and the permission reads denied
@@ -18,19 +18,17 @@ pub(crate) mod host;
 mod system_permissions;
 
 use std::future::{Future, pending};
-use std::sync::Arc;
 
 use futures::future::{self, BoxFuture, FutureExt};
 use futures::stream::{self, BoxStream, StreamExt};
 use waos_capabilities::{
-    Answer, ChangedFuture, FileSystemGrant, NetworkGrant, ProgramGrants, Question, Switch,
+    Answer, AnswerFuture, ChangedFuture, FileSystemGrant, NetworkGrant, ProgramGrants, Question,
+    Switch,
 };
 
 use crate::access::{Happened, ProgramAccess, Prompt};
-use crate::asking::{Asked, Asking, ask_or_setting};
 use crate::bindings::wasdk::platform::permissions::State;
-use crate::running::RunningProgram;
-use crate::shell::{Prompts, SystemPermission, SystemPermissionState};
+use crate::shell::{SystemPermission, SystemPermissionState};
 pub(crate) use system_permissions::ProgramSystemPermissions;
 
 /// One guarded capability: what a program's `permission` handle stands for.
@@ -40,30 +38,21 @@ pub enum Permission {
     Question(Question),
 }
 
-/// One program's permissions: what decides where they stand, and what asks for them: the shell's
-/// prompts, which ask its user, and the system's own permissions.
+/// One program's permissions: what decides where they stand, and what asks for them: its
+/// grants, which ask its user, and the system's own permissions.
 pub(crate) struct ProgramPermissions {
     decisions: Decisions,
-    prompts: Arc<dyn Prompts>,
-    program: RunningProgram,
-    /// The questions being put to the user now, each asked once however often the program asks.
-    asking: Asking<Question>,
 }
 
 impl ProgramPermissions {
-    /// `program`'s permissions, from the grants `access` reads and what the system says, asked of
-    /// its user through `prompts` and of the system through `system`.
+    /// A program's permissions, from the grants `access` reads, which ask its user, and what the
+    /// system says, asked of it through `system`.
     pub(crate) fn new(
         access: ProgramAccess,
-        prompts: Arc<dyn Prompts>,
         system: ProgramSystemPermissions,
-        program: RunningProgram,
     ) -> ProgramPermissions {
         ProgramPermissions {
             decisions: Decisions { access, system },
-            prompts,
-            program,
-            asking: Asking::default(),
         }
     }
 
@@ -110,7 +99,7 @@ impl ProgramPermissions {
     /// Opens `switch`'s page in the user's settings, and resolves once the user leaves it.
     fn open_settings(&self, switch: Switch) -> BoxFuture<'static, ()> {
         self.decisions.access.tell(Happened::SettingsOpened(switch));
-        self.prompts.open_settings(&self.program, switch).boxed()
+        self.decisions.access.grants().open_settings(switch)
     }
 
     /// Resolves once `question` is answered: by the user, put to them unless they answered it
@@ -140,25 +129,11 @@ impl ProgramPermissions {
         }
     }
 
-    /// Puts `question` to the user, unless it is being put already, and resolves to the answer,
-    /// kept through the grants once it comes from the prompt, or read from grants if set while
-    /// waiting.
-    fn ask(&self, question: Question) -> Asked {
-        let access = self.decisions.access.clone();
-        let prompts = Arc::clone(&self.prompts);
-        let program = self.program.clone();
-        self.asking.ask(question, || {
-            Box::pin(async move {
-                ask_or_setting(
-                    &access,
-                    Prompt::Question(question),
-                    move |grants| grants.answer(question),
-                    move || prompts.ask(&program, question),
-                    move |grants, answer| grants.set_answer(question, answer),
-                )
-                .await
-            })
-        })
+    /// Asks the user `question` through the grants, told as asked and answered: they ask it once
+    /// however often the program asks, and keep the answer.
+    fn ask(&self, question: Question) -> AnswerFuture {
+        let access = &self.decisions.access;
+        access.put_question(Prompt::Question(question), access.grants().ask(question))
     }
 }
 
@@ -281,13 +256,9 @@ impl ProgramGrants for NothingGranted {
         Some(Answer::Denied)
     }
 
-    fn set_answer(&self, _question: Question, _answer: Answer) {}
-
     fn link_scheme_answer(&self, _scheme: &str) -> Option<Answer> {
         Some(Answer::Denied)
     }
-
-    fn set_link_scheme_answer(&self, _scheme: &str, _answer: Answer) {}
 
     fn role(&self, _role: waos_capabilities::Role) -> Option<Answer> {
         Some(Answer::Denied)

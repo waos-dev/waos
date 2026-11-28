@@ -23,7 +23,9 @@ use waos::{
     ProgramEnvironment, ProgramGrants, Question, RecordingDevice, RunningProgram, WaOS, WaOSConfig,
 };
 
-use crate::asking::QuestionsAsked;
+use waos_capabilities::Setting;
+
+use crate::asking::{app, permissions_with};
 use crate::test_shell::sound::{HEADPHONES, TestDevices};
 use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, wait_until, within};
 
@@ -46,7 +48,7 @@ const BEFORE_THE_MICROPHONE: [&str; 11] = [
 fn a_program_plays_every_node_streams_picks_an_output_and_records_once_allowed() {
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
-    let (output, devices, running) = run_sound(&engine);
+    let (output, devices, running) = run_sound(&engine, &shell);
     for line in BEFORE_THE_MICROPHONE {
         output.wait_for(line);
     }
@@ -58,7 +60,7 @@ fn a_program_plays_every_node_streams_picks_an_output_and_records_once_allowed()
     });
     assert_eq!(
         shell.prompts.questions(),
-        [("sound".to_owned(), Question::Microphone)]
+        [(app().to_string(), Question::Microphone)]
     );
     shell.prompts.answer_questions(Some(Answer::Granted));
     output.wait_for("microphone: heard");
@@ -81,7 +83,7 @@ fn a_dismissed_picker_and_a_refused_microphone_say_why_and_nothing_records() {
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     shell.sound.set_pick(None);
-    let (output, devices, running) = run_sound(&engine);
+    let (output, devices, running) = run_sound(&engine, &shell);
     output.wait_for("pick refused: not-allowed");
     wait_until("the microphone question is put", || {
         !shell.prompts.questions().is_empty()
@@ -97,7 +99,7 @@ fn a_dismissed_picker_and_a_refused_microphone_say_why_and_nothing_records() {
 fn an_output_set_as_the_pickers_answer_is_given_unasked_and_one_not_connected_is_not_found() {
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
-    let grants = QuestionsAsked::answering_the_output_picker_with(HEADPHONES);
+    let grants = picking(&shell, HEADPHONES);
     let (output, devices, running) = run_sound_with(&engine, TestDevices::default(), grants);
     output.wait_for("picked: Headphones");
     output.wait_for("moved: headphones");
@@ -106,7 +108,7 @@ fn an_output_set_as_the_pickers_answer_is_given_unasked_and_one_not_connected_is
     assert!(shell.sound.shown().is_empty(), "no picker shown");
     assert_eq!(devices.moves(), [HEADPHONES]);
 
-    let grants = QuestionsAsked::answering_the_output_picker_with("unplugged");
+    let grants = picking(&shell, "unplugged");
     let (output, devices, running) = run_sound_with(&engine, TestDevices::default(), grants);
     output.wait_for("pick refused: not-found");
     running.stop();
@@ -123,7 +125,7 @@ fn a_waiting_output_picker_is_answered_by_setting_its_row_and_drops_its_prompt()
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     shell.sound.hold_picks();
-    let grants = Arc::new(QuestionsAsked::default());
+    let permissions = shell.permissions();
     let program = engine
         .load(
             Path::new(waos_test_programs::SOUND),
@@ -133,7 +135,7 @@ fn a_waiting_output_picker_is_answered_by_setting_its_row_and_drops_its_prompt()
     let output = Arc::new(RecordedOutput::default());
     let devices = Arc::new(TestDevices::default());
     let environment = ProgramEnvironment {
-        grants: Some(Arc::clone(&grants) as Arc<dyn ProgramGrants>),
+        grants: Some(permissions.of(&app())),
         audio: Some(Arc::clone(&devices) as Arc<dyn AudioDevices>),
         ..printing_to(&output)
     };
@@ -144,7 +146,10 @@ fn a_waiting_output_picker_is_answered_by_setting_its_row_and_drops_its_prompt()
     });
     assert!(!shell.sound.held_cancelled(0));
 
-    grants.set_audio_output_answer(HEADPHONES);
+    let set = permissions.change_app_settings(&app(), |own| {
+        own.answer_with.audio_output = Some(HEADPHONES.to_owned());
+    });
+    set.unwrap();
     wait_until("output picker future is dropped", || {
         shell.sound.held_cancelled(0)
     });
@@ -158,8 +163,11 @@ fn a_waiting_output_picker_is_answered_by_setting_its_row_and_drops_its_prompt()
 fn a_simulated_microphone_records_waoss_tone_unasked_on_devices_without_one_and_shows_simulated() {
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
-    let grants = QuestionsAsked::default();
-    grants.set_answer(Question::Microphone, Answer::Simulated);
+    let simulated = permissions_with(&shell, |own| {
+        own.answers
+            .set(Question::Microphone, Setting::Own(Answer::Simulated));
+    });
+    let grants = simulated.of(&app());
     let (output, _devices, running) =
         run_sound_with(&engine, TestDevices::without_microphone(), grants);
     output.wait_for("microphone: heard");
@@ -191,7 +199,7 @@ fn a_shell_with_no_picker_and_no_indicator_offers_neither_and_asks_nothing() {
     parts.audio_output_picker = None;
     parts.recording_indicator = None;
     let engine = WaOS::new(config(), parts, shell.platform()).unwrap();
-    let (output, _devices, running) = run_sound(&engine);
+    let (output, _devices, running) = run_sound(&engine, &shell);
     output.wait_for("pick refused: not-supported");
     output.wait_for("microphone refused: not-supported");
     within(running.ended());
@@ -205,7 +213,8 @@ fn a_shell_with_no_picker_and_no_indicator_offers_neither_and_asks_nothing() {
 fn devices_without_a_microphone_refuse_it_and_ask_nothing() {
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
-    let (output, _devices, running) = run_sound_on(&engine, TestDevices::without_microphone());
+    let (output, _devices, running) =
+        run_sound_on(&engine, &shell, TestDevices::without_microphone());
     output.wait_for("microphone refused: not-supported");
     within(running.ended());
     assert!(
@@ -307,25 +316,37 @@ fn a_program_is_unfrozen_while_it_plays_frozen_while_its_tone_waits_and_trapped_
     assert!(!output.has("started twice"));
 }
 
-/// Runs `examples/sound` on `engine` with devices of its own and grants that ask about the
-/// microphone, and answers what it prints, the devices and the program.
-fn run_sound(engine: &WaOS) -> (Arc<RecordedOutput>, Arc<TestDevices>, RunningProgram) {
-    run_sound_on(engine, TestDevices::default())
+/// Runs `examples/sound` on `engine` with devices of its own and permissions that ask `shell`'s
+/// user about the microphone, and answers what it prints, the devices and the program.
+fn run_sound(
+    engine: &WaOS,
+    shell: &TestShell,
+) -> (Arc<RecordedOutput>, Arc<TestDevices>, RunningProgram) {
+    run_sound_on(engine, shell, TestDevices::default())
 }
 
 /// [`run_sound`], on `devices`.
 fn run_sound_on(
     engine: &WaOS,
+    shell: &TestShell,
     devices: TestDevices,
 ) -> (Arc<RecordedOutput>, Arc<TestDevices>, RunningProgram) {
-    run_sound_with(engine, devices, QuestionsAsked::default())
+    run_sound_with(engine, devices, shell.permissions().of(&app()))
+}
+
+/// The grants of an app whose user set `output` as the answer to its picker of outputs.
+fn picking(shell: &TestShell, output: &str) -> Arc<dyn ProgramGrants> {
+    let permissions = permissions_with(shell, |own| {
+        own.answer_with.audio_output = Some(output.to_owned());
+    });
+    permissions.of(&app())
 }
 
 /// [`run_sound`], on `devices`, with `grants`.
 fn run_sound_with(
     engine: &WaOS,
     devices: TestDevices,
-    grants: QuestionsAsked,
+    grants: Arc<dyn ProgramGrants>,
 ) -> (Arc<RecordedOutput>, Arc<TestDevices>, RunningProgram) {
     let program = engine
         .load(
@@ -336,7 +357,7 @@ fn run_sound_with(
     let output = Arc::new(RecordedOutput::default());
     let devices = Arc::new(devices);
     let environment = ProgramEnvironment {
-        grants: Some(Arc::new(grants) as Arc<dyn ProgramGrants>),
+        grants: Some(grants),
         audio: Some(Arc::clone(&devices) as Arc<dyn AudioDevices>),
         ..printing_to(&output)
     };

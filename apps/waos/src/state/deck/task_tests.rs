@@ -12,7 +12,8 @@ use std::time::Duration;
 
 use waft::Offset;
 use waft::ui::{HostWindow, View, ViewFocusState};
-use waos::{Prompts, Question};
+use waos::Question;
+use waos_permissions::{App, Prompts};
 use waos_program_window::{WindowRestoration, WindowRole};
 
 use super::test_phone::{BACK, PhoneKind, SURVEY, TRIANGLE, TestPhone};
@@ -84,9 +85,11 @@ fn a_question_of_an_app_before_its_first_window_is_put_over_the_window_held_for_
     phone.settle_until("it runs, with its window", |phone| {
         phone.runs(FOREVER) && phone.windows_of(FOREVER).len() == 1
     });
-    let id = FOREVER.parse().unwrap();
-    let program = phone.runs.running(&id).expect("it runs");
-    let _answer = phone.prompts.ask(&program, Question::Camera);
+    let app = App {
+        id: FOREVER.parse().unwrap(),
+        name: "Forever".to_owned(),
+    };
+    let _answer = phone.prompts.ask(&app, Question::Camera);
     phone.settle_until("the question is put", |phone| {
         phone.shows("Allow Forever to use the camera?")
     });
@@ -96,6 +99,7 @@ fn a_question_of_an_app_before_its_first_window_is_put_over_the_window_held_for_
         "no window of the question's own: it is over the app's"
     );
     let held = phone.windows_of(FOREVER)[0].test_view().id();
+    let program = phone.runs.running(&app.id).expect("it runs");
     let screen = phone
         .view_windows
         .read(&phone.shell.app())

@@ -165,26 +165,28 @@ impl LibraryDesktop {
             .then(|| PreferencesFile::at(folder.path().join("preferences.toml")));
         let copies = PackageCopies::clear(folder.path().join("package-copies")).unwrap();
         let runs = Arc::new(RunningApps::default());
+        let (prompts, prompted) = PromptsOnRequest::new(Arc::clone(&runs));
+        let prompts = Arc::new(prompts);
         let crate::logic::app_services::Domains {
             packages,
             permissions,
             store,
-        } = crate::logic::test_installs::domains(&folder.path().join("store"), &runs);
+        } = crate::logic::test_installs::domains(
+            &folder.path().join("store"),
+            &runs,
+            Arc::clone(&prompts) as Arc<dyn waos_permissions::Prompts>,
+        );
         let (placement, requests) =
             WindowsOnRequest::new(ProgramFaces::new(Arc::clone(&packages), None));
-        let (prompts, prompted) = PromptsOnRequest::new(crate::logic::asking_now::AskingNow::new());
-        let output_picker = Arc::new(prompts.output_picker());
+        let asking = crate::logic::asking_now::AskingNow::new(permissions.asking());
+        let output_picker = Arc::new(prompts.output_picker(Arc::clone(&asking)));
         let (phone_files_on_request, phone_files_followed) = (kind.phone_files.as_ref())
             .map(|access| phone_files_on_request(access.as_ref(), prompts.phone_files_off()))
             .unzip();
-        let machine_picker = Arc::new(prompts.machine_picker(phone_files_on_request.clone()));
+        let machine_picker =
+            Arc::new(prompts.machine_picker(asking, phone_files_on_request.clone()));
         let (recording_indicator, recording_changes) = RecordingIndicatorOnRequest::new();
-        let prompts = Arc::new(prompts);
-        let engine = test_engine::engine_keeping_days(
-            Arc::new(placement),
-            Arc::clone(&prompts) as Arc<dyn waos::Prompts>,
-            Arc::new(store.clone()),
-        );
+        let engine = test_engine::engine_keeping_days(Arc::new(placement), Arc::new(store.clone()));
         let services = AppServices::new(
             Arc::clone(&runs),
             Arc::clone(&packages),

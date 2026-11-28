@@ -75,7 +75,7 @@ mod tests {
             packages,
             permissions,
             store,
-        } = test_installs::domains(&directory, &runs);
+        } = test_installs::domains(&directory, &runs, Arc::new(waos_permissions::NoPrompts));
         let services = AppServices::new(
             Arc::clone(&runs),
             Arc::clone(&packages),

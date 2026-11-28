@@ -23,6 +23,7 @@ use waos_package_manager::{
     Caller, CodeCompiler, DevelopmentBuild, InstalledProgram, InstalledVersion, PackageContent,
     PackageManager,
 };
+use waos_permissions::{NoPrompts, Prompts};
 use waos_store::SourceProxy;
 
 use super::app_services::{self, Domains};
@@ -100,26 +101,26 @@ impl CodeCompiler for MarkerCompiler {
 }
 
 /// A test's domains over `folder`, the store's directory, as WaOS opens them, for apps it never
-/// runs.
+/// runs, with nobody to ask.
 pub(crate) fn domains_never_run(folder: &Path) -> Domains {
     let running = Arc::new(RunningApps::default());
-    app_services::open_domains(
-        folder,
-        Arc::new(MarkerCompiler),
-        &running,
-        SourceProxy::None,
-    )
-    .expect("the domains open")
+    let (compiler, prompts) = (Arc::new(MarkerCompiler), Arc::new(NoPrompts));
+    app_services::open_domains(folder, compiler, &running, SourceProxy::None, prompts)
+        .expect("the domains open")
 }
 
 /// A test's domains over `folder`, the store's directory, as WaOS opens them, its package manager
 /// compiling once per content with a compiler set up as the tests' engines are, so they map its
-/// code, stopping apps among `running`.
-pub(crate) fn domains(folder: &Path, running: &Arc<RunningApps>) -> Domains {
+/// code, stopping apps among `running`, and Permissions asking the user through `prompts`.
+pub(crate) fn domains(
+    folder: &Path,
+    running: &Arc<RunningApps>,
+    prompts: Arc<dyn Prompts>,
+) -> Domains {
     static COMPILER: OnceLock<Compiler> = OnceLock::new();
     let compiler = COMPILER.get_or_init(|| Compiler::new(false).expect("a compiler"));
     let compiler = Arc::new(TestCompiler(compiler.clone()));
-    app_services::open_domains(folder, compiler, running, SourceProxy::None)
+    app_services::open_domains(folder, compiler, running, SourceProxy::None, prompts)
         .expect("the domains open")
 }
 

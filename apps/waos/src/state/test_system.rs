@@ -19,8 +19,8 @@ use waft::ui::{Platform, PlatformRef};
 use waft::{Entity, Shell, Subscription};
 use waft_test::TestPlatform;
 use waos::{
-    EngineTime, ManualTime, NoPrompts, OutputStream, ProgramEnvironment, ProgramOutput,
-    RecordingDevice, RunningProgram, ShellCompositor, ShellNotifications, ShellRecordingIndicator,
+    EngineTime, ManualTime, OutputStream, ProgramEnvironment, ProgramOutput, RecordingDevice,
+    RunningProgram, ShellCompositor, ShellNotifications, ShellRecordingIndicator,
     ShellVideoFrameReaders, WaOS,
 };
 use waos_package::{ProgramId, SigningKey};
@@ -91,7 +91,7 @@ impl TestSystem {
         let video_decoders = VideoDecoders::of(&platform);
         let cameras = Cameras::of(&platform);
         let (recording_indicator, recording_changes) = RecordingIndicatorOnRequest::new();
-        let mut shell = test_engine::shell(Arc::new(NoWindows), Arc::new(NoPrompts));
+        let mut shell = test_engine::shell(Arc::new(NoWindows));
         shell.opener = opener.as_ref().map(Opener::shell);
         shell.notifications = shell_notifications.clone();
         shell.media_players = media_players.as_ref().map(MediaPlayers::shell);
@@ -118,7 +118,11 @@ impl TestSystem {
             packages,
             permissions,
             store,
-        } = test_installs::domains(&folder.path().join("store"), &runs);
+        } = test_installs::domains(
+            &folder.path().join("store"),
+            &runs,
+            Arc::new(waos_permissions::NoPrompts),
+        );
         let services = AppServices::new(
             Arc::clone(&runs),
             Arc::clone(&packages),

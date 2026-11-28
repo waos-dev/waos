@@ -265,6 +265,7 @@ mod tests {
     use waft_test::{MockNotifications, TestPlatform};
     use waos::{Answer, Question};
     use waos_package::ProgramId;
+    use waos_permissions::Setting;
 
     use super::*;
     use crate::state::test_system::{Lines, TestSystem};
@@ -282,8 +283,11 @@ mod tests {
             "Notifications",
         );
         let id: ProgramId = NOTIFICATIONS.parse().unwrap();
-        let grants = system.permissions.of(&id);
-        grants.set_answer(Question::Notifications, Answer::Granted);
+        let granted = system.permissions.change_app_settings(&id, |own| {
+            own.answers
+                .set(Question::Notifications, Setting::Own(Answer::Granted));
+        });
+        granted.expect("the answer kept");
         system
     }
 

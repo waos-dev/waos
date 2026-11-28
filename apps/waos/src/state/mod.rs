@@ -82,6 +82,7 @@ use waos::{
 use waos_local::LocalCapabilities;
 use waos_package::ProgramId;
 use waos_package_manager::PackageManager;
+use waos_permissions::Prompts;
 use waos_program_window::WaftCompositor;
 use waos_store::SourceProxy;
 
@@ -225,6 +226,8 @@ pub(crate) fn start(
     }
     let compiler = Compiler::new(native_unwind_info).context("starting the compiler")?;
     let runs = Arc::new(RunningApps::default());
+    let (prompts, prompted) = PromptsOnRequest::new(Arc::clone(&runs));
+    let prompts = Arc::new(prompts);
     let Domains {
         packages,
         permissions,
@@ -234,6 +237,7 @@ pub(crate) fn start(
         Arc::new(EngineCompiler(compiler.clone())),
         &runs,
         SourceProxy::System,
+        Arc::clone(&prompts) as Arc<dyn Prompts>,
     )?;
     if let Err(error) = store.start_sources_with(&library::first_sources()) {
         tracing::warn!("the sources WaOS comes with are not added: {error}");
@@ -252,14 +256,14 @@ pub(crate) fn start(
         tabs: tabs_on_request,
         windows: program_apps::placement(&program_apps, own_windows),
     });
-    let asking = AskingNow::new();
-    let (prompts, prompted) = PromptsOnRequest::new(Arc::clone(&asking));
-    let output_picker = prompts.output_picker();
+    let asking = AskingNow::new(permissions.asking());
+    let output_picker = prompts.output_picker(Arc::clone(&asking));
     let (phone_files_on_request, phone_files_followed) = phone_files
         .as_ref()
         .map(|access| phone_files_on_request(access.as_ref(), prompts.phone_files_off()))
         .unzip();
-    let machine_picker = prompts.machine_picker(phone_files_on_request.clone());
+    let machine_picker =
+        prompts.machine_picker(Arc::clone(&asking), phone_files_on_request.clone());
     let (recording_indicator, recording_changes) = RecordingIndicatorOnRequest::new();
     let waiter = app
         .platform()
@@ -286,7 +290,6 @@ pub(crate) fn start(
         views: placement,
         vsync: Arc::clone(&vsync) as Arc<dyn VsyncWaiter>,
         compositor,
-        prompts: Arc::new(prompts),
         system_permissions: phone_files_on_request
             .map(|phone_files| Arc::new(phone_files) as Arc<dyn ShellSystemPermissions>)
             .or_else(|| program_apps::system_permissions(&program_apps)),

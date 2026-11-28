@@ -1,6 +1,9 @@
 //! [`Permissions`]: what the user lets each app use, held in memory over its store, so a check
 //! reads no file, and written through to the store under one lock, each change heard by every
-//! [`Permissions::changed`] asked for before it.
+//! [`Permissions::changed`] asked for before it; and the questions being asked of the user now
+//! (`asking`), through the prompts it is handed. An app's settings are kept whether or not it is
+//! installed: `waos settings set` answers ahead for an id before its install, so nothing is
+//! forgotten but what the package manager removes.
 //!
 //! The invariants: two changes never interleave, as every change holds the one lock from its read
 //! to its write; an app being removed takes no write, and an app the package manager removed is
@@ -8,16 +11,18 @@
 //! by a reinstall.
 
 use std::collections::{BTreeSet, HashMap};
+use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex};
 
 use tokio::sync::{Notify, mpsc, watch};
 use waos_capabilities::{ChangedFuture, ProgramGrants};
 use waos_package::ProgramId;
 
+use crate::asking::Asking;
 use crate::grants::AppGrants;
 use crate::settings::{AppSettings, GlobalSettings};
 use crate::settings_store::locked;
-use crate::{InstalledApps, SettingsError, SettingsStore};
+use crate::{AskedQuestion, InstalledApps, Prompts, SettingsError, SettingsStore};
 
 /// What the user lets each app use. Clones are the same.
 #[derive(Clone)]
@@ -28,6 +33,16 @@ pub struct Permissions {
 /// What a [`Permissions`] and its apps' grants share.
 pub(crate) struct Shared {
     store: Arc<dyn SettingsStore>,
+    /// What asks the user.
+    pub(crate) prompts: Arc<dyn Prompts>,
+    /// What says the name of an app, and its removals.
+    pub(crate) installed: Arc<dyn InstalledApps>,
+    /// The questions being asked now, by what each asks.
+    pub(crate) asking: Mutex<HashMap<AskedQuestion, Asking>>,
+    /// The questions being asked now, in the order asked, for whoever shows or reports them.
+    pub(crate) asked: watch::Sender<Vec<AskedQuestion>>,
+    /// Tells one asking from the next.
+    pub(crate) serials: AtomicU64,
     /// The apps the package manager is removing now.
     removing: watch::Receiver<BTreeSet<ProgramId>>,
     /// Each app the package manager removed, not yet forgotten.
@@ -45,14 +60,23 @@ struct Held {
 }
 
 impl Permissions {
-    /// What the user lets each app use, kept in `store`, following what `installed` says of the
-    /// apps installed.
-    pub fn open(store: Arc<dyn SettingsStore>, installed: &dyn InstalledApps) -> Permissions {
+    /// What the user lets each app use, kept in `store`, asked of the user through `prompts`,
+    /// following what `installed` says of the apps installed.
+    pub fn open(
+        store: Arc<dyn SettingsStore>,
+        prompts: Arc<dyn Prompts>,
+        installed: Arc<dyn InstalledApps>,
+    ) -> Permissions {
         Permissions {
             shared: Arc::new(Shared {
                 store,
+                prompts,
                 removing: installed.removing(),
                 removals: Mutex::new(installed.removals()),
+                installed,
+                asking: Mutex::default(),
+                asked: watch::Sender::default(),
+                serials: AtomicU64::new(0),
                 held: Mutex::default(),
                 changed: Arc::default(),
             }),
@@ -100,6 +124,12 @@ impl Permissions {
     /// Resolves at the next change of any settings, the global ones or an app's own.
     pub fn changed(&self) -> ChangedFuture {
         self.shared.changed()
+    }
+
+    /// The questions being asked of the user now, in the order asked, and each change of them
+    /// from now on, for whoever shows or reports them.
+    pub fn asking(&self) -> watch::Receiver<Vec<AskedQuestion>> {
+        self.shared.asked.subscribe()
     }
 }
 

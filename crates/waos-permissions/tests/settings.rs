@@ -9,9 +9,10 @@ mod support;
 use std::fs;
 use std::sync::Arc;
 
-use support::{Removals, heard, triangle};
+use futures::FutureExt;
+use support::{Removals, TestPrompts, heard, triangle};
 use waos_permissions::{
-    Answer, AppSettings, DomainRule, FileDialog, GlobalSettings, Mount, NetworkGrant,
+    Answer, AppSettings, DomainRule, FileDialog, GlobalSettings, Mount, NetworkGrant, NoPrompts,
     NothingInstalled, Permissions, Question, Setting, SettingsError, SettingsFiles,
     SettingsInMemory,
 };
@@ -23,13 +24,21 @@ fn network_off() -> NetworkGrant {
     }
 }
 
-/// Permissions over WaOS's files in `directory`.
+/// Permissions over WaOS's files in `directory`, with nobody to ask.
 fn over_files(directory: &std::path::Path) -> Permissions {
-    Permissions::open(Arc::new(SettingsFiles::new(directory)), &NothingInstalled)
+    let files = Arc::new(SettingsFiles::new(directory));
+    Permissions::open(files, Arc::new(NoPrompts), Arc::new(NothingInstalled))
+}
+
+/// Permissions in memory, asking the user `prompts`.
+fn asking(prompts: &Arc<TestPrompts>) -> Permissions {
+    let prompts = Arc::clone(prompts) as Arc<dyn waos_permissions::Prompts>;
+    let installed = Arc::new(NothingInstalled);
+    Permissions::open(Arc::new(SettingsInMemory::default()), prompts, installed)
 }
 
 fn in_memory() -> Permissions {
-    Permissions::open(Arc::new(SettingsInMemory::default()), &NothingInstalled)
+    asking(&Arc::default())
 }
 
 #[test]
@@ -70,8 +79,13 @@ fn the_settings_are_kept_in_the_files_they_always_were_in() {
 
 #[test]
 fn an_apps_settings_take_no_write_while_it_is_removed_and_are_forgotten_once_it_is() {
-    let removals = Removals::default();
-    let permissions = Permissions::open(Arc::new(SettingsInMemory::default()), &removals);
+    let removals = Arc::new(Removals::default());
+    let prompts = Arc::new(TestPrompts::default());
+    let permissions = Permissions::open(
+        Arc::new(SettingsInMemory::default()),
+        Arc::clone(&prompts) as Arc<dyn waos_permissions::Prompts>,
+        Arc::clone(&removals) as Arc<dyn waos_permissions::InstalledApps>,
+    );
     let own_network = |permissions: &Permissions| {
         permissions
             .change_app_settings(&triangle(), |settings| {
@@ -88,8 +102,15 @@ fn an_apps_settings_take_no_write_while_it_is_removed_and_are_forgotten_once_it_
         "{refused:?}"
     );
     let grants = permissions.of(&triangle());
-    grants.set_answer(Question::Camera, Answer::Granted);
-    assert_eq!(grants.answer(Question::Camera), None, "a run's answer too");
+    let mut asked = grants.ask(Question::Camera);
+    assert_eq!(asked.as_mut().now_or_never(), None, "asked of the user");
+    prompts.answer(Some(Answer::Granted));
+    assert_eq!(
+        asked.as_mut().now_or_never(),
+        Some(Some(Answer::Granted)),
+        "the run has its answer"
+    );
+    assert_eq!(grants.answer(Question::Camera), None, "but it is not kept");
 
     let changed = permissions.changed();
     removals.end(&triangle());
@@ -122,25 +143,6 @@ fn an_apps_grants_follow_the_global_settings_until_it_has_its_own() {
         .unwrap();
     assert_eq!(grants.network().domains, only_example, "its own");
     assert!(grants.network().on && grants.local_network());
-}
-
-#[test]
-fn an_apps_answers_are_kept_in_its_settings_and_heard() {
-    let permissions = in_memory();
-    let grants = permissions.of(&triangle());
-    assert_eq!(grants.answer(Question::Camera), None, "to be asked");
-    let changed = grants.changed();
-    grants.set_answer(Question::Camera, Answer::Granted);
-    assert!(heard(changed));
-    grants.set_link_scheme_answer("zoommtg", Answer::Granted);
-    let own = permissions.app_settings(&triangle()).unwrap();
-    assert_eq!(
-        *own.answers.get(Question::Camera),
-        Setting::Own(Answer::Granted)
-    );
-    assert_eq!(grants.link_scheme_answer("zoommtg"), Some(Answer::Granted));
-    assert_eq!(grants.link_scheme_answer("tel"), None, "each its own");
-    assert!(!heard(grants.changed()), "nothing changed since");
 }
 
 #[test]

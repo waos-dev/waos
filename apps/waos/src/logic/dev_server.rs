@@ -529,26 +529,27 @@ pub(crate) mod tests {
         /// A server whose engine uses `PromptsOnRequest` wired to `asking`, returning the server
         /// and the prompt requests receiver.
         fn asking_prompts(test: &str) -> (TestServer, crate::logic::prompts::PromptRequests) {
-            let asking = AskingNow::new();
+            let runs = Arc::new(RunningApps::default());
             let (prompts, requests) =
-                crate::logic::prompts::PromptsOnRequest::new(Arc::clone(&asking));
-            let server = TestServer::over_with(test, asking, || {
-                Arc::new(test_engine::engine_asking(
-                    Arc::new(NoWindows),
-                    Arc::new(prompts),
-                ))
+                crate::logic::prompts::PromptsOnRequest::new(Arc::clone(&runs));
+            let server = TestServer::over_with(test, runs, Arc::new(prompts), || {
+                Arc::new(test_engine::engine(Arc::new(NoWindows)))
             });
             (server, requests)
         }
 
-        /// A server of the test's own over the engine `engine` makes.
+        /// A server of the test's own over the engine `engine` makes, with nobody to ask.
         fn over(test: &str, engine: impl FnOnce() -> Arc<WaOS>) -> TestServer {
-            Self::over_with(test, AskingNow::new(), engine)
+            let runs = Arc::new(RunningApps::default());
+            Self::over_with(test, runs, Arc::new(waos_permissions::NoPrompts), engine)
         }
 
+        /// A server over the engine `engine` makes, its apps running among `runs` and their
+        /// users asked through `prompts`.
         fn over_with(
             test: &str,
-            asking: Arc<AskingNow>,
+            runs: Arc<RunningApps>,
+            prompts: Arc<dyn waos_permissions::Prompts>,
             engine: impl FnOnce() -> Arc<WaOS>,
         ) -> TestServer {
             let folder =
@@ -556,12 +557,12 @@ pub(crate) mod tests {
             let _ = fs::remove_dir_all(&folder);
             let engine = engine();
             let socket = Self::test_listener(&folder, test);
-            let runs = Arc::new(RunningApps::default());
             let crate::logic::app_services::Domains {
                 packages,
                 permissions,
                 store,
-            } = test_installs::domains(&folder.join("store"), &runs);
+            } = test_installs::domains(&folder.join("store"), &runs, prompts);
+            let asking = AskingNow::new(permissions.asking());
             let services = AppServices::new(
                 Arc::clone(&runs),
                 packages,

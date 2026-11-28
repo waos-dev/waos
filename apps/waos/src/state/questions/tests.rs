@@ -18,12 +18,12 @@ use waft::ui::{View as _, ViewId};
 use waft_test::TestWindow;
 use waos::bindings::wasdk::platform::notifications::Activation;
 use waos::{
-    Answer, AnswerFuture, AudioOutput, AudioOutputPickedFuture, MachineChoice, Prompts, Question,
+    Answer, AnswerFuture, AudioOutput, AudioOutputPickedFuture, MachineChoice, Question,
     RunningProgram, ShellAudioOutputPicker, ShellMachinePicker, ShellSystemPermissions,
     SystemPermission, SystemPermissionState,
 };
 use waos_package::ProgramId;
-use waos_permissions::Setting;
+use waos_permissions::{App, Prompts, Setting};
 
 use crate::logic::phone_files::TestPhone;
 use crate::state::library::test_desktop::{DesktopKind, LibraryDesktop};
@@ -88,6 +88,14 @@ fn the_program(desktop: &LibraryDesktop) -> RunningProgram {
     let programs = futures::executor::block_on(desktop.runs.programs());
     assert_eq!(programs.len(), 1);
     programs.into_iter().next().unwrap()
+}
+
+/// The one program running, as its permissions ask about it.
+fn the_app(desktop: &LibraryDesktop, name: &str) -> App {
+    App {
+        id: the_program(desktop).name().parse().unwrap(),
+        name: name.to_owned(),
+    }
 }
 
 #[test]
@@ -172,7 +180,7 @@ fn a_programs_question_about_a_link_scheme_is_put_as_the_others_are() {
     );
     let mut answered = desktop
         .prompts
-        .ask_to_open_links(&the_program(&desktop), "zoommtg");
+        .ask_to_open_links(&the_app(&desktop, "Forever"), "zoommtg");
     desktop.settle_until("the question's window", |desktop| {
         desktop.shows("Allow Forever to open zoommtg links?")
     });
@@ -197,7 +205,7 @@ fn a_programs_question_about_a_role_says_what_the_role_sees() {
     );
     let mut answered = desktop
         .prompts
-        .ask_for_role(&the_program(&desktop), waos::Role::Inspector);
+        .ask_for_role(&the_app(&desktop, "Forever"), waos::Role::Inspector);
     desktop.settle_until("the question's window", |desktop| {
         desktop.shows("Allow Forever to see what your other programs do?")
     });
@@ -208,9 +216,10 @@ fn a_programs_question_about_a_role_says_what_the_role_sees() {
     futures::executor::block_on(desktop.runs.stop_all());
 }
 
-/// The one program running asks its user `question`, as the engine asks for it.
+/// The one program running asks its user `question`, as its permissions ask for it.
 fn ask(desktop: &LibraryDesktop, question: Question) -> AnswerFuture {
-    desktop.prompts.ask(&the_program(desktop), question)
+    let app = the_app(desktop, "the one program");
+    desktop.prompts.ask(&app, question)
 }
 
 #[test]

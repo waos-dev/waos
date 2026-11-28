@@ -249,11 +249,17 @@ impl TestPhone {
         let folder = tempfile::tempdir().unwrap();
         let copies = PackageCopies::clear(folder.path().join("package-copies")).unwrap();
         let runs = Arc::new(RunningApps::default());
+        let (prompts, prompted) = PromptsOnRequest::new(Arc::clone(&runs));
+        let prompts = Arc::new(prompts);
         let crate::logic::app_services::Domains {
             packages,
             permissions,
             store,
-        } = crate::logic::test_installs::domains(&folder.path().join("store"), &runs);
+        } = crate::logic::test_installs::domains(
+            &folder.path().join("store"),
+            &runs,
+            Arc::clone(&prompts) as Arc<dyn waos_permissions::Prompts>,
+        );
         let (own_windows, requests) =
             WindowsOnRequest::new(ProgramFaces::new(Arc::clone(&packages), None));
         let (usual, windows, programs_open): (_, Arc<dyn ViewPlacement>, _) = match kind {
@@ -272,12 +278,7 @@ impl TestPhone {
             tabs: tabs_on_request,
             windows,
         };
-        let (prompts, prompted) = PromptsOnRequest::new(crate::logic::asking_now::AskingNow::new());
-        let prompts = Arc::new(prompts);
-        let engine = Arc::new(test_engine::engine_asking(
-            Arc::new(placement),
-            Arc::clone(&prompts) as Arc<dyn waos::Prompts>,
-        ));
+        let engine = Arc::new(test_engine::engine(Arc::new(placement)));
         let services = AppServices::new(
             Arc::clone(&runs),
             Arc::clone(&packages),

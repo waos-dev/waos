@@ -1,9 +1,12 @@
 //! What the user lets one program use of what is guarded, read live: [`ProgramGrants`], which
-//! whoever keeps the user's settings implements (the store, for an installed program), and the
+//! whoever keeps the user's settings implements (Permissions, for an app WaOS runs), and the
 //! values it answers. A switch is a value the user sets, with a rule beneath it where it has
-//! one; a [`Question`] is put to the user at a program's first use, and its [`Answer`] kept, as is
-//! the user's answer to a program opening links of a scheme of its own, asked once per scheme; and
-//! the machines the user picked for a program are kept by their ids, as the files picked are. A
+//! one, and asking for one opens its page in the user's settings; a [`Question`] is asked of the
+//! user at a program's first use, and its [`Answer`] kept, as are the user's answers to a program
+//! opening links of a scheme of its own, asked once per scheme, and to it holding a role, asked at
+//! its start: whoever implements the grants asks the user, and the engine only waits for the
+//! answer; and the machines the user picked for a program are kept by their ids, as the files
+//! picked are. A
 //! picker or a file dialog can have an answer the user set instead of asking: a machine, an
 //! output, or paths, given in place of showing it. The camera and the microphone can be answered
 //! simulated: allowed, with devices of WaOS's own.
@@ -16,7 +19,7 @@
 //! change the user makes holds from the next check on.
 
 use std::fmt;
-use std::future::Future;
+use std::future::{Future, ready};
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::str::FromStr;
@@ -44,19 +47,37 @@ pub trait ProgramGrants: Send + Sync {
     fn file_system(&self) -> FileSystemGrant;
 
     /// The answer to `question` that holds for the program: the user's to it, or the global
-    /// one; none while neither is given, and the question is to be put to the user.
+    /// one; none while neither is given, and the question is to be asked.
     fn answer(&self, question: Question) -> Option<Answer>;
 
-    /// Keeps `answer`, the user's to `question` for this program.
-    fn set_answer(&self, question: Question, answer: Answer);
+    /// The answer to `question` for the program: the one that holds, or else the user's, asked
+    /// now, once however many wait for it, and kept; none when nobody answered, as when every
+    /// wait was dropped first. Where nobody is asked, the one that holds.
+    fn ask(&self, question: Question) -> AnswerFuture {
+        Box::pin(ready(self.answer(question)))
+    }
 
     /// The user's answer to the program opening links of `scheme`, one other than `http`, `https`
     /// and `mailto`, which open freely, in lower case (`zoommtg`); none while the user has not
-    /// answered, and the question is to be put to the user at the program's next link of it.
+    /// answered, and the question is to be asked at the program's next link of it.
     fn link_scheme_answer(&self, scheme: &str) -> Option<Answer>;
 
-    /// Keeps `answer`, the user's to the program opening links of `scheme`.
-    fn set_link_scheme_answer(&self, scheme: &str, answer: Answer);
+    /// The answer to the program opening links of `scheme`, as [`link_scheme_answer`] says it:
+    /// the one kept, or else the user's, asked now, once however many wait, and kept; none when
+    /// nobody answered. Where nobody is asked, the one kept.
+    ///
+    /// [`link_scheme_answer`]: ProgramGrants::link_scheme_answer
+    fn ask_to_open_links(&self, scheme: &str) -> AnswerFuture {
+        Box::pin(ready(self.link_scheme_answer(scheme)))
+    }
+
+    /// Opens `switch`'s page in the program's settings for its user, as an iOS app sends its
+    /// user to its page in Settings, and resolves once the user leaves it; at once where there is
+    /// nobody to show it.
+    fn open_settings(&self, switch: Switch) -> SettingsClosedFuture {
+        let _ = switch;
+        Box::pin(ready(()))
+    }
 
     /// The machines the user picked for the program, by their ids, which it acts on as each
     /// machine's user; none where nothing keeps them.
@@ -105,16 +126,17 @@ pub trait ProgramGrants: Send + Sync {
 
     /// The user's answer to the program holding `role`, its own alone, since a role has no
     /// setting for every program; none while the user has not answered, and the question is to be
-    /// put at its next start. None where nothing keeps an answer.
+    /// asked at its next start. None where nothing keeps an answer.
     fn role(&self, role: Role) -> Option<Answer> {
         let _ = role;
         None
     }
 
-    /// Keeps `answer`, the user's to the program holding `role`; nothing where nothing keeps
-    /// it, and the answer is the program's for its run alone.
-    fn set_role(&self, role: Role, answer: Answer) {
-        let _ = (role, answer);
+    /// The answer to the program holding `role`, which it asks for by importing the role's
+    /// interfaces: the one kept, or else the user's, asked now, once however many wait, and kept;
+    /// none when nobody answered. Where nobody is asked, the one kept.
+    fn ask_for_role(&self, role: Role) -> AnswerFuture {
+        Box::pin(ready(self.role(role)))
     }
 
     /// Whether a record is kept of what the program does, its audit summary: its own setting, or
@@ -130,6 +152,12 @@ pub trait ProgramGrants: Send + Sync {
 
 /// What [`ProgramGrants::changed`] answers.
 pub type ChangedFuture = Pin<Box<dyn Future<Output = ()> + Send>>;
+
+/// What [`ProgramGrants::ask`] answers.
+pub type AnswerFuture = Pin<Box<dyn Future<Output = Option<Answer>> + Send>>;
+
+/// What [`ProgramGrants::open_settings`] answers.
+pub type SettingsClosedFuture = Pin<Box<dyn Future<Output = ()> + Send>>;
 
 /// The network switch, and the domains the program may reach while it is on.
 #[derive(Clone, Debug, PartialEq, Eq)]

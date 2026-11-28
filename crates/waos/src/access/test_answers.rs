@@ -37,6 +37,24 @@ impl Answers {
         self.changed_now();
     }
 
+    /// The user answers `question` with `answer`.
+    pub(crate) fn set_answer(&self, question: Question, answer: Answer) {
+        locked(&self.questions).insert(question, answer);
+        self.changed_now();
+    }
+
+    /// The user answers the program opening links of `scheme` with `answer`.
+    pub(crate) fn set_link_scheme_answer(&self, scheme: &str, answer: Answer) {
+        locked(&self.link_schemes).insert(scheme.to_owned(), answer);
+        self.changed_now();
+    }
+
+    /// The user answers the program holding `role` with `answer`.
+    pub(crate) fn set_role(&self, role: Role, answer: Answer) {
+        locked(&self.roles).insert(role, answer);
+        self.changed_now();
+    }
+
     fn changed_now(&self) {
         for waiting in locked(&self.waiting).drain(..) {
             let _ = waiting.send(());
@@ -69,27 +87,12 @@ impl ProgramGrants for Answers {
         locked(&self.questions).get(&question).copied()
     }
 
-    fn set_answer(&self, question: Question, answer: Answer) {
-        locked(&self.questions).insert(question, answer);
-        self.changed_now();
-    }
-
     fn link_scheme_answer(&self, scheme: &str) -> Option<Answer> {
         locked(&self.link_schemes).get(scheme).copied()
     }
 
-    fn set_link_scheme_answer(&self, scheme: &str, answer: Answer) {
-        locked(&self.link_schemes).insert(scheme.to_owned(), answer);
-        self.changed_now();
-    }
-
     fn role(&self, role: Role) -> Option<Answer> {
         locked(&self.roles).get(&role).copied()
-    }
-
-    fn set_role(&self, role: Role, answer: Answer) {
-        locked(&self.roles).insert(role, answer);
-        self.changed_now();
     }
 
     fn keeps_record(&self) -> bool {

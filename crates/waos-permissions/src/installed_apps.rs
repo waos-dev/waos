@@ -1,6 +1,7 @@
 //! What Permissions follows of the package manager's record of what is installed
-//! ([`InstalledApps`]): the apps being removed, whose settings take no write, and each removal once
-//! it is out of the record, whose settings Permissions then forgets.
+//! ([`InstalledApps`]): the name the user knows an app by, which a prompt says; the apps being
+//! removed, whose settings take no write; and each removal once it is out of the record, whose
+//! settings Permissions then forgets.
 //!
 //! The invariant: the package manager's record is the truth of what exists; Permissions follows
 //! it and keeps no list of its own.
@@ -13,6 +14,9 @@ use waos_package::ProgramId;
 /// What Permissions follows of the package manager: `waos-package-manager`'s `PackageManager`,
 /// through a type of the embedder's own, since neither crate knows the other.
 pub trait InstalledApps: Send + Sync {
+    /// The name the user knows the app `id` by; none for an app not installed.
+    fn name(&self, id: &ProgramId) -> Option<String>;
+
     /// The apps being removed now, and each change of them from now on.
     fn removing(&self) -> watch::Receiver<BTreeSet<ProgramId>>;
 
@@ -24,6 +28,10 @@ pub trait InstalledApps: Send + Sync {
 pub struct NothingInstalled;
 
 impl InstalledApps for NothingInstalled {
+    fn name(&self, _id: &ProgramId) -> Option<String> {
+        None
+    }
+
     fn removing(&self) -> watch::Receiver<BTreeSet<ProgramId>> {
         watch::channel(BTreeSet::new()).1
     }

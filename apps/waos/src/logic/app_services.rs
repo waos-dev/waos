@@ -21,7 +21,7 @@ use tokio::sync::{mpsc, watch};
 use waos::{Compiler, WaOS};
 use waos_package::ProgramId;
 use waos_package_manager::{CodeCompiler, PackageManager, StopApp};
-use waos_permissions::{InstalledApps, Permissions, SettingsFiles};
+use waos_permissions::{InstalledApps, Permissions, Prompts, SettingsFiles};
 use waos_store::{SourceProxy, Store};
 
 use super::app_starter::AppStarter;
@@ -90,7 +90,7 @@ pub(crate) struct Domains {
 
 /// The domains over `folder`, the store's directory, opened in the order each needs the other:
 /// the package manager, compiling with `compiler` and stopping apps among `running`; Permissions,
-/// following its record; and the store, reading sources through `proxy`, recording as Permissions
+/// asking the user through `prompts` and following the package manager's record; and the store, reading sources through `proxy`, recording as Permissions
 /// say, and forgetting each app's activity as the package manager removes it, on a thread of its
 /// own.
 pub(crate) fn open_domains(
@@ -98,13 +98,15 @@ pub(crate) fn open_domains(
     compiler: Arc<dyn CodeCompiler>,
     running: &Arc<RunningApps>,
     proxy: SourceProxy,
+    prompts: Arc<dyn Prompts>,
 ) -> Result<Domains> {
     let packages = PackageManager::open(folder, compiler, Arc::clone(running) as Arc<dyn StopApp>)
         .with_context(|| format!("opening the apps installed at {}", folder.display()))?;
     let packages = Arc::new(packages);
     let permissions = Permissions::open(
         Arc::new(SettingsFiles::new(folder)),
-        &PackageRecord(Arc::clone(&packages)),
+        prompts,
+        Arc::new(PackageRecord(Arc::clone(&packages))),
     );
     let store = Store::open(folder, proxy, permissions.clone())
         .with_context(|| format!("opening the store at {}", folder.display()))?;
@@ -131,6 +133,10 @@ pub(crate) fn open_domains(
 struct PackageRecord(Arc<PackageManager>);
 
 impl InstalledApps for PackageRecord {
+    fn name(&self, id: &ProgramId) -> Option<String> {
+        Some(self.0.installed_program(id)?.name())
+    }
+
     fn removing(&self) -> watch::Receiver<BTreeSet<ProgramId>> {
         self.0.removing()
     }

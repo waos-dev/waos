@@ -1,16 +1,16 @@
-//! The user, as a test plays them, answering what the engine asks: each question, each link
-//! scheme a program asks to open, each role it asks for, kept until the test answers it; and each
-//! settings page a program opens, until the test leaves it.
+//! The user, as a test plays them, answering what an app's permissions ask: each question, each
+//! link scheme an app asks to open, each role it asks for, kept until the test answers it; and each
+//! settings page an app opens, until the test leaves it. Each is said by the app's name, which for
+//! an app not installed is its id.
 
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use futures::FutureExt;
 use futures::channel::oneshot;
-use waos::{
-    Answer, AnswerFuture, Prompts, Question, Role, RunningProgram, SettingsClosedFuture, Switch,
-};
+use waos::{Answer, AnswerFuture, Question, Role, SettingsClosedFuture, Switch};
+use waos_permissions::{App, Prompts};
 
-/// What the engine asked the user, and what is still waiting for an answer.
+/// What the user was asked, and what is still waiting for an answer.
 #[derive(Default)]
 pub struct TestPrompts {
     questions: Mutex<Vec<Put<Question>>>,
@@ -21,20 +21,20 @@ pub struct TestPrompts {
 
 /// One thing put to the user by a program, and its answer while it waits.
 struct Put<T> {
-    program: String,
+    app: String,
     asked: T,
     answer: Option<oneshot::Sender<Option<Answer>>>,
 }
 
 /// One settings page a program opened, and its leaving while it is open.
 struct OpenedSettings {
-    program: String,
+    app: String,
     switch: Switch,
     leave: Option<oneshot::Sender<()>>,
 }
 
 impl TestPrompts {
-    /// Each question put to the user so far, with the program that put it, in order.
+    /// Each question put to the user so far, with the app that put it, in order.
     pub fn questions(&self) -> Vec<(String, Question)> {
         asked(&self.questions, |question| *question)
     }
@@ -49,7 +49,7 @@ impl TestPrompts {
         cancelled(&self.questions, index)
     }
 
-    /// Each link scheme a program asked its user to open so far, with the program, in order.
+    /// Each link scheme an app asked its user to open so far, with the app, in order.
     pub fn link_schemes_asked(&self) -> Vec<(String, String)> {
         asked(&self.link_schemes, String::clone)
     }
@@ -64,7 +64,7 @@ impl TestPrompts {
         cancelled(&self.link_schemes, index)
     }
 
-    /// Each role a program asked its user for so far, with the program, in order.
+    /// Each role an app asked its user for so far, with the app, in order.
     pub fn roles_asked(&self) -> Vec<(String, Role)> {
         asked(&self.roles, |role| *role)
     }
@@ -79,11 +79,11 @@ impl TestPrompts {
         cancelled(&self.roles, index)
     }
 
-    /// Each settings page opened so far, with the program that opened it, in order.
+    /// Each settings page opened so far, with the app that opened it, in order.
     pub fn settings_opened(&self) -> Vec<(String, Switch)> {
         locked(&self.settings)
             .iter()
-            .map(|opened| (opened.program.clone(), opened.switch))
+            .map(|opened| (opened.app.clone(), opened.switch))
             .collect()
     }
 
@@ -98,22 +98,22 @@ impl TestPrompts {
 }
 
 impl Prompts for TestPrompts {
-    fn ask(&self, program: &RunningProgram, question: Question) -> AnswerFuture {
-        put(&self.questions, program, question)
+    fn ask(&self, app: &App, question: Question) -> AnswerFuture {
+        put(&self.questions, app, question)
     }
 
-    fn ask_to_open_links(&self, program: &RunningProgram, scheme: &str) -> AnswerFuture {
-        put(&self.link_schemes, program, scheme.to_owned())
+    fn ask_to_open_links(&self, app: &App, scheme: &str) -> AnswerFuture {
+        put(&self.link_schemes, app, scheme.to_owned())
     }
 
-    fn ask_for_role(&self, program: &RunningProgram, role: Role) -> AnswerFuture {
-        put(&self.roles, program, role)
+    fn ask_for_role(&self, app: &App, role: Role) -> AnswerFuture {
+        put(&self.roles, app, role)
     }
 
-    fn open_settings(&self, program: &RunningProgram, switch: Switch) -> SettingsClosedFuture {
+    fn open_settings(&self, app: &App, switch: Switch) -> SettingsClosedFuture {
         let (leave, left) = oneshot::channel();
         locked(&self.settings).push(OpenedSettings {
-            program: program.name().to_owned(),
+            app: app.name.clone(),
             switch,
             leave: Some(leave),
         });
@@ -121,12 +121,12 @@ impl Prompts for TestPrompts {
     }
 }
 
-/// Puts `asked` to the user for `program`, among `all`: answered once the test answers it, with
+/// Puts `asked` to the user for `app`, among `all`: answered once the test answers it, with
 /// none if the test drops it.
-fn put<T>(all: &Mutex<Vec<Put<T>>>, program: &RunningProgram, asked: T) -> AnswerFuture {
+fn put<T>(all: &Mutex<Vec<Put<T>>>, app: &App, asked: T) -> AnswerFuture {
     let (answer, answered) = oneshot::channel();
     locked(all).push(Put {
-        program: program.name().to_owned(),
+        app: app.name.clone(),
         asked,
         answer: Some(answer),
     });
@@ -136,7 +136,7 @@ fn put<T>(all: &Mutex<Vec<Put<T>>>, program: &RunningProgram, asked: T) -> Answe
 fn asked<T, U>(all: &Mutex<Vec<Put<T>>>, value: impl Fn(&T) -> U) -> Vec<(String, U)> {
     locked(all)
         .iter()
-        .map(|put| (put.program.clone(), value(&put.asked)))
+        .map(|put| (put.app.clone(), value(&put.asked)))
         .collect()
 }
 

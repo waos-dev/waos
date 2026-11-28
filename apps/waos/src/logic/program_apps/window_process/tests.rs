@@ -11,7 +11,7 @@ use waos::bindings::wasdk::platform::views::{
 };
 use waos::bindings::wasdk::platform::windows::{Point, Rect, Size, TitleBarAction};
 use waos::{
-    EngineTime, NoPrompts, OutputStream, Presence, ProgramEnd, ProgramEnvironment, ProgramOutput,
+    EngineTime, OutputStream, Presence, ProgramEnd, ProgramEnvironment, ProgramOutput,
     ShellContextMenus, ShellMenuBar,
 };
 use waos_program_window::Canvas;
@@ -848,7 +848,7 @@ async fn menus(app_menus: &AppMenus, printed: &Arc<Printed>) -> (RunningProgram,
     let folder = tempfile::tempdir().unwrap();
     let (placement, mut requests) =
         WindowsOnRequest::new(ProgramFaces::new(packages_in(folder.path()), None));
-    let mut shell = test_engine::shell(Arc::new(placement), Arc::new(NoPrompts));
+    let mut shell = test_engine::shell(Arc::new(placement));
     shell.menu_bar = Some(Arc::new(app_menus.clone()));
     shell.context_menus = Some(Arc::new(app_menus.clone()));
     let engine = test_engine::engine_over(shell, EngineTime::Real);

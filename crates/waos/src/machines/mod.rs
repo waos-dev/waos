@@ -32,8 +32,8 @@ use waos_capabilities::{
 };
 
 use crate::access::{ActiveUseKind, Asked, Happened, ProgramAccess, Refusal};
-use crate::asking::{self, Outcome};
 use crate::running::RunningProgram;
+use crate::set_or_shown::{self, Outcome};
 use crate::shell::ShellMachinePicker;
 use crate::sync::locked;
 
@@ -149,12 +149,13 @@ impl ProgramMachines {
                 (Some(picker), Some(offered)) => picker.pick(&program, offered),
                 _ => ready(None).boxed(),
             };
-            let id = match asking::stored_or_shown(grants, |grants| grants.machine_answer(), show)
-                .await
-            {
-                Outcome::Prompt(picked) => picked?,
-                Outcome::Setting(set) => set,
-            };
+            let id =
+                match set_or_shown::stored_or_shown(grants, |grants| grants.machine_answer(), show)
+                    .await
+                {
+                    Outcome::Prompt(picked) => picked?,
+                    Outcome::Setting(set) => set,
+                };
             let Some(machine) = machine_of(&providers, &id) else {
                 tracing::warn!(
                     program = program.name(),

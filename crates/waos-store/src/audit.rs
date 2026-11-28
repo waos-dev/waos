@@ -251,8 +251,10 @@ fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
 mod tests {
     use waos_capabilities::Uses;
 
+    use std::sync::Arc;
+
     use waos_capabilities::Setting;
-    use waos_permissions::{NothingInstalled, Permissions, SettingsFiles};
+    use waos_permissions::{NoPrompts, NothingInstalled, Permissions, SettingsFiles};
 
     use super::*;
     use crate::SourceProxy;
@@ -264,8 +266,9 @@ mod tests {
 
     /// The store in `directory`, and the permissions it records as.
     fn open_with_permissions(directory: &Path) -> (Store, Permissions) {
-        let settings = std::sync::Arc::new(SettingsFiles::new(directory));
-        let permissions = Permissions::open(settings, &NothingInstalled);
+        let settings = Arc::new(SettingsFiles::new(directory));
+        let permissions =
+            Permissions::open(settings, Arc::new(NoPrompts), Arc::new(NothingInstalled));
         let store = Store::open(directory, SourceProxy::None, permissions.clone()).unwrap();
         (store, permissions)
     }

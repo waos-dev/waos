@@ -6,13 +6,15 @@ use futures::StreamExt;
 use futures::channel::mpsc::UnboundedReceiver;
 use waos::bindings::wasdk::platform::notifications::Activation;
 use waos::{
-    Answer, EngineTime, NoPrompts, OpenRequest, ProgramEnvironment, ProgramGrants, ProgramOutput,
-    Question, ShellSystemPermissions, SystemPermissionState,
+    Answer, EngineTime, OpenRequest, ProgramEnvironment, ProgramGrants, ProgramOutput, Question,
+    ShellSystemPermissions, SystemPermissionState,
 };
 use waos_package::ProgramId;
 use waos_window_messages::{FromWindow, LaunchReason, PermissionRequestId, PostId, ToWindow};
 
 use super::*;
+use waos_permissions::Setting;
+
 use crate::logic::app_services::Domains;
 use crate::logic::notification_permissions::NotificationPermissionReading;
 use crate::logic::program_apps::app_reach::LaunchAttempt;
@@ -42,7 +44,7 @@ fn notifications_through(
     store: &Domains,
     printed: &Arc<Printed>,
 ) -> RunningProgram {
-    let mut shell = test_engine::shell(Arc::new(NoWindows), Arc::new(NoPrompts));
+    let mut shell = test_engine::shell(Arc::new(NoWindows));
     let in_apps = Arc::new(AppNotifications::new(
         Arc::clone(reach),
         permissions.clone(),
@@ -61,8 +63,14 @@ fn notifications_through(
         .store
         .folders(&notifications_id())
         .expect("its folders, as at its first run");
+    let granted = store
+        .permissions
+        .change_app_settings(&notifications_id(), |own| {
+            own.answers
+                .set(Question::Notifications, Setting::Own(Answer::Granted));
+        });
+    granted.expect("the answer kept");
     let grants = store.permissions.of(&notifications_id());
-    grants.set_answer(Question::Notifications, Answer::Granted);
     let environment = ProgramEnvironment {
         output: Some(Arc::clone(printed) as Arc<dyn ProgramOutput>),
         grants: Some(grants as Arc<dyn ProgramGrants>),

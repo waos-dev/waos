@@ -16,8 +16,8 @@
 //! on a thread of its own, with the views the shell gives it, until it ends or is stopped, when
 //! every GPU object it held goes back with its store, freezing it out of sight by [`FreezePolicy`]
 //! and while the app is suspended; the bindings for views, windows, screens, the system and the
-//! lifecycle, the fonts its environment gives it, the permissions its grants give it and the
-//! shell's [`Prompts`] ask its user for, the files its mounts give it, the network its grants allow
+//! lifecycle, the fonts its environment gives it, the permissions its grants give it and ask its
+//! user for, the files its mounts give it, the network its grants allow
 //! and the system's check of a server's certificate, the platform's clipboard, the menus the shell
 //! has places for, the sound its devices play and record, the file dialogs, the system's opener and
 //! its notifications, the machines its user picked for it, the system's players, which play its
@@ -44,7 +44,6 @@
 #![recursion_limit = "256"]
 
 mod access;
-mod asking;
 mod audio;
 pub mod bindings;
 mod cameras;
@@ -85,6 +84,7 @@ mod running;
 mod screens;
 mod screenshots;
 mod service_extensions;
+mod set_or_shown;
 mod shell;
 mod simulated_input;
 mod source_lines;
@@ -119,38 +119,38 @@ pub use menus::TrayIconReports;
 pub use network::HttpProxy;
 pub use notifications::{Notification, NotificationAction};
 pub use program::Program;
-/// What the user lets a program use, as its environment's grants give it and the shell's
-/// prompts ask for it.
+/// What the user lets a program use, as its environment's grants give it and ask its user for.
 pub use roles::RoleNotGranted;
 pub use running::{HeldProgram, IncompatibleProgram, ProgramEnd, RunningProgram};
 pub use screens::Screen;
 pub use service_extensions::{ExtensionAnswer, ExtensionError, ProgramServiceExtensions};
 pub use shell::{
-    AcceptedBuffers, AcceptedFormat, AnswerFuture, AudioOutputPickedFuture, CameraChangeFuture,
-    CameraListFuture, CameraOpenFuture, CaptureStartFuture, ClipboardItemsFuture,
-    ClipboardReadFuture, ClipboardWriteFuture, Content, ContentFuture, CopiedItem, DecodedFrame,
-    FileDialogFuture, FileSink, FileWriteFuture, GpuId, GpuMemory, HardwareBuffer, ImageFuture,
-    LayerPicture, MachinePickedFuture, MediaAssetFuture, MenuChosenFuture, NoPrompts,
-    NotificationFuture, OnRefresh, OpenFuture, OpenedCamera, OpenedImage, OpenedVideoDecoder,
-    PhotoFuture, PlacedView, PlacedWindow, Prompts, RecordingDevice, SettingsClosedFuture, Shell,
-    ShellAttachedMenu, ShellAudioOutputPicker, ShellCamera, ShellCameras, ShellCaptureSession,
-    ShellClipboard, ShellClipboardItem, ShellCompositionLayer, ShellCompositor, ShellContextMenus,
-    ShellFileDialogs, ShellGpus, ShellHardwareImageCodecs, ShellImageCodecs, ShellImageSource,
-    ShellMachinePicker, ShellMediaAsset, ShellMediaAssets, ShellMediaPlayer, ShellMediaPlayers,
-    ShellMenuAtIcon, ShellMenuBar, ShellNotificationScheduling, ShellNotifications, ShellOpener,
-    ShellRecordingIndicator, ShellSystemBars, ShellSystemPermissions, ShellTextInput,
-    ShellTrayIcon, ShellTrayIcons, ShellVideoDecoder, ShellVideoDecoders, ShellVideoFrameReader,
-    ShellVideoFrameReaders, ShellView, ShellWindow, ShellWindowSizeLimits, StartedSession,
-    SystemPermission, SystemPermissionFuture, SystemPermissionState, TrayIconAddFuture,
-    VideoDecodeSupportFuture, VideoDecoderFuture, VideoDecoderOpenFuture, VideoFrame, VideoOutput,
-    VideoPicture, ViewPlacement, ViewRequest, VsyncWaiter,
+    AcceptedBuffers, AcceptedFormat, AudioOutputPickedFuture, CameraChangeFuture, CameraListFuture,
+    CameraOpenFuture, CaptureStartFuture, ClipboardItemsFuture, ClipboardReadFuture,
+    ClipboardWriteFuture, Content, ContentFuture, CopiedItem, DecodedFrame, FileDialogFuture,
+    FileSink, FileWriteFuture, GpuId, GpuMemory, HardwareBuffer, ImageFuture, LayerPicture,
+    MachinePickedFuture, MediaAssetFuture, MenuChosenFuture, NotificationFuture, OnRefresh,
+    OpenFuture, OpenedCamera, OpenedImage, OpenedVideoDecoder, PhotoFuture, PlacedView,
+    PlacedWindow, RecordingDevice, Shell, ShellAttachedMenu, ShellAudioOutputPicker, ShellCamera,
+    ShellCameras, ShellCaptureSession, ShellClipboard, ShellClipboardItem, ShellCompositionLayer,
+    ShellCompositor, ShellContextMenus, ShellFileDialogs, ShellGpus, ShellHardwareImageCodecs,
+    ShellImageCodecs, ShellImageSource, ShellMachinePicker, ShellMediaAsset, ShellMediaAssets,
+    ShellMediaPlayer, ShellMediaPlayers, ShellMenuAtIcon, ShellMenuBar,
+    ShellNotificationScheduling, ShellNotifications, ShellOpener, ShellRecordingIndicator,
+    ShellSystemBars, ShellSystemPermissions, ShellTextInput, ShellTrayIcon, ShellTrayIcons,
+    ShellVideoDecoder, ShellVideoDecoders, ShellVideoFrameReader, ShellVideoFrameReaders,
+    ShellView, ShellWindow, ShellWindowSizeLimits, StartedSession, SystemPermission,
+    SystemPermissionFuture, SystemPermissionState, TrayIconAddFuture, VideoDecodeSupportFuture,
+    VideoDecoderFuture, VideoDecoderOpenFuture, VideoFrame, VideoOutput, VideoPicture,
+    ViewPlacement, ViewRequest, VsyncWaiter,
 };
 pub use simulated_input::{DragPath, Keyboard, Mouse, NoSuchChord, NothingEdited};
 pub use stats::Stats;
 pub use views::{HeldModifiers, KeyHandledFuture, ProgramView, Watching, WeakProgramView};
 pub use waos_capabilities::MachineChoice;
 pub use waos_capabilities::{
-    Answer, FileDialog, ProgramGrants, Question, Role, SimulatedSound, Switch,
+    Answer, AnswerFuture, FileDialog, ProgramGrants, Question, Role, SettingsClosedFuture,
+    SimulatedSound, Switch,
 };
 /// A program's sound devices, and an output among them as the shell's picker shows it.
 pub use waos_capabilities::{AudioDeviceError, AudioDevices, AudioOutput};

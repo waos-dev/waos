@@ -15,9 +15,9 @@ use futures::FutureExt;
 use waos_capabilities::AudioOutput;
 
 use crate::access::ProgramAccess;
-use crate::asking::{self, Outcome};
 use crate::bindings::wasdk::platform::audio::{AudioError, MediaDeviceInfo};
 use crate::running::RunningProgram;
+use crate::set_or_shown::{self, Outcome};
 use crate::shell::ShellAudioOutputPicker;
 use crate::sync::locked;
 
@@ -65,7 +65,7 @@ impl ProgramOutputs {
         outputs: Vec<AudioOutput>,
     ) -> Result<MediaDeviceInfo, AudioError> {
         let grants = self.0.access.clone_grants();
-        let outcome = asking::stored_or_shown(
+        let outcome = set_or_shown::stored_or_shown(
             grants,
             |grants| grants.audio_output_answer(),
             || match &self.0.picker {

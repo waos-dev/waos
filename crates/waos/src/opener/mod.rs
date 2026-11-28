@@ -3,8 +3,8 @@
 //!
 //! The shell opens ([`ShellOpener`]); the engine keeps the rules: which links a program may open
 //! ([`LinkSchemes`]: `http`, `https` and `mailto` freely, any other scheme as its user answered,
-//! asked once per scheme through the shell's prompts and kept among its grants, each link decided
-//! and told through the program's access, `access`), and where on the machine a file the program
+//! which its grants ask once per scheme and keep, each link decided and told through the program's
+//! access, `access`), and where on the machine a file the program
 //! names is, through its mounts. The interface is served to a program by `host`.
 //!
 //! The invariant: nothing the rules refuse reaches the shell, neither a link of a scheme the user
@@ -20,9 +20,7 @@ use futures::future::BoxFuture;
 use waos_capabilities::{Answer, ProgramGrants};
 
 use crate::access::{Asked, ProgramAccess, Prompt, Refusal};
-use crate::asking::{Asking, ask_or_setting};
-use crate::running::RunningProgram;
-use crate::shell::{Prompts, ShellOpener};
+use crate::shell::ShellOpener;
 
 /// The schemes whose links open without asking: the web's and mail's, which every system opens in
 /// an app its user chose for them.
@@ -34,28 +32,14 @@ pub struct Opener(Arc<dyn ShellOpener>);
 /// Which schemes of links a program may open: the free ones, and any other its user allowed,
 /// asked once per scheme.
 pub(crate) struct LinkSchemes {
-    /// Where each link is decided, by the answers kept among the program's grants.
+    /// Where each link is decided, by the answers its grants keep, which ask the user.
     access: ProgramAccess,
-    prompts: Arc<dyn Prompts>,
-    program: RunningProgram,
-    /// The schemes being asked about now, each once however often the program opens one.
-    asking: Asking<String>,
 }
 
 impl LinkSchemes {
-    /// `program`'s link schemes, as the grants `access` reads keep the user's answers and
-    /// `prompts` ask the user.
-    pub(crate) fn new(
-        access: ProgramAccess,
-        prompts: Arc<dyn Prompts>,
-        program: RunningProgram,
-    ) -> LinkSchemes {
-        LinkSchemes {
-            access,
-            prompts,
-            program,
-            asking: Asking::default(),
-        }
+    /// A program's link schemes, as the grants `access` reads ask the user and keep the answers.
+    pub(crate) fn new(access: ProgramAccess) -> LinkSchemes {
+        LinkSchemes { access }
     }
 
     /// Resolves to whether the program may open `link`, of `scheme`, in lower case: at once for a
@@ -73,29 +57,12 @@ impl LinkSchemes {
         async move { decide_link(&access, &link, &scheme, asked.await) }.boxed()
     }
 
-    /// Asks the user about `scheme`, unless it is being asked already, and resolves to the answer,
-    /// kept through the grants once it comes from the prompt, or read from grants if set while
-    /// waiting.
+    /// Asks the user about `scheme` through the grants, told as asked and answered: they ask it
+    /// once however often the program opens its links, and keep the answer.
     fn ask(&self, scheme: &str) -> impl Future<Output = Option<Answer>> + Send + 'static {
-        let owned = scheme.to_owned();
-        let access = self.access.clone();
-        let prompts = Arc::clone(&self.prompts);
-        let program = self.program.clone();
-        let read_scheme = owned.clone();
-        let ask_scheme = owned.clone();
-        let keep_scheme = owned.clone();
-        self.asking.ask(owned.clone(), || {
-            Box::pin(async move {
-                ask_or_setting(
-                    &access,
-                    Prompt::LinkScheme(owned),
-                    move |grants| grants.link_scheme_answer(&read_scheme),
-                    move || prompts.ask_to_open_links(&program, &ask_scheme),
-                    move |grants, answer| grants.set_link_scheme_answer(&keep_scheme, answer),
-                )
-                .await
-            })
-        })
+        let asking = self.access.grants().ask_to_open_links(scheme);
+        self.access
+            .put_question(Prompt::LinkScheme(scheme.to_owned()), asking)
     }
 }
 

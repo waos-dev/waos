@@ -12,8 +12,8 @@ use std::time::Duration;
 use waos::bindings::wasdk::platform::system::Brightness;
 use waos::bindings::wasdk::platform::views::ViewError;
 use waos::{
-    AuditLog, EngineTime, FreezePolicy, HttpProxy, NoPrompts, PlatformState, Prompts,
-    RunningProgram, Shell, ViewPlacement, ViewRequest, VsyncWaiter, WaOS, WaOSConfig,
+    AuditLog, EngineTime, FreezePolicy, HttpProxy, PlatformState, RunningProgram, Shell,
+    ViewPlacement, ViewRequest, VsyncWaiter, WaOS, WaOSConfig,
 };
 
 /// How long a test waits for a program or the app to do something before it fails. No wait
@@ -43,38 +43,27 @@ impl VsyncWaiter for NoRefreshes {
     fn next_vsync(&self, _screen: u64, _on_refresh: waos::OnRefresh) {}
 }
 
-/// An engine placing views with `views`, with nobody to ask.
+/// An engine placing views with `views`.
 pub(crate) fn engine(views: Arc<dyn ViewPlacement>) -> WaOS {
-    engine_asking(views, Arc::new(NoPrompts))
+    engine_over(shell(views), EngineTime::Real)
 }
 
-/// An engine placing views with `views` and asking the user through `prompts`.
-pub(crate) fn engine_asking(views: Arc<dyn ViewPlacement>, prompts: Arc<dyn Prompts>) -> WaOS {
-    engine_over(shell(views, prompts), EngineTime::Real)
-}
-
-/// An engine placing views with `views` and asking the user through `prompts`, keeping the days
-/// of what its programs do in `audit`.
-pub(crate) fn engine_keeping_days(
-    views: Arc<dyn ViewPlacement>,
-    prompts: Arc<dyn Prompts>,
-    audit: Arc<dyn AuditLog>,
-) -> WaOS {
+/// An engine placing views with `views`, keeping the days of what its programs do in `audit`.
+pub(crate) fn engine_keeping_days(views: Arc<dyn ViewPlacement>, audit: Arc<dyn AuditLog>) -> WaOS {
     let config = WaOSConfig {
         audit: Some(audit),
         ..config(EngineTime::Real)
     };
-    engine_of(config, shell(views, prompts))
+    engine_of(config, shell(views))
 }
 
-/// The shell of an engine for the app's tests: `views` places its views and `prompts` asks its
-/// user, its screens never refresh, and it has nothing else.
-pub(crate) fn shell(views: Arc<dyn ViewPlacement>, prompts: Arc<dyn Prompts>) -> Shell {
+/// The shell of an engine for the app's tests: `views` places its views, its screens never
+/// refresh, and it has nothing else.
+pub(crate) fn shell(views: Arc<dyn ViewPlacement>) -> Shell {
     Shell {
         views,
         vsync: Arc::new(NoRefreshes) as Arc<dyn VsyncWaiter>,
         compositor: None,
-        prompts,
         system_permissions: None,
         clipboard: None,
         menu_bar: None,
@@ -135,7 +124,7 @@ pub(crate) mod drawing {
     use waos::bindings::wasdk::platform::system::Brightness;
     use waos::bindings::wasdk::platform::views::RequestId;
     use waos::{
-        EngineTime, FreezePolicy, HttpProxy, NoPrompts, PlatformState, ProgramView, RunningProgram,
+        EngineTime, FreezePolicy, HttpProxy, PlatformState, ProgramView, RunningProgram,
         ViewRequest, WaOS, WaOSConfig, WindowConfig,
     };
 
@@ -170,7 +159,7 @@ pub(crate) mod drawing {
     /// An engine as [`engine`]'s, placing views in windows when `in_windows`.
     fn engine_giving(in_windows: bool) -> Arc<WaOS> {
         let headless = HeadlessShell::new(display(in_windows), Refreshes::WhenAsked);
-        let shell = headless.shell(Arc::new(NoPrompts));
+        let shell = headless.shell();
         let config = WaOSConfig {
             freeze: FreezePolicy::default(),
             compiler: waos::Compiler::new(false).expect("a compiler"),

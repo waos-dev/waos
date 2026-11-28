@@ -1,5 +1,6 @@
 //! One app's grants, as its run reads them ([`AppGrants`]): its own settings over the global ones,
-//! read live, the answers its user gives kept in its settings.
+//! read live; a question the run waits for asked of its user once (`asking`), the answer kept in
+//! its settings.
 //!
 //! The invariant: settings that cannot be read grant nothing. An app whose own settings or the
 //! global ones cannot be read has every switch off, nothing mounted, no machine, every question,
@@ -10,11 +11,13 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use waos_capabilities::{
-    Answer, ChangedFuture, DomainRule, FileDialog, FileSystemGrant, Mount, NetworkGrant,
-    ProgramGrants, Question, Role, Setting, SimulatedSound,
+    Answer, AnswerFuture, ChangedFuture, DomainRule, FileDialog, FileSystemGrant, Mount,
+    NetworkGrant, ProgramGrants, Question, Role, Setting, SettingsClosedFuture, SimulatedSound,
+    Switch,
 };
 use waos_package::ProgramId;
 
+use crate::AppQuestion;
 use crate::permissions::Shared;
 use crate::settings::{AppSettings, GlobalSettings, Holding};
 
@@ -75,10 +78,9 @@ impl ProgramGrants for AppGrants {
         self.read(|holding| holding.answer(question), Some(Answer::Denied))
     }
 
-    fn set_answer(&self, question: Question, answer: Answer) {
-        self.keep(&format!("the answer to {question:?} is lost"), |_, own| {
-            own.answers.set(question, Setting::Own(answer));
-        });
+    fn ask(&self, question: Question) -> AnswerFuture {
+        self.shared
+            .ask(&self.app, AppQuestion::Permission(question))
     }
 
     fn link_scheme_answer(&self, scheme: &str) -> Option<Answer> {
@@ -88,11 +90,13 @@ impl ProgramGrants for AppGrants {
         )
     }
 
-    fn set_link_scheme_answer(&self, scheme: &str, answer: Answer) {
-        let lost = format!("the answer to opening {scheme} links is lost");
-        self.keep(&lost, |_, own| {
-            own.link_schemes.insert(scheme.to_owned(), answer);
-        });
+    fn ask_to_open_links(&self, scheme: &str) -> AnswerFuture {
+        let question = AppQuestion::LinkScheme(scheme.to_owned());
+        self.shared.ask(&self.app, question)
+    }
+
+    fn open_settings(&self, switch: Switch) -> SettingsClosedFuture {
+        self.shared.open_settings(&self.app, switch)
     }
 
     /// Off where the settings cannot be read, as nothing granted keeps the least.
@@ -104,11 +108,8 @@ impl ProgramGrants for AppGrants {
         self.read(|holding| holding.role(role), Some(Answer::Denied))
     }
 
-    fn set_role(&self, role: Role, answer: Answer) {
-        let lost = format!("the answer to holding the {role:?} role is lost");
-        self.keep(&lost, |_, own| {
-            own.roles.insert(role, answer);
-        });
+    fn ask_for_role(&self, role: Role) -> AnswerFuture {
+        self.shared.ask(&self.app, AppQuestion::Role(role))
     }
 
     fn machines(&self) -> Vec<String> {

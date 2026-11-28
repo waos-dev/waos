@@ -71,7 +71,11 @@ impl TestLibrary {
             packages,
             permissions,
             store,
-        } = test_installs::domains(&folder.path().join("store"), &runs);
+        } = test_installs::domains(
+            &folder.path().join("store"),
+            &runs,
+            Arc::new(waos_permissions::NoPrompts),
+        );
         let services = AppServices::new(
             Arc::clone(&runs),
             packages,

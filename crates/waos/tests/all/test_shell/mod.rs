@@ -1,6 +1,6 @@
 //! The engine's tests' shell: the headless shell's windowing parts (`waos_headless`), and a
-//! stand-in for every other part of the platform, which a test plays: the user's answers to the
-//! engine's questions (`prompts`), the clipboard, the menus, the dialogs, the cameras and the rest,
+//! stand-in for every other part of the platform, which a test plays: the user's answers to what
+//! an app's permissions ask (`prompts`), the clipboard, the menus, the dialogs, the cameras and the rest,
 //! each recording what the engine asked of it. A test makes one, makes an engine over it with the
 //! engine's own calls, and reads back what the engine told it; what a program prints, it reads
 //! from the program's own output (`output`), and whatever it waits for, it waits for with one
@@ -45,14 +45,14 @@ use waos::bindings::wasdk::platform::system::{Brightness, Locale};
 use waos::bindings::wasdk::platform::views::ViewError;
 use waos::{
     Compiler, EngineTime, FreezePolicy, HttpProxy, PlacedView, PlatformState, Presence,
-    ProgramEnvironment, ProgramOutput, ProgramView, Prompts, RunningProgram, Shell,
-    ShellAudioOutputPicker, ShellCameras, ShellClipboard, ShellCompositor, ShellContextMenus,
-    ShellFileDialogs, ShellGpus, ShellImageCodecs, ShellMachinePicker, ShellMediaAssets,
-    ShellMediaPlayers, ShellMenuBar, ShellNotifications, ShellOpener, ShellRecordingIndicator,
-    ShellSystemPermissions, ShellTrayIcons, ShellVideoFrameReaders, ShellView, ViewPlacement,
-    ViewRequest, WaOSConfig,
+    ProgramEnvironment, ProgramOutput, ProgramView, RunningProgram, Shell, ShellAudioOutputPicker,
+    ShellCameras, ShellClipboard, ShellCompositor, ShellContextMenus, ShellFileDialogs, ShellGpus,
+    ShellImageCodecs, ShellMachinePicker, ShellMediaAssets, ShellMediaPlayers, ShellMenuBar,
+    ShellNotifications, ShellOpener, ShellRecordingIndicator, ShellSystemPermissions,
+    ShellTrayIcons, ShellVideoFrameReaders, ShellView, ViewPlacement, ViewRequest, WaOSConfig,
 };
 use waos_headless::{Display, HeadlessShell, Refreshes, SCREEN};
+use waos_permissions::{NothingInstalled, Permissions, Prompts, SettingsInMemory};
 
 use cameras::TestCameras;
 use clipboard::TestClipboard;
@@ -162,10 +162,16 @@ impl TestShell {
             cameras: Some(Arc::clone(&self.cameras) as Arc<dyn ShellCameras>),
             simulated_cameras: Some(Arc::clone(&self.simulated_cameras) as Arc<dyn ShellCameras>),
             machine_picker: Some(Arc::clone(&self.machine_picker) as Arc<dyn ShellMachinePicker>),
-            ..self
-                .headless
-                .shell(Arc::clone(&self.prompts) as Arc<dyn Prompts>)
+            ..self.headless.shell()
         }
+    }
+
+    /// The permissions an app the test runs is handed, as WaOS hands them: the real ones, over
+    /// settings in memory at WaOS's defaults, asking the user the test plays (`prompts`).
+    pub fn permissions(&self) -> Permissions {
+        let prompts = Arc::clone(&self.prompts) as Arc<dyn Prompts>;
+        let settings = Arc::new(SettingsInMemory::default());
+        Permissions::open(settings, prompts, Arc::new(NothingInstalled))
     }
 
     /// The platform as the engine starts with it: the shell's one screen, light, in American

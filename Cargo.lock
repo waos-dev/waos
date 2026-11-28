@@ -9275,6 +9275,7 @@ dependencies = [
  "waos-headless",
  "waos-local",
  "waos-local-processes",
+ "waos-permissions",
  "waos-test-programs",
  "waos-wit-serialize",
  "wasmparser 0.261.0",

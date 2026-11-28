@@ -103,7 +103,8 @@ impl Desktop {
         } = test_installs::domains_never_run(&folder.join("store"));
         let (placement, requests) =
             WindowsOnRequest::new(ProgramFaces::new(Arc::clone(&packages), None));
-        let (prompts, prompted) = PromptsOnRequest::new(crate::logic::asking_now::AskingNow::new());
+        // Nobody asks the user here; the questions are listened to as the app listens to them.
+        let (_prompts, prompted) = PromptsOnRequest::new(Arc::default());
         let config = WaOSConfig {
             freeze: FreezePolicy::default(),
             compiler: waos::Compiler::new(false).expect("a compiler"),
@@ -128,7 +129,6 @@ impl Desktop {
             compositor: Some(Arc::new(WaftCompositor::new(
                 Arc::clone(&platform.compositor) as Arc<dyn Compositor>,
             ))),
-            prompts: Arc::new(prompts),
             system_permissions: None,
             clipboard: Some(served.shell()),
             // A program's menu bar is its app's, never WaOS's own windows'.

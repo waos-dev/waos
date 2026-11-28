@@ -84,13 +84,9 @@ impl ProgramGrants for TestGrants {
         Some(Answer::Denied)
     }
 
-    fn set_answer(&self, _question: Question, _answer: Answer) {}
-
     fn link_scheme_answer(&self, _scheme: &str) -> Option<Answer> {
         Some(Answer::Denied)
     }
-
-    fn set_link_scheme_answer(&self, _scheme: &str, _answer: Answer) {}
 
     fn changed(&self) -> ChangedFuture {
         Box::pin(pending())

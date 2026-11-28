@@ -467,8 +467,6 @@ mod tests {
     use futures::FutureExt;
     use futures::future::BoxFuture;
 
-    use waos_capabilities::ProgramGrants;
-
     use super::*;
     use crate::access::Answers;
     use crate::inspection::ProgramStorage;

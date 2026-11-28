@@ -259,13 +259,9 @@ impl ProgramGrants for LiveFileDialogGrants {
         Some(Answer::Denied)
     }
 
-    fn set_answer(&self, _question: Question, _answer: Answer) {}
-
     fn link_scheme_answer(&self, _scheme: &str) -> Option<Answer> {
         Some(Answer::Denied)
     }
-
-    fn set_link_scheme_answer(&self, _scheme: &str, _answer: Answer) {}
 
     fn file_dialog_answer(&self, dialog: FileDialog) -> Option<Vec<PathBuf>> {
         if dialog == FileDialog::OpenFile {
@@ -341,13 +337,9 @@ impl ProgramGrants for SetAnswers {
         Some(Answer::Denied)
     }
 
-    fn set_answer(&self, _question: Question, _answer: Answer) {}
-
     fn link_scheme_answer(&self, _scheme: &str) -> Option<Answer> {
         Some(Answer::Denied)
     }
-
-    fn set_link_scheme_answer(&self, _scheme: &str, _answer: Answer) {}
 
     fn file_dialog_answer(&self, dialog: FileDialog) -> Option<Vec<PathBuf>> {
         let path = match dialog {
