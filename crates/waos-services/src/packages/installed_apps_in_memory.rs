@@ -205,7 +205,10 @@ mod tests {
                 component_sha256: [0; 32],
             },
         };
-        let version = InstalledVersion::new(PathBuf::from("/built/notes"));
+        let version = InstalledVersion::new(
+            PathBuf::from("/built/notes.wasm"),
+            PathBuf::from("/built/notes-code"),
+        );
         let store = InstalledAppsInMemory::with([AppInMemory {
             program: program.clone(),
             icon: Some(Arc::from(&b"a picture"[..])),
