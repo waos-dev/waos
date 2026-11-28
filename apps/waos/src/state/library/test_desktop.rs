@@ -1,6 +1,6 @@
 //! A desktop of the tests' own for WaOS's windows: Waft's test platform making a window for each
 //! request at once, on one screen whose Dock keeps 70 points along its bottom, with the pointer
-//! where the test puts it, the system's fonts, an opener that keeps what it is asked to open, a
+//! where the test puts it, Waft's test font, an opener that keeps what it is asked to open, a
 //! tray that keeps its icons, file dialogs that answer what the test gives, and composition layers
 //! that show nothing; and the
 //! app as it starts, over a store in a folder of the test's own: the library, the programs'
@@ -971,7 +971,7 @@ pub(crate) fn label_of(app: &App, element: AnyElement) -> Option<String> {
 }
 
 /// Waft's test platform, with windows made on request on its one screen, the screen's Dock and
-/// the pointer, the system's fonts, an opener and file dialogs.
+/// the pointer, Waft's test font, an opener and file dialogs.
 struct LibraryPlatform {
     inner: TestPlatform,
     windows: Rc<TestWindows>,
@@ -994,7 +994,6 @@ impl LibraryPlatform {
             inner: TestPlatform::new()
                 .on(system)
                 .with_windows(Rc::clone(&windows))
-                .with_system_fonts()
                 .with_gpu()
                 .with_opener(Rc::new(opener.clone()))
                 .with_tray_icons(Rc::new(tray.clone()))

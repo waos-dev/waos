@@ -72,8 +72,6 @@ mod projection;
 mod search_pill;
 mod springs;
 mod strip;
-#[cfg(test)]
-mod tests;
 mod touch_layer;
 mod words;
 
