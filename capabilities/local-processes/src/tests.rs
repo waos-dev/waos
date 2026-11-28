@@ -113,37 +113,32 @@ async fn an_interrupt_ends_a_command_run_with_pipes_as_ctrl_c_would() {
 }
 
 #[tokio::test]
-async fn a_shell_in_a_terminal_echoes_what_is_typed_takes_a_new_size_and_ends() {
+async fn a_command_in_a_terminal_reads_what_is_typed_takes_a_new_size_and_ends() {
     within(async {
         let size = TerminalSize {
             columns: 80,
             rows: 24,
             ..TerminalSize::default()
         };
+        // A script, not a shell at its prompt: a shell that takes its lines from a person reads
+        // them with readline and gives the terminal to each command it starts, and both act on
+        // the terminal's size between two lines. The script says its size once told of a new one,
+        // while it waits in a `read` of its own.
+        let script =
+            "trap 'stty size; exit 4' WINCH; read typed; echo \"typed: $typed\"; read more";
         let mut started = machine()
-            .exec_in_terminal(command("/bin/sh", &[]), size)
+            .exec_in_terminal(command("/bin/sh", &["-c", script]), size)
             .await
             .unwrap();
-        started
-            .terminal
-            .write(b"echo $((6 * 7))\n".to_vec())
-            .await
-            .unwrap();
-        read_until(&mut started.output, "42").await;
+        started.terminal.write(b"hello\n".to_vec()).await.unwrap();
+        read_until(&mut started.output, "typed: hello").await;
 
         started.terminal.resize(TerminalSize {
             columns: 100,
             rows: 30,
             ..TerminalSize::default()
         });
-        started
-            .terminal
-            .write(b"stty size\n".to_vec())
-            .await
-            .unwrap();
         read_until(&mut started.output, "30 100").await;
-
-        started.terminal.write(b"exit 4\n".to_vec()).await.unwrap();
         assert_eq!(started.child.exit_status().await, ExitStatus::Exited(4));
     })
     .await;

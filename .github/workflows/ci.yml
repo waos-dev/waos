@@ -52,6 +52,7 @@ jobs:
         with:
           fetch-depth: 0
       - uses: ./.github/actions/prepare
+        id: prepare
         with:
           test-programs: "true"
       - name: Tests of the engine and the command
@@ -63,7 +64,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: target/test-programs
-          key: test-programs-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'builtin-apps/**', 'examples/**', 'sdk/**', 'wit/**', 'crates/waos/tests/programs/**') }}
+          key: ${{ steps.prepare.outputs.test-programs-key }}
 
   test-app:
     runs-on: macos-15
@@ -126,6 +127,7 @@ jobs:
           fetch-depth: 0
       - uses: ./.github/actions/linux-packages
       - uses: ./.github/actions/prepare
+        id: prepare
         with:
           test-programs: "true"
       - name: Tests of what runs on Linux today and depends on the system
@@ -151,7 +153,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: target/test-programs
-          key: test-programs-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'builtin-apps/**', 'examples/**', 'sdk/**', 'wit/**', 'crates/waos/tests/programs/**') }}
+          key: ${{ steps.prepare.outputs.test-programs-key }}
 
   clippy-windows:
     runs-on: windows-latest
@@ -172,6 +174,7 @@ jobs:
         with:
           fetch-depth: 0
       - uses: ./.github/actions/prepare
+        id: prepare
         with:
           test-programs: "true"
       - name: Tests of what runs on Windows today and depends on the system
@@ -193,4 +196,4 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: target/test-programs
-          key: test-programs-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'builtin-apps/**', 'examples/**', 'sdk/**', 'wit/**', 'crates/waos/tests/programs/**') }}
+          key: ${{ steps.prepare.outputs.test-programs-key }}

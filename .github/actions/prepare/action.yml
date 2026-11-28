@@ -8,6 +8,10 @@ inputs:
     description: Whether to restore target/test-programs (needed by jobs that build or run waos-test-programs).
     required: false
     default: "false"
+outputs:
+  test-programs-key:
+    description: The key target/test-programs is cached under, for a job on main to save it with.
+    value: ${{ steps.test-programs-key.outputs.key }}
 runs:
   using: composite
   steps:
@@ -24,12 +28,26 @@ runs:
     # The programs the engine's and the app's tests run, built for wasm32-wasip3 by
     # `waos-test-programs` into target/test-programs with their compiled code: minutes to make,
     # kept apart from rust-cache, which drops what the workspace's own build scripts make. Named by
-    # what they are built from (`crates/waos/tests/programs/build.rs`); a job that runs tests saves
-    # it on main (`save-test-programs`).
+    # what they are built with (the dependencies' versions and the toolchain), then by what they
+    # are built from (`crates/waos/tests/programs/build.rs`). A change to what they are built from
+    # starts from main's last build and rebuilds what changed; a change to what they are built
+    # with starts from nothing, as rust-cache does, since every build before it would stay in the
+    # folder beside the new one, and the cache would only grow. A job that runs tests saves it on
+    # main, under the key answered here.
+    - name: The key of the test programs
+      id: test-programs-key
+      if: inputs.test-programs == 'true'
+      shell: bash
+      env:
+        BUILT_WITH: ${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+        BUILT_FROM: ${{ hashFiles('builtin-apps/**', 'examples/**', 'sdk/**', 'wit/**', 'crates/waos/tests/programs/**') }}
+      run: |
+        echo "built-with=test-programs-$RUNNER_OS-$BUILT_WITH-" >> "$GITHUB_OUTPUT"
+        echo "key=test-programs-$RUNNER_OS-$BUILT_WITH-$BUILT_FROM" >> "$GITHUB_OUTPUT"
     - name: The test programs, as main last built them
       if: inputs.test-programs == 'true'
       uses: actions/cache/restore@v4
       with:
         path: target/test-programs
-        key: test-programs-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'builtin-apps/**', 'examples/**', 'sdk/**', 'wit/**', 'crates/waos/tests/programs/**') }}
-        restore-keys: test-programs-${{ runner.os }}-
+        key: ${{ steps.test-programs-key.outputs.key }}
+        restore-keys: ${{ steps.test-programs-key.outputs.built-with }}
