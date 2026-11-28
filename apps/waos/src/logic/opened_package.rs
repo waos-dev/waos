@@ -95,7 +95,7 @@ pub(crate) mod tests {
     pub(crate) const ICON_PIXEL: [u8; 4] = [0x3b, 0x82, 0xf6, 0xff];
 
     /// A PNG of [`ICON_SIDE`] by [`ICON_SIDE`] of [`ICON_PIXEL`], as a package's icon is.
-    fn icon() -> Vec<u8> {
+    pub(crate) fn icon() -> Vec<u8> {
         let mut png = Vec::new();
         let mut encoder = png::Encoder::new(&mut png, ICON_SIDE, ICON_SIDE);
         encoder.set_color(png::ColorType::Rgba);

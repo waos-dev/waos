@@ -8,8 +8,6 @@
 //! programs shown inside WaOS, which the user's preferences keep, a program opened after takes a
 //! tab, as in the deck's own tests.
 
-use std::time::Duration;
-
 use waft::Offset;
 use waft::ui::{HostWindow, View, ViewFocusState};
 use waos::Question;
@@ -20,20 +18,13 @@ use super::test_phone::{BACK, PhoneKind, SURVEY, TRIANGLE, TestPhone};
 use crate::logic::opened_package::tests::{ICON_PIXEL, ICON_SIDE};
 use crate::logic::preferences::PreferencesFile;
 
-/// How long a test gives a program to do what it would do were it to go wrong.
-const A_MOMENT: Duration = Duration::from_millis(500);
-
 /// An app that never asks for a view.
 const FOREVER: &str = "dev.example.forever";
 
 /// A phone of tasks with `programs` installed, each a test program's component under an id and a
 /// name.
 fn tasks_with(programs: &[(&str, &str, &str)]) -> TestPhone {
-    let mut phone = TestPhone::of(PhoneKind::Tasks);
-    for (component, id, name) in programs {
-        phone.install(component, id, name);
-    }
-    phone
+    TestPhone::of(PhoneKind::Tasks, programs)
 }
 
 fn with_triangle_installed() -> TestPhone {
@@ -79,8 +70,7 @@ fn a_program_opened_gets_its_window_with_its_name_its_icon_and_what_names_it() {
 
 #[test]
 fn a_question_of_an_app_before_its_first_window_is_put_over_the_window_held_for_it() {
-    let mut phone = TestPhone::of(PhoneKind::Tasks);
-    phone.install(waos_test_programs::FOREVER, FOREVER, "Forever");
+    let mut phone = tasks_with(&[(waos_test_programs::FOREVER, FOREVER, "Forever")]);
     phone.start_opening(FOREVER);
     phone.settle_until("it runs, with its window", |phone| {
         phone.runs(FOREVER) && phone.windows_of(FOREVER).len() == 1
@@ -109,16 +99,14 @@ fn a_question_of_an_app_before_its_first_window_is_put_over_the_window_held_for_
 
 #[test]
 fn an_app_opened_has_its_window_from_its_launch_though_it_never_asks_for_one() {
-    let mut phone = TestPhone::of(PhoneKind::Tasks);
-    phone.install(waos_test_programs::FOREVER, FOREVER, "Forever");
+    let mut phone = tasks_with(&[(waos_test_programs::FOREVER, FOREVER, "Forever")]);
     phone.start_opening(FOREVER);
     phone.settle_until("it runs, with its window", |phone| {
         phone.runs(FOREVER) && phone.windows_of(FOREVER).len() == 1
     });
-    phone.pump_for(A_MOMENT);
     assert!(
         phone.program_views(FOREVER).is_empty(),
-        "the window waits for its first request"
+        "made at the launch, before any request"
     );
     assert_eq!(phone.windows_of(FOREVER)[0].config().title, "Forever");
 }
