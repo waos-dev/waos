@@ -14,10 +14,9 @@
 //! - An install is done only once its code is compiled, so an installed app opens at once.
 
 use std::collections::{BTreeSet, HashMap};
-use std::fs;
 use std::future::Future;
 use std::io::Write as _;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use futures::StreamExt as _;
@@ -29,19 +28,10 @@ use waos_package::{Manifest, Package, PackageError, ProgramId, PublisherKey};
 
 use crate::packages::error::{FolderError, InstallError, RemoveError};
 use crate::packages::installed::{DevelopmentBuild, InstalledProgram, InstalledVersion, Origin};
-use crate::packages::programs::{self, Staged};
 use crate::packages::sessions::{
     Begun, Caller, InstallProgress, InstallSession, InstallSessionInfo, Sessions,
 };
-
-/// The folder of installed apps, in the package manager's folder.
-const PROGRAMS: &str = "programs";
-
-/// Where an app being removed is moved to, in the package manager's folder, before it is removed.
-const REMOVING: &str = "removing";
-
-/// What a package being received is named with, in its app's folder.
-const RECEIVING: &str = ".receiving-";
+use crate::packages::store::{InstalledAppsStore, StagedVersion};
 
 /// How much more of a package arrives before its session's watchers hear how far it is.
 const RECEIVING_STEP: u64 = 256 * 1024;
@@ -125,8 +115,7 @@ pub struct PackageManager {
 
 /// What the package manager and its sessions' work share.
 struct Shared {
-    programs: PathBuf,
-    removing_folder: PathBuf,
+    store: Arc<dyn InstalledAppsStore>,
     compiler: Arc<dyn CodeCompiler>,
     stop_app: Arc<dyn StopApp>,
     /// Each app's lock.
@@ -141,17 +130,15 @@ struct Shared {
 }
 
 impl PackageManager {
-    /// The apps installed in `folder`, made when it is not there yet, compiled with `compiler`,
-    /// stopped with `stop_app` before they change. Clears what installs, sessions and removals a
-    /// crash interrupted left.
-    pub fn open(
-        folder: &Path,
+    /// The apps installed in `store`, compiled with `compiler`, stopped with `stop_app` before
+    /// they change.
+    pub fn new(
+        store: Arc<dyn InstalledAppsStore>,
         compiler: Arc<dyn CodeCompiler>,
         stop_app: Arc<dyn StopApp>,
-    ) -> Result<PackageManager, FolderError> {
+    ) -> PackageManager {
         let shared = Shared {
-            programs: folder.join(PROGRAMS),
-            removing_folder: folder.join(REMOVING),
+            store,
             compiler,
             stop_app,
             locks: Mutex::default(),
@@ -160,28 +147,15 @@ impl PackageManager {
             removals: Mutex::default(),
             removing: watch::Sender::default(),
         };
-        fs::create_dir_all(&shared.programs).map_err(FolderError::io_at(&shared.programs))?;
-        shared.clear_unfinished();
-        Ok(PackageManager {
+        PackageManager {
             shared: Arc::new(shared),
-        })
+        }
     }
 
     /// Every installed app, by id. One whose files cannot be read is left out, and said so to
     /// whoever subscribes to `tracing`'s events.
     pub fn installed(&self) -> Vec<InstalledProgram> {
-        let mut installed: Vec<InstalledProgram> = self
-            .shared
-            .program_folders()
-            .iter()
-            .filter_map(|folder| match programs::read_installed(folder) {
-                Ok(program) => program,
-                Err(error) => {
-                    tracing::warn!("an installed app is left out: {error}");
-                    None
-                }
-            })
-            .collect();
+        let mut installed = self.shared.store.apps();
         installed.sort_by(|left, right| left.manifest.id().cmp(right.manifest.id()));
         installed
     }
@@ -189,7 +163,7 @@ impl PackageManager {
     /// The installed app `id`; none when it is not installed, or its files cannot be read, which
     /// is said to whoever subscribes.
     pub fn installed_program(&self, id: &ProgramId) -> Option<InstalledProgram> {
-        programs::read_installed(&self.shared.program_folder(id)).unwrap_or_else(|error| {
+        self.shared.store.app(id).unwrap_or_else(|error| {
             tracing::warn!("{id} cannot be read: {error}");
             None
         })
@@ -199,14 +173,7 @@ impl PackageManager {
     /// its development build had none, or its files cannot be read, which is said to whoever
     /// subscribes.
     pub fn icon(&self, id: &ProgramId) -> Option<Arc<[u8]>> {
-        let version = self.shared.installed_version(id)?;
-        match programs::read_icon(&version.folder) {
-            Ok(icon) => icon.map(Arc::from),
-            Err(error) => {
-                tracing::warn!("{id}'s icon cannot be read: {error}");
-                None
-            }
-        }
+        self.shared.store.icon(id)
     }
 
     /// Changes each time what is installed changes: an install, an update or a removal.
@@ -230,21 +197,17 @@ impl PackageManager {
         component_sha256: &[u8; 32],
         icon: Option<&[u8]>,
     ) -> bool {
-        let folder = self.shared.program_folder(&manifest.id().development());
-        let Ok(Some(installed)) = programs::read_installed(&folder) else {
+        let id = manifest.id().development();
+        let Ok(Some(installed)) = self.shared.store.app(&id) else {
             return false;
         };
         let same_component = installed.origin
             == Origin::Development {
                 component_sha256: *component_sha256,
             };
-        let installed_icon = programs::installed_folder(&folder)
-            .ok()
-            .flatten()
-            .and_then(|unpacked| programs::read_icon(&unpacked).ok());
         installed.manifest == DevelopmentBuild::installed_manifest(manifest)
             && same_component
-            && installed_icon == Some(icon.map(<[u8]>::to_vec))
+            && self.shared.store.icon(&id).as_deref() == icon
     }
 
     /// Begins installing `content` for `caller`, a new app or an update, in a session that is
@@ -319,12 +282,8 @@ impl PackageManager {
             shared.sessions.ended(&cancelled).await;
             let _lock = shared.lock(&id).await;
             shared.stop_app.stop(&id, PackageChange::Removal).await;
-            let (folder, removing, taken) = (
-                shared.program_folder(&id),
-                shared.removing_folder.clone(),
-                id.clone(),
-            );
-            blocking(move || programs::take_out(&folder, &taken, &removing)).await?;
+            let (store, taken) = (Arc::clone(&shared.store), id.clone());
+            blocking(move || store.remove(&taken)).await?;
             shared.installed_changed();
             shared
                 .listeners()
@@ -353,7 +312,7 @@ impl AppLock {
     /// The app's version installed now; none when it is not installed, or its files cannot be
     /// read.
     pub fn version(&self) -> Option<InstalledVersion> {
-        self.shared.installed_version(&self.id)
+        self.shared.store.version(&self.id)
     }
 
     /// The app's installed version, opened by `open`, which maps its code: where the code is not
@@ -368,7 +327,7 @@ impl AppLock {
         let id = &self.id;
         let version = self
             .version()
-            .ok_or_else(|| anyhow::anyhow!("{id} is not installed, or its files cannot be read"))?;
+            .ok_or_else(|| anyhow::anyhow!("{id} has no installed version that can be read"))?;
         let compiler = Arc::clone(&self.shared.compiler);
         blocking(move || {
             let (component, code) = (version.component(), version.code());
@@ -433,24 +392,16 @@ impl SessionWork {
             PackageContent::Package { app, bytes, .. } => {
                 let received = self.receive_until_cancelled(bytes).await?;
                 self.set(InstallProgress::Installing);
-                let (shared, folder) = (Arc::clone(&self.shared), self.shared.program_folder(&app));
-                blocking(move || shared.stage_package(&app, &folder, received.path())).await?
+                let shared = Arc::clone(&self.shared);
+                blocking(move || shared.stage_package(&app, received.path())).await?
             }
             PackageContent::Development(build) => {
-                let folder = self.shared.program_folder(&self.app);
-                blocking(move || programs::stage_development(&folder, &build)).await?
+                let store = Arc::clone(&self.shared.store);
+                blocking(move || store.stage_development(&build)).await?
             }
         };
         self.check_cancelled()?;
-        let compiler = Arc::clone(&self.shared.compiler);
-        let staged = blocking(move || {
-            let version = staged.version();
-            compiler
-                .compile(&version.component(), &version.code())
-                .map_err(InstallError::Compile)?;
-            Ok::<_, InstallError>(staged)
-        })
-        .await?;
+        let staged = self.compile(staged).await?;
         let _lock = self.shared.lock(&self.app).await;
         self.check_cancelled()?;
         self.shared
@@ -463,8 +414,20 @@ impl SessionWork {
         Ok(installed)
     }
 
-    /// The package's bytes, taken into a file in its app's folder, unless the session is
-    /// cancelled first.
+    /// `staged` with its component compiled, where it has files to compile.
+    async fn compile(&self, staged: StagedVersion) -> Result<StagedVersion, InstallError> {
+        let Some(version) = staged.version() else {
+            return Ok(staged);
+        };
+        let compiler = Arc::clone(&self.shared.compiler);
+        blocking(move || compiler.compile(&version.component(), &version.code()))
+            .await
+            .map_err(InstallError::Compile)?;
+        Ok(staged)
+    }
+
+    /// The package's bytes, taken into the store's file for them, unless the session is cancelled
+    /// first.
     async fn receive_until_cancelled(
         &self,
         bytes: ByteStream,
@@ -476,16 +439,10 @@ impl SessionWork {
         }
     }
 
-    /// The package's bytes, taken into a file in its app's folder, which goes when it is dropped,
-    /// or which the package manager's next opening clears; its size heard whenever its caller
-    /// tells it.
+    /// The package's bytes, taken into the store's file for them, which goes when it is dropped,
+    /// or which the store's next opening clears; its size heard whenever its caller tells it.
     async fn receive(&self, mut bytes: ByteStream) -> Result<NamedTempFile, InstallError> {
-        let folder = self.shared.program_folder(&self.app);
-        fs::create_dir_all(&folder).map_err(FolderError::io_at(&folder))?;
-        let mut file = tempfile::Builder::new()
-            .prefix(RECEIVING)
-            .tempfile_in(&folder)
-            .map_err(FolderError::io_at(&folder))?;
+        let mut file = self.shared.store.receiving_file(&self.app)?;
         let mut size = self.size.clone();
         let mut received = 0;
         let mut told = 0;
@@ -549,14 +506,13 @@ impl Drop for SessionWork {
 }
 
 impl Shared {
-    /// The package received at `received`, of `app`, whose folder is `folder`, opened, checked and
-    /// unpacked: a new app, or the same app and key at a newer version. Nothing installed changes.
+    /// The package received at `received`, of `app`, opened, checked and staged: a new app, or the
+    /// same app and key at a newer version. Nothing installed changes.
     fn stage_package(
         &self,
         app: &ProgramId,
-        folder: &Path,
         received: &Path,
-    ) -> Result<Staged, InstallError> {
+    ) -> Result<StagedVersion, InstallError> {
         let mut package = Package::open(received)?;
         let manifest = package.manifest().clone();
         if manifest.id() != app {
@@ -565,40 +521,22 @@ impl Shared {
                 package: manifest.id().clone(),
             });
         }
-        let publisher = *package.publisher();
-        if let Some(installed) = programs::read_installed(folder)? {
-            check_update(&installed, &manifest, publisher)?;
+        if let Some(installed) = self.store.app(app)? {
+            check_update(&installed, &manifest, *package.publisher())?;
         }
-        let program = InstalledProgram {
-            manifest,
-            origin: Origin::Package { publisher },
-        };
-        programs::stage(folder, program, |unpacked| Ok(package.unpack(unpacked)?))
+        self.store.stage(&mut package)
     }
 
     /// The one step that installs `staged`: its update's checks again, against what was
     /// installed meanwhile, then it is the app's installed version, and the version it replaces
     /// goes. The caller holds the app's lock.
-    fn commit(&self, staged: Staged) -> Result<InstalledProgram, InstallError> {
-        let folder = self.program_folder(staged.program().manifest.id());
+    fn commit(&self, staged: StagedVersion) -> Result<InstalledProgram, InstallError> {
         if let Origin::Package { publisher } = staged.program().origin
-            && let Some(installed) = programs::read_installed(&folder)?
+            && let Some(installed) = self.store.app(staged.program().manifest.id())?
         {
             check_update(&installed, &staged.program().manifest, publisher)?;
         }
-        programs::commit(&folder, staged)
-    }
-
-    /// The installed version of `id`; none when it is not installed, or its files cannot be
-    /// read, which is said to whoever subscribes.
-    fn installed_version(&self, id: &ProgramId) -> Option<InstalledVersion> {
-        match programs::installed_folder(&self.program_folder(id)) {
-            Ok(folder) => folder.map(|folder| InstalledVersion { folder }),
-            Err(error) => {
-                tracing::warn!("{id} cannot be read: {error}");
-                None
-            }
-        }
+        self.store.commit(staged)
     }
 
     /// Waits for the app `id`'s lock, and holds it until the answer is dropped.
@@ -630,41 +568,6 @@ impl Shared {
     fn listeners(&self) -> MutexGuard<'_, Vec<mpsc::UnboundedSender<ProgramId>>> {
         // Every change leaves the list whole, so one that panicked leaves nothing half-changed.
         self.removals.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-
-    /// Removes what installs, sessions and removals a crash interrupted left: in each app's
-    /// folder, and the apps being removed. What cannot be removed stays, unseen, and is said to
-    /// whoever subscribes.
-    fn clear_unfinished(&self) {
-        for folder in self.program_folders() {
-            if let Err(error) = programs::clear_unfinished(&folder) {
-                tracing::warn!("what an interrupted install left stays: {error}");
-            }
-        }
-        if let Err(error) = programs::remove_if_there(&self.removing_folder) {
-            tracing::warn!("what an interrupted removal left stays: {error}");
-        }
-    }
-
-    fn program_folder(&self, id: &ProgramId) -> PathBuf {
-        self.programs.join(id.as_str())
-    }
-
-    /// The folder of each app installed, or left by an interrupted install, and no other file the
-    /// system or a person put there; none when the folder of apps cannot be read, which is said to
-    /// whoever subscribes.
-    fn program_folders(&self) -> Vec<PathBuf> {
-        match fs::read_dir(&self.programs) {
-            Ok(entries) => entries
-                .flatten()
-                .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
-                .map(|entry| entry.path())
-                .collect(),
-            Err(error) => {
-                tracing::warn!("{}: {error}", self.programs.display());
-                Vec::new()
-            }
-        }
     }
 }
 

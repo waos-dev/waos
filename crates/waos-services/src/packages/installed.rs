@@ -85,6 +85,12 @@ pub struct InstalledVersion {
 }
 
 impl InstalledVersion {
+    /// The version unpacked in `folder`: its component `program.wasm`, and its code folder `code`
+    /// beside it.
+    pub fn new(folder: PathBuf) -> InstalledVersion {
+        InstalledVersion { folder }
+    }
+
     /// Its component, which the app runs.
     pub fn component(&self) -> PathBuf {
         self.folder.join(COMPONENT)

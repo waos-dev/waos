@@ -15,8 +15,8 @@ use futures::stream::{self, StreamExt as _};
 use tempfile::TempDir;
 use waos_package::{Manifest, ProgramId, SigningKey};
 use waos_services::packages::{
-    ByteStream, Caller, CodeCompiler, DevelopmentBuild, InstallError, InstalledProgram,
-    PackageChange, PackageContent, PackageManager, StopApp,
+    ByteStream, Caller, CodeCompiler, DevelopmentBuild, InstallError, InstalledAppsFiles,
+    InstalledProgram, PackageChange, PackageContent, PackageManager, StopApp,
 };
 
 pub const TRIANGLE: &str = "dev.example.triangle";
@@ -132,12 +132,11 @@ fn open(
     compiler: &Arc<MarkerCompiler>,
     stops: &Arc<RecordedStops>,
 ) -> PackageManager {
-    PackageManager::open(
-        folder,
+    PackageManager::new(
+        Arc::new(InstalledAppsFiles::open(folder).unwrap()),
         Arc::clone(compiler) as Arc<dyn CodeCompiler>,
         Arc::clone(stops) as Arc<dyn StopApp>,
     )
-    .unwrap()
 }
 
 pub fn triangle_at(version: &str) -> Vec<(String, String)> {
