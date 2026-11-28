@@ -35,6 +35,7 @@ cargo xtask sync-wit                               # after editing wit/
 
 ## Docs
 
+- **A doc line says what someone can count on, not how it is built today.**
 - `docs/` says how WaOS works, by topic from [docs/waos.md](docs/waos.md) down: each rule one line, saying first what someone sees, a *Why:* where the reason isn't obvious, a *Today:* where the code differs from the intent, and a link to the code that keeps it. Docs change in the same commit as the code they describe.
 - **A change to `docs/` or to the website goes to the lead for review before it's made.**
 - A crate's README says in a sentence or two what the crate is for. Plans go in `TODO.md`.
