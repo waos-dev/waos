@@ -10,6 +10,7 @@ repository.workspace = true
 readme = "README.md"
 
 [dependencies]
+futures.workspace = true
 tokio.workspace = true
 url.workspace = true
 waos.workspace = true

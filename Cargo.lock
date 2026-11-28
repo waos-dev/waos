@@ -9443,6 +9443,7 @@ dependencies = [
 name = "waos-headless"
 version = "0.8.1"
 dependencies = [
+ "futures",
  "tokio",
  "url",
  "waos",

@@ -16,6 +16,7 @@
 //! inside the engine's call that asked for it.
 
 mod clipboard;
+pub mod testing;
 
 use std::future::Future;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -27,6 +28,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::watch;
 
 use self::clipboard::HeadlessClipboard;
+use self::testing::Changes;
 use waos::bindings::wasdk::platform::screens::{PixelSize, ScreenId};
 use waos::bindings::wasdk::platform::views::{
     Cursor, Insets, Metrics, PixelRect, Placement, TextEditingValue, TextInputConfiguration,
@@ -79,6 +81,7 @@ impl HeadlessShell {
                 display,
                 given: Mutex::default(),
                 count: watch::Sender::new(0),
+                changes: Arc::default(),
             }),
             refresher: Arc::new(Refresher::start(interval)),
         }
@@ -115,6 +118,12 @@ impl HeadlessShell {
             simulated_cameras: None,
             machine_picker: None,
         }
+    }
+
+    /// The changes to what the shell keeps of its views and windows: a view given, a picture
+    /// presented, a title or a size set. A test waits on them for what the engine told the shell.
+    pub fn changes(&self) -> &Arc<Changes> {
+        &self.views.changes
     }
 
     /// Every view the shell gave that is still open, the first given first.
@@ -159,6 +168,7 @@ pub struct HeadlessView {
     layers: Mutex<Vec<(Weak<dyn ShellCompositionLayer>, Placement)>>,
     /// The release of the picture presented last, which runs once the next replaces it.
     shown: Mutex<Option<Released>>,
+    changes: Arc<Changes>,
 }
 
 /// What the engine hands the shell with a hardware buffer, to call once it is done showing it.
@@ -218,6 +228,7 @@ impl ShellView for HeadlessView {
         if let Some(before) = before {
             before();
         }
+        self.changes.announce();
     }
 
     fn set_cursor(&self, _cursor: Cursor) {}
@@ -226,6 +237,7 @@ impl ShellView for HeadlessView {
 
     fn set_handles_back(&self, handles: bool) {
         self.handles_back.store(handles, Ordering::SeqCst);
+        self.changes.announce();
     }
 }
 
@@ -244,6 +256,7 @@ pub struct HeadlessWindow {
     minimized: AtomicBool,
     fullscreen: AtomicBool,
     drags: AtomicUsize,
+    changes: Arc<Changes>,
 }
 
 impl HeadlessWindow {
@@ -304,6 +317,7 @@ impl ShellWindow for HeadlessWindow {
 
     fn set_title(&self, title: &str) {
         *locked(&self.title) = title.to_owned();
+        self.changes.announce();
     }
 
     fn show(&self) {}
@@ -321,28 +335,34 @@ impl ShellWindow for HeadlessWindow {
 
     fn drag(&self) {
         self.drags.fetch_add(1, Ordering::SeqCst);
+        self.changes.announce();
     }
 
     fn set_maximized(&self, maximized: bool) {
         self.maximized.store(maximized, Ordering::SeqCst);
+        self.changes.announce();
     }
 
     fn set_minimized(&self, minimized: bool) {
         self.minimized.store(minimized, Ordering::SeqCst);
+        self.changes.announce();
     }
 
     fn set_fullscreen(&self, fullscreen: bool, _screen: Option<ScreenId>) {
         self.fullscreen.store(fullscreen, Ordering::SeqCst);
+        self.changes.announce();
     }
 }
 
 impl ShellWindowSizeLimits for HeadlessWindow {
     fn set_min_size(&self, size: Option<Size>) {
         *locked(&self.min_size) = size;
+        self.changes.announce();
     }
 
     fn set_max_size(&self, size: Option<Size>) {
         *locked(&self.max_size) = size;
+        self.changes.announce();
     }
 }
 
@@ -396,6 +416,7 @@ struct GivenViews {
     given: Mutex<Vec<Weak<HeadlessView>>>,
     /// How many views were given.
     count: watch::Sender<usize>,
+    changes: Arc<Changes>,
 }
 
 impl GivenViews {
@@ -413,9 +434,13 @@ impl GivenViews {
                 minimized: AtomicBool::new(false),
                 fullscreen: AtomicBool::new(false),
                 drags: AtomicUsize::new(0),
+                changes: Arc::clone(&self.changes),
             })
         });
-        let text_input = Arc::new(EditedText::default());
+        let text_input = Arc::new(EditedText {
+            input_type: Mutex::default(),
+            changes: Arc::clone(&self.changes),
+        });
         let given = Arc::new(HeadlessView {
             view: OnceLock::new(),
             window: window.clone(),
@@ -424,6 +449,7 @@ impl GivenViews {
             pictures: AtomicUsize::new(0),
             layers: Mutex::default(),
             shown: Mutex::default(),
+            changes: Arc::clone(&self.changes),
         });
         let view = program.add_view(
             request.id,
@@ -454,6 +480,7 @@ impl GivenViews {
         }
         locked(&self.given).push(Arc::downgrade(&given));
         self.count.send_modify(|count| *count += 1);
+        self.changes.announce();
         view
     }
 }
@@ -470,28 +497,34 @@ impl ViewPlacement for GivenViews {
 }
 
 /// Input methods that do nothing of their own, keeping the kind of text the program edits.
-#[derive(Default)]
 struct EditedText {
     input_type: Mutex<Option<TextInputType>>,
+    changes: Arc<Changes>,
 }
 
 impl ShellTextInput for EditedText {
     fn set_client(&self, configuration: TextInputConfiguration) {
         *locked(&self.input_type) = Some(configuration.input_type);
+        self.changes.announce();
     }
 
     fn show(&self) {}
 
     fn update_config(&self, configuration: TextInputConfiguration) {
         *locked(&self.input_type) = Some(configuration.input_type);
+        self.changes.announce();
     }
 
-    fn set_editing_state(&self, _value: TextEditingValue) {}
+    fn set_editing_state(&self, _value: TextEditingValue) {
+        // The engine keeps the value; a test reading it waits for this.
+        self.changes.announce();
+    }
     fn set_caret_rect(&self, _rect: PixelRect) {}
     fn set_composing_rect(&self, _rect: PixelRect) {}
 
     fn clear_client(&self) {
         *locked(&self.input_type) = None;
+        self.changes.announce();
     }
 
     fn hide(&self) {}
