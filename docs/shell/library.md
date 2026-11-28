@@ -6,6 +6,6 @@
 - **What narrows a search shows in the search field:** a category or a source chosen is a token before what's typed, and Backspace takes it back. ([search_field.rs](/apps/waos/src/ui/library/search_field.rs))
 - **Opening an app opens it where apps open;** an app already running comes forward. ([state::library](/apps/waos/src/state/library/mod.rs))
 - **A package opened with WaOS asks before it installs.** ([state::library](/apps/waos/src/state/library/mod.rs))
-- **An app being changed or started says so, in Android's words:** Downloading…, Installing… (its code compiling), Removing…, and Optimizing… while an open compiles its code again, after a WaOS update or where the code no longer loads. A download shows how far it is where its source says the size. An app shows on the home only once it is installed, its code compiled. ([waos-package-manager](/crates/waos-services/src/packages/mod.rs), [app_starter.rs](/apps/waos/src/logic/app_starter.rs))
-- **A tool opens in a terminal of WaOS's own.** ([app_starter.rs](/apps/waos/src/logic/app_starter.rs))
+- **An app's icon says what is happening to it:** downloading, installing, optimizing or removing. ([packages](/crates/waos-services/src/packages/mod.rs), [app_instances.rs](/apps/waos/src/logic/app_instances.rs))
+- **A tool, a command-line app, opens in a terminal.** ([app_instances.rs](/apps/waos/src/logic/app_instances.rs))
   - *Today:* WaOS has no terminal yet, so a tool opened from its icon is refused; one started to be handed files, or by a notification's click, runs. ([TODO](/TODO.md))
