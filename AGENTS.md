@@ -30,6 +30,9 @@ cargo xtask sync-wit                               # after editing wit/
 - **Waft comes from crates.io.** To build against an unreleased Waft, a branch adds `[patch.crates-io]` until Waft releases.
 - **Work goes on a branch and a pull request**, here and in Waft and Valo; never on `main`. The lead merges.
 - **Time matters: Rust builds and tests are slow.** Run the checks a change needs, not every suite at every step, and add a test only where it guards behaviour that could break, never one that restates the code. Raise a waste you find (a slow check, a redundant test, a long wait) with the lead instead of accepting it.
+- **A test waits for the fact, never for time.** It holds what makes a state pass, so the state cannot be missed: the test of "Optimizing…" holds the compile until it has seen it. A sleep, or a poll for a state that passes, is a guess another machine gets wrong.
+- **A test runs the real code, and stands in only for the slow outside: a compile, the network, the clock, the user's answer.** The home screen's tests install through the real package manager, handed a compiler that writes a marker file; a fake manager would keep none of its rules. What is costly to make, a compiled app, is made once for the run.
+- **A test says one behaviour a caller relies on, where its owner keeps it.** One that restates the code, or reaches a domain's rule through the whole app, costs time and guards nothing. A test that cannot be made exact is deleted, not retried.
 
 ## Docs
 
