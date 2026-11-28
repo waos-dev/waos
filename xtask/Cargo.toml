@@ -4,7 +4,13 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "cargo xtask: the repository's own chores, run from its checkout, such as copying wit/ into each crate that generates bindings from it."
+description = "cargo xtask: the repository's own chores, run from its checkout, such as copying wit/ into each crate that generates bindings from it and generating its value types as plain Rust."
+
+[dependencies]
+# The WIT the plain types are generated from, and their names in Rust's cases.
+wit-parser.workspace = true
+heck.workspace = true
+anyhow.workspace = true
 
 [dev-dependencies]
 # The folders a test's copies are made in, removed after it.

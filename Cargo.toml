@@ -195,6 +195,11 @@ reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
 url = "2"
 # `waos`'s command line, derived from its arguments' types.
 clap = { version = "4", features = ["derive"] }
+# The WIT read as wasmtime's `bindgen!` reads it, at the version wasmtime uses, and its names in
+# Rust's cases as `bindgen!` writes them: what `cargo xtask sync-wit` generates the WIT's plain
+# types from.
+wit-parser = "0.261"
+heck = "0.5"
 # What cargo knows of a workspace: its packages, its target directory, and what a build made.
 cargo_metadata = "0.23"
 # The workspace `waos new` makes a program in, edited as `cargo new` edits it: TOML edited in
