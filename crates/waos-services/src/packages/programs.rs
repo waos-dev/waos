@@ -301,7 +301,9 @@ fn stage_development(
 /// version it replaced is removed. One that cannot be, as a file another process maps on
 /// Windows, stays for [`clear_unfinished`] at the package manager's next opening.
 fn commit(program: &Path, staged: StagedVersion) -> Result<InstalledProgram, InstallError> {
-    let (installed_program, StagedContent::Folder(folder)) = staged.into_parts();
+    let (installed_program, StagedContent::Folder(folder)) = staged.into_parts() else {
+        panic!("a version is committed to the store that staged it");
+    };
     if !folder.path().is_dir() {
         let reason = "the app was removed while it was being installed";
         return Err(FolderError::unreadable_at(folder.path())(reason).into());

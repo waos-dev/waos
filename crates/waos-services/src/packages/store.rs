@@ -66,6 +66,8 @@ pub struct StagedVersion {
 pub(crate) enum StagedContent {
     /// Unpacked into a folder of its own, which goes when it is dropped uncommitted.
     Folder(TempDir),
+    /// Its icon alone, as the in-memory store keeps an app.
+    Icon(Option<Arc<[u8]>>),
 }
 
 impl StagedVersion {
@@ -83,6 +85,7 @@ impl StagedVersion {
     pub fn version(&self) -> Option<InstalledVersion> {
         match &self.content {
             StagedContent::Folder(folder) => Some(InstalledVersion::new(folder.path().to_owned())),
+            StagedContent::Icon(_) => None,
         }
     }
 

@@ -1,9 +1,10 @@
 //! The package manager: the apps installed on a WaOS device, and every change to them, as one unit
 //! (Android's `PackageManagerService`). It is handed what it needs when it is made: where the apps
-//! are kept ([`InstalledAppsStore`]: [`InstalledAppsFiles`] on disk), a compiler ([`CodeCompiler`],
-//! the engine's) and a way to stop an app ([`StopApp`], the running apps'); it knows nothing of
-//! sources, UI or the engine. Installs in flight are sessions ([`InstallSession`],
-//! Android's `PackageInstaller.Session`), fed a package's bytes from its first byte.
+//! are kept ([`InstalledAppsStore`]: [`InstalledAppsFiles`] on disk, [`InstalledAppsInMemory`] for
+//! tests), a compiler ([`CodeCompiler`], the engine's) and a way to stop an app ([`StopApp`], the
+//! running apps'); it knows nothing of sources, UI or the engine. Installs in flight are sessions
+//! ([`InstallSession`], Android's `PackageInstaller.Session`), fed a package's bytes from its first
+//! byte.
 //!
 //! What a caller relies on:
 //! 1. An app is always one whole version; a crash mid-change leaves the old or the new.
@@ -25,6 +26,7 @@
 mod error;
 mod installed;
 mod installed_apps;
+mod installed_apps_in_memory;
 mod manager;
 mod programs;
 mod sessions;
@@ -33,6 +35,7 @@ mod store;
 pub use error::{FolderError, InstallError, RemoveError};
 pub use installed::{DevelopmentBuild, InstalledProgram, InstalledVersion, Origin};
 pub use installed_apps::{InstalledApps, NothingInstalled};
+pub use installed_apps_in_memory::{AppInMemory, InstalledAppsInMemory};
 pub use manager::{
     AppLock, ByteStream, CodeCompiler, PackageChange, PackageContent, PackageManager, StopApp,
 };
