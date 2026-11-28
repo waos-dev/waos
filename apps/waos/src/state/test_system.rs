@@ -39,6 +39,7 @@ use super::media_assets::MediaAssets;
 use super::media_players::MediaPlayers;
 use super::notifications::Notifications;
 use super::opener::Opener;
+use super::shells::this_system;
 use super::video_decoders::VideoDecoders;
 use crate::logic::app_instances::{AppInstances, OpenConfiguration, OpenPlace, OpenedFor};
 use crate::logic::frame_readers::ReadersOnRequest;
@@ -107,7 +108,7 @@ impl TestSystem {
         shell.image_codecs = image_codecs.as_ref().map(ImageCodecs::shell);
         shell.gpus = video_decoders.as_ref().map(VideoDecoders::shell);
         shell.cameras = cameras.as_ref().map(Cameras::shell);
-        shell.simulated_cameras = super::simulated_cameras(shell.image_codecs.clone());
+        shell.simulated_cameras = this_system::simulated_cameras(shell.image_codecs.clone());
         shell.recording_indicator =
             Some(Arc::new(recording_indicator) as Arc<dyn ShellRecordingIndicator>);
         shell.video_frame_readers = platform

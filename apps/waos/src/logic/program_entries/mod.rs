@@ -1,11 +1,11 @@
-//! Each installed program's entry where the system lists its apps, on Windows and Linux: a Start
+//! Each installed app's entry where the system lists its apps, on Windows and Linux: a Start
 //! menu shortcut on Windows (`start_menu`), a desktop entry on Linux (`desktop_entries`), each
 //! under the program's identity (`logic::program_identities`) and starting `waos open --program
 //! <id>`. It is what finds the program by its name, what its pin is, and on GNOME what its windows
 //! are matched to. An entry is written when its program is installed or updated, deleted when it is
 //! removed, and the entries are made to match the store as WaOS starts, for a program installed
 //! while an older WaOS ran. A development run writes none: it shares the installed program's entry,
-//! and a program never installed has none. An entry also offers its program for the kinds of file
+//! and a program never installed has none, nor does a tool, run from a terminal. An entry also offers its program for the kinds of file
 //! it opens: a desktop entry names their MIME types, and on Windows they are registered in the
 //! user's classes (`file_associations`).
 //!
@@ -51,7 +51,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use serde::{Deserialize, Serialize};
-use waos_package::{Category, FileAssociation, ProgramId};
+use waos_package::{Category, FileAssociation, ProgramId, ProgramKind};
 use waos_services::packages::PackageManager;
 
 #[cfg(any(windows, target_os = "linux"))]
@@ -79,11 +79,13 @@ pub(crate) struct ProgramEntry {
 }
 
 impl ProgramEntry {
-    /// The entry of each program installed in `packages` that has an identity.
+    /// The entry of each app installed in `packages` that has an identity; a tool has none, being
+    /// run from a terminal.
     pub(crate) fn of_installed(packages: &PackageManager) -> Vec<ProgramEntry> {
         packages
             .installed()
             .into_iter()
+            .filter(|program| program.manifest.kind() == ProgramKind::App)
             .filter_map(|program| {
                 let id = program.manifest.id().clone();
                 Some(ProgramEntry {
@@ -168,24 +170,27 @@ struct KeptEntry {
 }
 
 impl ProgramEntries {
-    /// The entries of this system's own kind, among `folders`, starting the WaOS `identities`
-    /// names: Start menu shortcuts on Windows, desktop entries on Linux.
+    /// From now on, the entries `system` writes, among `folders`, match the apps `packages` has
+    /// installed, now and at each change it announces; none where WaOS cannot say where it is,
+    /// which its entries would start, and a failure to follow is said.
     #[cfg(any(windows, target_os = "linux"))]
-    pub(crate) fn of_this_system(folders: &AppFolders, identities: Identities) -> ProgramEntries {
-        #[cfg(windows)]
-        let system = start_menu::StartMenu {
-            folder: folders.start_menu.clone(),
+    pub(crate) fn follow_installed(
+        system: Box<dyn SystemEntries>,
+        folders: &AppFolders,
+        packages: &Arc<PackageManager>,
+    ) {
+        let Some(identities) = Identities::of_this_waos(folders.program_icons.clone()) else {
+            return;
         };
-        #[cfg(target_os = "linux")]
-        let system = desktop_entries::DesktopEntries {
-            applications: folders.applications.clone(),
-        };
-        ProgramEntries::open(Box::new(system), identities, &folders.data)
+        let entries = ProgramEntries::open(system, identities, &folders.data);
+        if let Err(error) = entries.follow(Arc::clone(packages)) {
+            tracing::warn!(%error, "the apps' entries do not follow the store");
+        }
     }
 
     /// From now on, the entries match the installed programs of `packages`, on a thread of their
     /// own: now, and again at each change the package manager announces.
-    pub(crate) fn follow(self, packages: Arc<PackageManager>) -> io::Result<()> {
+    fn follow(self, packages: Arc<PackageManager>) -> io::Result<()> {
         std::thread::Builder::new()
             .name("waos-program-entries".to_owned())
             .spawn(move || self.keep_matching(&packages))?;

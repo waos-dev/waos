@@ -1,0 +1,64 @@
+package wasdk:platform@2.3.0;
+
+/// The operating system the program runs on, and what its user set up: light or dark, the
+/// languages, the time zone. What belongs to no one view and no one screen.
+interface system {
+  use wasi:clocks/system-clock@0.3.0.{instant};
+
+  /// The operating system the engine runs on, for behaviour that follows its conventions.
+  enum operating-system {
+    android,
+    fuchsia,
+    ios,
+    linux,
+    macos,
+    windows,
+    other,
+  }
+
+  /// Light or dark: Flutter's `Brightness`.
+  enum brightness {
+    light,
+    dark,
+  }
+
+  /// The subtags of a BCP 47 tag: `en`, `zh-Hant-TW`.
+  record locale {
+    language: string,
+    script: option<string>,
+    region: option<string>,
+  }
+
+  /// A change of what the user set, in the order the changes happened.
+  variant system-change {
+    /// The user's light or dark preference.
+    platform-brightness(brightness),
+    /// The user's languages, most preferred first.
+    locales(list<locale>),
+    /// The user's time zone, by its IANA name; none where the system has none.
+    time-zone(option<string>),
+  }
+
+  os: func() -> operating-system;
+
+  /// The user's light or dark preference now: Flutter's `platformBrightness`.
+  platform-brightness: func() -> brightness;
+
+  /// The user's languages now, most preferred first.
+  locales: func() -> list<locale>;
+
+  /// The IANA name of the user's time zone, "Europe/Paris"; none where the system has none.
+  time-zone: func() -> option<string>;
+
+  /// How far local time is from UTC at `when` in the user's time zone, in nanoseconds, positive
+  /// east of Greenwich: what is added to `when` for the time on the user's clock then. None where
+  /// the system has no time zone.
+  utc-offset: func(when: instant) -> option<s64>;
+
+  /// The abbreviation of the user's time zone at `when`, as the system gives it ("CET", "PDT"):
+  /// Dart's `DateTime.timeZoneName`. None where the system has no time zone.
+  time-zone-abbreviation: func(when: instant) -> option<string>;
+
+  /// What the user changes from now on. Each call is a stream of its own.
+  changes: func() -> stream<system-change>;
+}

@@ -23,7 +23,7 @@ use waos_services::packages::AppInMemory;
 use super::test_server::Server;
 use super::*;
 use crate::logic::app_instances::AppInstances;
-use crate::logic::opened_package::tests::write_package;
+use crate::logic::opened_package::tests::{write_package, write_package_of};
 use crate::logic::package_copies::PackageCopies;
 use crate::logic::program_shortcuts::{
     KeptShortcut, ProgramShortcut, ShortcutOpens, SystemShortcuts,
@@ -115,6 +115,16 @@ impl TestLibrary {
         let packages = self.folder.path().join("packages");
         std::fs::create_dir_all(&packages).unwrap();
         write_package(&packages, id, "Triangle", version, component, &self.key)
+    }
+
+    /// `component` packaged as the tool `id`, at `version`.
+    fn tool_package(&self, id: &str, version: &str, component: &[u8]) -> PathBuf {
+        let packages = self.folder.path().join("packages");
+        std::fs::create_dir_all(&packages).unwrap();
+        let manifest = Manifest::new(id.parse().unwrap(), "Grep", version.parse().unwrap())
+            .unwrap()
+            .with_kind(ProgramKind::Tool);
+        write_package_of(&packages, &manifest, component, &self.key)
     }
 
     fn update(&self, f: impl FnOnce(&mut Library, &mut Context<Library>)) {
@@ -912,6 +922,24 @@ fn a_program_opened_goes_first_among_the_recent_programs() {
         !shortcuts.recent.borrow().is_empty()
     });
     assert_eq!(*shortcuts.recent.borrow(), [TRIANGLE]);
+}
+
+#[test]
+fn a_tool_is_offered_no_place_on_the_home_screen_and_a_shortcut_it_had_is_disabled() {
+    let library = TestLibrary::new();
+    let shortcuts = library.keeping_shortcuts(true, &[TRIANGLE]);
+    library.installs_after_yes(library.tool_package(
+        TRIANGLE,
+        "1.0.0",
+        crate::logic::test_installs::EMPTY_COMPONENT,
+    ));
+    library.wait_until("the tool's shortcut disabled", |_| {
+        shortcuts.state_of(TRIANGLE) == Some(false)
+    });
+    let triangle: ProgramId = TRIANGLE.parse().unwrap();
+    assert!(!library.read(|library| library.adds_to_home_screen(&triangle)));
+    library.wait_until("the install's work", |library| library.is_idle());
+    assert!(shortcuts.pin_requests.borrow().is_empty());
 }
 
 #[test]

@@ -1,8 +1,8 @@
 //! WaOS's one startup, which the desktop app, the headless entry and the tests share: the domains
 //! put together in the order each needs the others, each handed what it needs as it is made. The
 //! mailbox the package manager stops an app's instance through first (`app_instances`), so
-//! neither end needs the other, and the watch of the instances running, which the app instances
-//! write and the shell's parts read; the domains over the store ([`open_domains`]): the package
+//! neither end needs the other, and the mailbox the shell reaches app management through
+//! (`app_management`), which the app instances answer; the domains over the store ([`open_domains`]): the package
 //! manager, compiling installs and putting its stops in the mailbox, Permissions, asking through
 //! the prompts and following the package manager's record, the sources, app storage and the
 //! activity record; then the engine, over the shell made from those, keeping its days in the
@@ -37,9 +37,8 @@ use waos_services::packages::{CodeCompiler, InstalledApps, PackageManager};
 use waos_services::permissions::{Permissions, Prompts};
 use waos_services::sources::{SourceProxy, Sources};
 
-use tokio::sync::watch;
-
-use super::app_instances::{AppInstances, RunningInstances, StopMailbox, stop_mailbox};
+use super::app_instances::{AppInstances, StopMailbox, stop_mailbox};
+use super::app_management::{self, AppManagement};
 use super::environments::ProgramEnvironments;
 use super::program_places::{ProgramPlace, ProgramPlaces};
 use super::stores::Stores;
@@ -72,13 +71,13 @@ pub(crate) struct Setup {
     pub(crate) runtime: tokio::runtime::Handle,
 }
 
-/// What the engine's shell is made from: the domains opened before the engine, and the instances
-/// running, which the app instances made after it write.
+/// What the engine's shell is made from: the domains opened before the engine, and app
+/// management, which the app instances made after it answer.
 pub(crate) struct BeforeTheEngine<'a> {
     pub(crate) packages: &'a Arc<PackageManager>,
     pub(crate) permissions: &'a Permissions,
     pub(crate) places: &'a ProgramPlaces,
-    pub(crate) running: &'a watch::Receiver<RunningInstances>,
+    pub(crate) app_management: &'a Arc<dyn AppManagement>,
 }
 
 /// What the engine runs over: the shell's parts, the machine as it starts, and this computer's
@@ -131,8 +130,8 @@ pub(crate) struct Started {
     pub(crate) places: ProgramPlaces,
 }
 
-/// Starts WaOS as `setup` says: the mailbox of the package manager's stops and the watch of the
-/// instances running; the prompts `prompts` makes, with what the caller keeps of them; the domains
+/// Starts WaOS as `setup` says: the mailbox of the package manager's stops and the one to app
+/// management; the prompts `prompts` makes, with what the caller keeps of them; the domains
 /// over the store; the engine over what `outside` makes of those; and the app instances. Answers
 /// the domains, and what `outside` kept.
 pub(crate) fn start<P, S>(
@@ -141,7 +140,8 @@ pub(crate) fn start<P, S>(
     outside: impl FnOnce(BeforeTheEngine<'_>, P) -> Result<Outside<S>>,
 ) -> Result<(Started, S)> {
     let (stops, stop_requests) = stop_mailbox();
-    let (running, read_running) = watch::channel(RunningInstances::new());
+    let (app_management, app_management_calls) = app_management::mailbox();
+    let app_management = app_management as Arc<dyn AppManagement>;
     let (prompts, prompted) = prompts();
     let domains = open_domains(
         setup.stores,
@@ -156,7 +156,7 @@ pub(crate) fn start<P, S>(
         packages: &domains.packages,
         permissions: &domains.permissions,
         places: &places,
-        running: &read_running,
+        app_management: &app_management,
     };
     let outside = outside(before, prompted)?;
     let config = WaOSConfig {
@@ -182,7 +182,7 @@ pub(crate) fn start<P, S>(
         Arc::clone(&environments),
         places.clone(),
         stop_requests,
-        running,
+        app_management_calls,
         setup.runtime,
     );
     let Domains {

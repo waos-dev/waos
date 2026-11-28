@@ -20,16 +20,16 @@
 //! manager (`waos_services::packages`), as Android's launcher asks its package manager: an install
 //! is done once its code is compiled, and a program removed or updated while it runs ends first,
 //! its tab closing and its windows with it, as a system ends an app it uninstalls or updates, and
-//! opened among the app instances (`logic::app_instances`). What the package manager is doing to an app,
+//! opened by app management (`logic::app_management`). What the package manager is doing to an app,
 //! whoever asked (an install in flight, its session begun at the tap, downloading or installing,
 //! or a removal), and a start optimizing it, compiling its code again, are shown on its tile and
-//! its page, read from the package manager and the app instances alone. What was asked last and failed is the library's problem,
+//! its page, read from the package manager and app management alone. What was asked last and failed is the library's problem,
 //! until the next thing asked succeeds or the user dismisses it.
 //!
 //! The invariant: the library changes what is installed only through the package manager, and
 //! reads what is installed again after every change, with each program's icon, so what it shows
 //! is what is installed; a source's listing is read against the installed programs whenever either
-//! changes; which apps run, and the opens under way, are the app instances' own, and what is being
+//! changes; which apps run, and the opens under way, are app management's own, and what is being
 //! done to which app the package manager's, each as it last changed.
 
 #[cfg(desktop)]
@@ -70,9 +70,8 @@ use waos_services::packages::{
 use waos_services::permissions::Permissions;
 use waos_services::sources::{Source, Sources, Url};
 
-use crate::logic::app_instances::{
-    AppInstances, OpenConfiguration, OpenPlace, OpenStage, OpenedFor,
-};
+use crate::logic::app_instances::{OpenConfiguration, OpenPlace, OpenStage, OpenedFor};
+use crate::logic::app_management::AppManagement;
 use crate::logic::app_store::{
     AppStorePlace, CatalogApp, ListedSource, catalog, featured, updates,
 };
@@ -101,9 +100,10 @@ pub(crate) use phone_files::show_phone_files;
 pub(crate) use programs_open::ProgramsOpen;
 pub(crate) use settings::{
     AppDetail, DeniedBySystem, LeftSettings, LibraryPage, SettingsPage, SwitchAsked,
-    open_settings_when_asked,
+    follow_notification_permissions, open_settings_when_asked,
 };
 use shortcuts::ShortcutsMatching;
+pub(crate) use shortcuts::keep_system_shortcuts;
 use waos_program_window::ProgramFace;
 
 /// What is being done to an app, as its tile and its page say it, in the words Android shows its
@@ -126,7 +126,7 @@ pub(crate) struct Library {
     /// What is installed, and every change to it.
     packages: Arc<PackageManager>,
     /// What runs, and what opens an installed app.
-    instances: Arc<AppInstances>,
+    app_management: Arc<dyn AppManagement>,
     /// What the user lets each app use.
     permissions: Permissions,
     /// What the apps run with, whose pickers' offers the settings show.
@@ -312,7 +312,7 @@ pub(crate) fn work() -> Result<Arc<Runtime>> {
 pub(crate) struct LibraryDomains {
     pub(crate) sources: Sources,
     pub(crate) packages: Arc<PackageManager>,
-    pub(crate) instances: Arc<AppInstances>,
+    pub(crate) app_management: Arc<dyn AppManagement>,
     pub(crate) permissions: Permissions,
     pub(crate) environments: Arc<ProgramEnvironments>,
     pub(crate) places: ProgramPlaces,
@@ -326,7 +326,7 @@ impl LibraryDomains {
         LibraryDomains {
             sources: started.sources.clone(),
             packages: Arc::clone(&started.packages),
-            instances: Arc::clone(&started.instances),
+            app_management: Arc::clone(&started.instances) as Arc<dyn AppManagement>,
             permissions: started.permissions.clone(),
             environments: Arc::clone(&started.environments),
             places: started.places.clone(),
@@ -373,7 +373,7 @@ impl Library {
         let LibraryDomains {
             sources,
             packages,
-            instances,
+            app_management,
             permissions,
             environments,
             places,
@@ -383,7 +383,7 @@ impl Library {
         let installed = packages.installed();
         let sessions = packages.sessions();
         let removing = packages.removing();
-        let starting = instances.opening();
+        let starting = app_management.opening();
         let mut library = Library {
             icons: icons_of(&packages, &installed),
             installed,
@@ -392,7 +392,7 @@ impl Library {
             listings: Vec::new(),
             sources,
             packages,
-            instances,
+            app_management,
             permissions,
             environments,
             places,
@@ -458,7 +458,7 @@ impl Library {
 
     /// Keeps which programs run as the runs' list changes, from now on.
     fn follow_running(&mut self, cx: &mut Context<Library>) {
-        let mut instances = self.instances.running();
+        let mut instances = self.app_management.running();
         self.running = instances.borrow_and_update().keys().cloned().collect();
         follow(
             instances,
@@ -482,7 +482,7 @@ impl Library {
     /// Shows the opens under way and their stage each time they change, from now on; they are
     /// read from the app instances as the library is shown.
     fn follow_starts(&mut self, cx: &mut Context<Library>) {
-        let starting = self.instances.opening();
+        let starting = self.app_management.opening();
         follow(starting, |_library, _starting, cx| cx.notify(), cx);
     }
 
@@ -774,9 +774,9 @@ impl Library {
     /// Stops the program `id` where it stands, without asking it: what ends a program that does
     /// not answer a quit. Nothing where it does not run.
     pub(crate) fn force_quit(&self, id: &ProgramId) {
-        let (runs, id) = (Arc::clone(&self.instances), id.clone());
+        let stopping = Arc::clone(&self.app_management).stop(id.clone());
         // The run is ended whether or not the task's handle is kept.
-        drop(self.work.spawn(async move { runs.stop(&id).await }));
+        drop(self.work.spawn(stopping));
     }
 
     /// The sources added, in the order added, with what each lists.
@@ -860,14 +860,14 @@ impl Library {
             });
             return;
         }
-        let (instances, id) = (Arc::clone(&self.instances), id.clone());
+        let configuration = OpenConfiguration {
+            place: OpenPlace::Named(ProgramPlace::Windows),
+            ..OpenConfiguration::new(OpenedFor::User)
+        };
+        let opening = Arc::clone(&self.app_management).open(id.clone(), configuration);
         self.work_then(
             async move {
-                let configuration = OpenConfiguration {
-                    place: OpenPlace::Named(ProgramPlace::Windows),
-                    ..OpenConfiguration::new(OpenedFor::User)
-                };
-                instances.open(&id, configuration).await.map(drop)?;
+                opening.await.map(drop)?;
                 Ok(())
             },
             Library::program_opened,
@@ -883,16 +883,14 @@ impl Library {
             Ok(false) => return,
             Err(why) => return self.failed(format!("{id} could not be opened: {why}"), cx),
         }
-        let (instances, id) = (Arc::clone(&self.instances), id.clone());
-        let opening = id.clone();
+        let configuration = OpenConfiguration {
+            place: OpenPlace::Named(ProgramPlace::Tab),
+            ..OpenConfiguration::new(OpenedFor::User)
+        };
+        let opening = Arc::clone(&self.app_management).open(id.clone(), configuration);
+        let id = id.clone();
         self.work_then(
-            async move {
-                let configuration = OpenConfiguration {
-                    place: OpenPlace::Named(ProgramPlace::Tab),
-                    ..OpenConfiguration::new(OpenedFor::User)
-                };
-                instances.open(&opening, configuration).await
-            },
+            opening,
             move |library, opened, cx| {
                 let (started, opened) = match opened {
                     Ok(started) => (Some(started), Ok(())),
@@ -914,7 +912,7 @@ impl Library {
         cx: &mut Context<Library>,
     ) {
         self.opened(id, None, cx);
-        let (instances, packages) = (Arc::clone(&self.instances), Arc::clone(&self.packages));
+        let (instances, packages) = (Arc::clone(&self.app_management), Arc::clone(&self.packages));
         let id = id.clone();
         self.work_then(
             async move { opening::open_with(&instances, &packages, &id, request).await },
@@ -934,7 +932,7 @@ impl Library {
         cx: &mut Context<Library>,
     ) {
         self.opened(id, None, cx);
-        let (instances, packages) = (Arc::clone(&self.instances), Arc::clone(&self.packages));
+        let (instances, packages) = (Arc::clone(&self.app_management), Arc::clone(&self.packages));
         let id = id.clone();
         self.work_then(
             async move {

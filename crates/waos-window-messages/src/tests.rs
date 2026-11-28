@@ -181,6 +181,7 @@ fn the_programs_calls_on_a_view_cross_as_they_are() {
         ViewCall::Window(WindowCall::SetMinimized(false)),
         ViewCall::Window(WindowCall::SetFullscreen(true, Some(2))),
         ViewCall::Window(WindowCall::SetFullscreen(false, None)),
+        ViewCall::Window(WindowCall::Activate),
     ];
     for call in calls {
         crosses(&ToWindow::View { window: 1, call });

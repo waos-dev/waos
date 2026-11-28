@@ -75,6 +75,8 @@ pub enum WindowCall {
     SetMinimized(bool),
     /// Full screen or back, and the screen to fill, the window's own where none.
     SetFullscreen(bool, Option<ScreenId>),
+    /// Asks to bring the window to the front with the input focus.
+    Activate,
 }
 
 /// Written without the text, which may be a password: calls are traced.

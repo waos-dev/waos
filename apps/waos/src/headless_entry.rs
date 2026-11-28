@@ -361,6 +361,7 @@ mod tests {
             package_copies: root.join("packages"),
             store: root.join("store"),
             preferences: root.join("preferences.toml"),
+            #[cfg(any(windows, target_os = "linux"))]
             program_icons: root.join("icons"),
             #[cfg(target_os = "linux")]
             applications: root.join("applications"),

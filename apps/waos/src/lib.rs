@@ -42,8 +42,6 @@ mod ios_entry;
 mod logic;
 mod os;
 mod state;
-#[cfg(target_os = "macos")]
-mod system_shell;
 mod ui;
 
 use tracing_subscriber::EnvFilter;

@@ -287,6 +287,8 @@ pub(crate) mod tests {
         fn set_minimized(&self, _minimized: bool) {}
 
         fn set_fullscreen(&self, _fullscreen: bool, _screen: Option<u64>) {}
+
+        fn activate(&self) {}
     }
 
     impl ShellWindowSizeLimits for Limited {

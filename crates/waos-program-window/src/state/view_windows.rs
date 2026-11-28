@@ -768,6 +768,7 @@ impl<P: ProgramLink> ShownWindow<P> {
                     .set_fullscreen(*fullscreen, screen.map(waft::ui::ScreenId));
                 self.window_changed(app);
             }
+            WindowCall::Activate => ask_to_activate(self),
         }
     }
 
@@ -874,6 +875,21 @@ fn request_focus<P: ProgramLink>(window: &ShownWindow<P>) {
         .waft_view
         .host()
         .request_focus_change(ViewFocusState::Focused, ViewFocusDirection::Undefined);
+}
+
+/// Asks the system to bring `window` forward with the focus, as the program asked; the system
+/// decides by its own rule, and the outcome arrives as the window's focus. Not on Windows, where
+/// Waft's focus request takes the foreground past Windows' rule, by a key press winit simulates.
+#[cfg(not(windows))]
+fn ask_to_activate<P: ProgramLink>(window: &ShownWindow<P>) {
+    request_focus(window);
+}
+
+#[cfg(windows)]
+fn ask_to_activate<P: ProgramLink>(_window: &ShownWindow<P>) {
+    tracing::info!(
+        "an app asked to bring its window forward, which WaOS does not do on Windows yet"
+    );
 }
 
 /// Brings `window` forward with the activation token `token`, through Waft's desktop host on Linux;

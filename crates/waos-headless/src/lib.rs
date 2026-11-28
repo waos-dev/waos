@@ -256,6 +256,7 @@ pub struct HeadlessWindow {
     minimized: AtomicBool,
     fullscreen: AtomicBool,
     drags: AtomicUsize,
+    activations: AtomicUsize,
     changes: Arc<Changes>,
 }
 
@@ -297,6 +298,11 @@ impl HeadlessWindow {
         self.drags.load(Ordering::SeqCst)
     }
 
+    /// How many times the program asked to bring the window to the front.
+    pub fn activations(&self) -> usize {
+        self.activations.load(Ordering::SeqCst)
+    }
+
     fn view(&self) -> Option<ProgramView> {
         self.view.get()?.upgrade()
     }
@@ -335,6 +341,11 @@ impl ShellWindow for HeadlessWindow {
 
     fn drag(&self) {
         self.drags.fetch_add(1, Ordering::SeqCst);
+        self.changes.announce();
+    }
+
+    fn activate(&self) {
+        self.activations.fetch_add(1, Ordering::SeqCst);
         self.changes.announce();
     }
 
@@ -434,6 +445,7 @@ impl GivenViews {
                 minimized: AtomicBool::new(false),
                 fullscreen: AtomicBool::new(false),
                 drags: AtomicUsize::new(0),
+                activations: AtomicUsize::new(0),
                 changes: Arc::clone(&self.changes),
             })
         });

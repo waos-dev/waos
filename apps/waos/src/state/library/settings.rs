@@ -22,8 +22,9 @@ use crate::logic::permissions::Permission;
 use waos_package::ProgramId;
 
 use super::{Library, WantsToBeSeen};
-#[cfg(target_os = "macos")]
-use crate::logic::notification_permissions::NotificationPermissions;
+use crate::logic::notification_permissions::{
+    NotificationPermissionReading, NotificationPermissions,
+};
 use crate::logic::prompts::SettingsOpened;
 use crate::logic::setting_changes::{
     SettingChange, SettingsOf, ShownSettings, change_global, change_program, global_page,
@@ -281,16 +282,15 @@ impl Library {
     }
 
     /// From now on the pages read what the system said of each program's notifications from
-    /// `permissions`, where each program's app says it.
-    #[cfg(target_os = "macos")]
+    /// `permissions`, where the system's shell tells it.
     pub(crate) fn read_notification_permissions(&mut self, permissions: NotificationPermissions) {
         self.notification_permissions = Some(permissions);
     }
 
-    /// A program's app read the system's permission for its notifications again: as WaOS welcomed
-    /// the app, as the system's question was answered, as the app or WaOS came to the front, or as
-    /// a post was answered; the program's page shows what was read.
-    #[cfg(target_os = "macos")]
+    /// The system's shell read the system's permission for an app's notifications again: on
+    /// macOS, as WaOS welcomed the app's window process, as the system's question was answered,
+    /// as the app or WaOS came to the front, or as a post was answered; the app's page shows what
+    /// was read.
     pub(crate) fn notification_permission_read(&mut self, cx: &mut Context<Library>) {
         cx.notify();
     }
@@ -405,3 +405,29 @@ fn notify_settings_changes(app: &mut App, library: &Entity<Library>) {
 
 /// A program waiting for the user to leave a settings page: what tells it so.
 pub(crate) type LeftSettings = oneshot::Sender<()>;
+
+/// From now on `library`'s pages read what the system said of each app's notifications from
+/// `permissions`, where the system's shell tells it, and show each reading the shell tells on
+/// `readings`, in order, on the main thread.
+pub(crate) fn follow_notification_permissions(
+    app: &mut App,
+    library: &Entity<Library>,
+    permissions: NotificationPermissions,
+    mut readings: UnboundedReceiver<NotificationPermissionReading>,
+) {
+    library.update(app, |library, _| {
+        library.read_notification_permissions(permissions)
+    });
+    let library = library.downgrade();
+    app.spawn(async move |cx| {
+        while let Some(reading) = readings.next().await {
+            let Some(library) = library.upgrade() else {
+                break;
+            };
+            cx.update(|app| {
+                tracing::info!(?reading, "the system said of a program's notifications");
+                library.update(app, |library, cx| library.notification_permission_read(cx))
+            });
+        }
+    });
+}

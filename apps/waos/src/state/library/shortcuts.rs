@@ -4,7 +4,7 @@
 //! opened goes first among the recent programs on WaOS's icon's menu; and what the system keeps is
 //! made to match what is installed, and where programs open, as WaOS starts, after every change the
 //! package manager announces of what is installed, and whenever the user chooses where programs
-//! open.
+//! open. A tool, run from a terminal, has no shortcut: one it had is disabled.
 //!
 //! The invariant: a shortcut is made from what is installed as the library last read it, and its
 //! icon is decoded and shaped on the library's runtime, never on the main thread, since a package's
@@ -12,13 +12,32 @@
 
 use std::rc::Rc;
 
-use waft::{App, Context};
-use waos_package::ProgramId;
+use waft::{App, Context, Entity};
+use waos_package::{ProgramId, ProgramKind};
 
 use super::{Library, follow};
 use crate::logic::program_shortcuts::{
     KeptShortcut, ProgramShortcut, ShortcutOpens, SystemShortcuts, changes_for, shortcut_icon,
 };
+
+/// The installed apps' shortcuts kept in `system` through `library`, and each tap on one opening
+/// its app as the library opens it, through app management, or bringing it forward where it runs.
+pub(crate) fn keep_system_shortcuts(
+    app: &mut App,
+    library: &Entity<Library>,
+    system: Rc<dyn SystemShortcuts>,
+) {
+    let (taps_to, cx) = (library.downgrade(), app.to_async());
+    system.hear_taps(Box::new(move |id| {
+        let library = taps_to.clone();
+        cx.post(move |app| {
+            if let Some(library) = library.upgrade() {
+                library.update(app, |library, cx| library.show_program(&id, None, cx));
+            }
+        });
+    }));
+    library.update(app, |library, cx| library.keep_shortcuts(system, cx));
+}
 
 impl Library {
     /// From now on the installed programs' shortcuts are kept in `system`, and what it keeps is
@@ -41,11 +60,16 @@ impl Library {
         );
     }
 
-    /// Whether the installed program `id` can be put on the home screen now: where the launcher
-    /// pins shortcuts on request.
+    /// Whether the installed app `id` can be put on the home screen now: where the launcher pins
+    /// shortcuts on request; never a tool, run from a terminal.
     pub(crate) fn adds_to_home_screen(&self, id: &ProgramId) -> bool {
-        self.installed_program(id).is_some()
-            && self.shortcuts.as_ref().is_some_and(|system| system.pins())
+        self.has_shortcut(id) && self.shortcuts.as_ref().is_some_and(|system| system.pins())
+    }
+
+    /// Whether `id` is an installed app, which has a shortcut; a tool has none.
+    fn has_shortcut(&self, id: &ProgramId) -> bool {
+        self.installed_program(id)
+            .is_some_and(|program| program.manifest.kind() == ProgramKind::App)
     }
 
     /// Asks the launcher to put the installed program `id` on the home screen, which asks the
@@ -150,6 +174,7 @@ impl Library {
         let installed = self
             .installed
             .iter()
+            .filter(|program| program.manifest.kind() == ProgramKind::App)
             .map(|program| program.manifest.id().clone())
             .collect();
         let changes = changes_for(kept, &installed);
@@ -249,6 +274,7 @@ impl Library {
         let opens = self.shortcut_opens();
         let made = ids
             .into_iter()
+            .filter(|id| self.has_shortcut(id))
             .filter_map(|id| {
                 let name = self.installed_program(&id)?.name();
                 let png = self.icons.get(&id).cloned();

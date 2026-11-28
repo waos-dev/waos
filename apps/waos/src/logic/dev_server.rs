@@ -415,7 +415,9 @@ async fn serve_request(
                 files,
                 links: Vec::new(),
             };
-            opening::answer(connection, runs, &context.served.packages, &id, request).await;
+            let app_management = Arc::clone(runs) as Arc<dyn super::app_management::AppManagement>;
+            let packages = &context.served.packages;
+            opening::answer(connection, &app_management, packages, &id, request).await;
         }
         Request::Screenshot { id, window } => {
             dev_screenshot::answer(connection, runs, &context.asking, &id, window).await;

@@ -10,12 +10,11 @@ use waos::{
     ShellSystemPermissions, SystemPermissionState,
 };
 use waos_package::ProgramId;
-use waos_window_messages::{FromWindow, LaunchReason, PermissionRequestId, PostId, ToWindow};
+use waos_window_messages::{FromWindow, PermissionRequestId, PostId, ToWindow};
 
 use super::*;
 use waos_services::permissions::Setting;
 
-use crate::logic::macos_shell::server::deliver_hello;
 use crate::logic::macos_shell::window_process::WindowProcess;
 use crate::logic::macos_shell::window_process::tests::{
     Printed, Served, next, next_wanted, window_process_keeping,
@@ -23,6 +22,7 @@ use crate::logic::macos_shell::window_process::tests::{
 use crate::logic::macos_shell::window_processes::LaunchAttempt;
 use crate::logic::macos_shell::window_processes::tests::{Launches, said_hello};
 use crate::logic::notification_permissions::NotificationPermissionReading;
+use crate::logic::opening::hand_over;
 use crate::logic::startup::Domains;
 use crate::logic::test_engine::{self, NoWindows, WITHIN};
 use crate::logic::test_installs;
@@ -262,8 +262,7 @@ async fn the_click_that_launched_the_app_reaches_the_program_once_it_listens() {
     let Served {
         process, mut sent, ..
     } = window_process_keeping(program.clone(), permissions.clone());
-    let reason = LaunchReason::NotificationActivated(click("later", None));
-    deliver_hello(&program, reason, OpenRequest::default());
+    hand_over(&program, OpenRequest::default(), Some(click("later", None)));
     said_hello(&window_processes, &notifications_id(), &process);
 
     answer_posts(&process, &mut sent, 4, Ok(())).await;

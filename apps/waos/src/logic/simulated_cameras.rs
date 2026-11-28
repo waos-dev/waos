@@ -8,7 +8,7 @@
 //! is touched, so the system asks nothing.
 //!
 //! Built on macOS and Android, where the engine takes frames (`waos::VideoFrame`); elsewhere the app
-//! gives no simulated cameras, and the settings page says so (`state::SIMULATED_CAMERA`).
+//! gives no simulated cameras, and the settings page says so (`SIMULATED_CAMERA` in each system's shell, `state::shells`).
 //!
 //! The invariant: a session's thread stops once the engine lets go of the session, and a reader
 //! WaOS feeds is never Waft's, so its frames are this camera's alone.

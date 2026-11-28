@@ -56,12 +56,10 @@ pub(crate) struct Identities {
 }
 
 impl Identities {
-    /// The identities of the programs this WaOS runs, their icons in `icons`, on a system whose
-    /// windows are apps of their own; none elsewhere, or where WaOS cannot say where it is.
+    /// The identities of the apps this WaOS runs, their icons in `icons`, on a system whose
+    /// windows are apps of their own; none where WaOS cannot say where it is.
+    #[cfg(any(windows, target_os = "linux"))]
     pub(crate) fn of_this_waos(icons: PathBuf) -> Option<Identities> {
-        if !cfg!(any(windows, target_os = "linux")) {
-            return None;
-        }
         match waos_executable() {
             Ok(waos) => Some(Identities { waos, icons }),
             Err(error) => {
@@ -156,6 +154,7 @@ fn windows_argument(argument: &str) -> String {
 /// Where this WaOS is, which a pin starts: the AppImage it runs from on Linux, as the AppImage's
 /// runtime names it, since the executable inside is mounted only while it runs; its executable
 /// otherwise, through any link it was started by.
+#[cfg(any(windows, target_os = "linux"))]
 fn waos_executable() -> std::io::Result<PathBuf> {
     match std::env::var_os("APPIMAGE") {
         Some(app_image) if cfg!(target_os = "linux") && !app_image.is_empty() => {

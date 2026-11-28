@@ -24,7 +24,7 @@ pub(crate) struct AppFolders {
     pub(crate) preferences: PathBuf,
     /// The installed programs' icons as the system's lists of apps take them, beside the store:
     /// each one's `.ico` on Windows, its PNG on Linux (`logic::program_identities`).
-    #[cfg(not(target_os = "android"))]
+    #[cfg(any(windows, target_os = "linux"))]
     pub(crate) program_icons: PathBuf,
     /// Where the installed programs' desktop entries go: the user's applications,
     /// `$XDG_DATA_HOME/applications` (`logic::program_entries`).
@@ -65,6 +65,7 @@ pub(crate) fn app_folders() -> AppFolders {
         package_copies: caches.join("packages"),
         store: data_folder().join("store"),
         preferences: data_folder().join("preferences.toml"),
+        #[cfg(any(windows, target_os = "linux"))]
         program_icons: data_folder().join("icons"),
         #[cfg(target_os = "linux")]
         applications: user_data_folder().join("applications"),

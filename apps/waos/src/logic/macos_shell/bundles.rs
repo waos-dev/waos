@@ -1,5 +1,6 @@
-//! Each program's app bundle as WaOS keeps it, as Chrome keeps its app shims: an installed
-//! program's in a folder of the user's applications, named after the program, with its package's
+//! Each program's app bundle as WaOS keeps it, as Chrome keeps its app shims: an installed app's
+//! in a folder of the user's applications, and a tool's in WaOS's data folder, out of the lists of
+//! apps the user opens, as Chrome keeps a copy of each shim in its profile; named after the program, with its package's
 //! name, version and icon and the kinds of file it opens, a development install's as any other's,
 //! since every program that runs is installed. Each is written at install, or at the first launch
 //! that finds none, rewritten when the program is updated or the kinds of file it opens change, as
@@ -30,7 +31,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use hmac::{Hmac, KeyInit, Mac};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use waos_package::{Category, FileAssociation, ProgramId};
+use waos_package::{Category, FileAssociation, ProgramId, ProgramKind};
 
 use crate::os::{BundleContents, WaosFiles, delete_bundle, write_bundle};
 
@@ -51,13 +52,28 @@ pub(crate) struct ProgramDescription {
     pub(crate) category: Option<Category>,
     /// The kinds of file it opens, which the Finder offers its app for.
     pub(crate) file_associations: Vec<FileAssociation>,
+    /// Whether it is an app the user opens, or a tool, run from a terminal.
+    pub(crate) kind: ProgramKind,
+}
+
+impl ProgramDescription {
+    /// The kinds of file its bundle declares, which the Finder offers its app for: none for a
+    /// tool, run from a terminal, so the Finder's Open With does not offer it.
+    pub(crate) fn declared_file_types(&self) -> &[FileAssociation] {
+        match self.kind {
+            ProgramKind::App => &self.file_associations,
+            ProgramKind::Tool => &[],
+        }
+    }
 }
 
 /// Where the bundles go.
 #[derive(Clone, Debug)]
 pub(crate) struct BundleFolders {
-    /// Installed programs': a folder of the user's applications.
+    /// Installed apps': a folder of the user's applications.
     pub(crate) installed: PathBuf,
+    /// Installed tools': a folder of WaOS's own, which no list of apps the user opens shows.
+    pub(crate) tools: PathBuf,
 }
 
 /// What the record says of the code hash a program's bundle was signed with.
@@ -178,13 +194,27 @@ impl BundleFiles {
         }
     }
 
-    /// Whether `kept`, `program`'s bundle, is written as it is now: at its version, opening the
-    /// kinds of file it opens, from WaOS's files as they are now, and in place.
+    /// Whether `kept`, `program`'s bundle, is written as it is now: at its version, declaring the
+    /// kinds of file it declares, from WaOS's files as they are now, and in place; a tool's not
+    /// among the user's applications.
     fn is_current(&self, kept: &KeptBundle, program: &ProgramDescription) -> bool {
         kept.version == program.version
-            && kept.file_associations == program.file_associations
+            && kept.file_associations == program.declared_file_types()
             && kept.made_from == self.made_from
+            && (program.kind == ProgramKind::App || !self.among_applications(kept))
             && kept.path.exists()
+    }
+
+    /// Whether `program`'s bundle, if WaOS wrote one, is among the user's applications, as an
+    /// older WaOS wrote a tool's too.
+    pub(crate) fn listed(&self, program: &ProgramId) -> bool {
+        self.kept(program)
+            .is_some_and(|kept| self.among_applications(&kept))
+    }
+
+    /// Whether `kept` is in the folder of the user's applications that WaOS writes apps in.
+    fn among_applications(&self, kept: &KeptBundle) -> bool {
+        kept.path.parent() == Some(self.folders.installed.as_path())
     }
 
     /// Writes the bundle of `program` again, in place of the one there.
@@ -196,7 +226,7 @@ impl BundleFiles {
             version: &program.version,
             icon: program.icon.as_deref(),
             category: program.category,
-            file_associations: &program.file_associations,
+            file_associations: program.declared_file_types(),
             waos: &self.waos,
         };
         if let Some(before) = self.kept(&program.id).filter(|before| before.path != path) {
@@ -208,7 +238,7 @@ impl BundleFiles {
             code_hash_hmac: hex::encode(self.hmac(&code_hash).finalize().into_bytes()),
             code_hash: hex::encode(code_hash),
             version: program.version.clone(),
-            file_associations: program.file_associations.clone(),
+            file_associations: program.declared_file_types().to_vec(),
             made_from: self.made_from.clone(),
         };
         tracing::info!(program = %program.id, path = %kept.path.display(), "the program's app was written");
@@ -261,13 +291,11 @@ impl BundleFiles {
         self.record().apps.get(program.as_str()).cloned()
     }
 
-    /// Where `program`'s bundle goes: named after it in the installed programs' folder, unless
-    /// another program's bundle has that name, when its id is added.
+    /// Where `program`'s bundle goes: named after it in the folder of its kind, unless another
+    /// program's bundle has that name, when its id is added.
     fn place_of(&self, program: &ProgramDescription) -> PathBuf {
-        let named = self
-            .folders
-            .installed
-            .join(format!("{}.app", file_name(&program.name)));
+        let folder = self.folder_of(program);
+        let named = folder.join(format!("{}.app", file_name(&program.name)));
         let taken = self
             .record()
             .apps
@@ -275,9 +303,18 @@ impl BundleFiles {
             .any(|(id, kept)| kept.path == named && id != program.id.as_str());
         if taken {
             let both = format!("{} ({}).app", file_name(&program.name), program.id);
-            self.folders.installed.join(both)
+            folder.join(both)
         } else {
             named
+        }
+    }
+
+    /// The folder `program`'s bundle goes in: the user's applications for an app, WaOS's own for
+    /// a tool.
+    fn folder_of(&self, program: &ProgramDescription) -> &Path {
+        match program.kind {
+            ProgramKind::App => &self.folders.installed,
+            ProgramKind::Tool => &self.folders.tools,
         }
     }
 

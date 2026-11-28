@@ -160,6 +160,10 @@ impl ShellWindow for WindowCalls {
     fn set_fullscreen(&self, fullscreen: bool, screen: Option<ScreenId>) {
         self.send(WindowCall::SetFullscreen(fullscreen, screen));
     }
+
+    fn activate(&self) {
+        self.send(WindowCall::Activate);
+    }
 }
 
 impl ShellWindowSizeLimits for WindowCalls {

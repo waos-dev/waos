@@ -19,7 +19,6 @@ pub(crate) enum OpenStage {
 }
 
 /// The opens under way, by app, as their watchers hear them.
-#[derive(Default)]
 pub(super) struct Opens {
     stages: watch::Sender<BTreeMap<ProgramId, OpenStage>>,
     /// How many opens of each app are under way: two taps open one app twice, the second waiting
@@ -34,6 +33,14 @@ pub(super) struct Open {
 }
 
 impl Opens {
+    /// No open under way, the opens told to `stages` from now on.
+    pub(super) fn new(stages: watch::Sender<BTreeMap<ProgramId, OpenStage>>) -> Opens {
+        Opens {
+            stages,
+            counts: Mutex::default(),
+        }
+    }
+
     /// The opens under way now, each with its stage, and each change of them from now on.
     pub(super) fn stages(&self) -> watch::Receiver<BTreeMap<ProgramId, OpenStage>> {
         self.stages.subscribe()
