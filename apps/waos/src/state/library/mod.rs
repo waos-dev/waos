@@ -1373,7 +1373,7 @@ impl Library {
                 .chain([&logo]);
             listed.extend(pictures.filter_map(|picture| read.source.picture_url(picture).ok()));
         }
-        self.sources.keep_pictures(&listed);
+        self.sources.retain_pictures(&listed);
     }
 
     /// The store changed what is installed: read it again, and what each listing offers.

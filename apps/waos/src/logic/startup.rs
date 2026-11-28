@@ -229,12 +229,8 @@ pub(crate) fn open_domains(
         prompts,
         Arc::clone(&packages) as Arc<dyn InstalledApps>,
     );
-    let sources = Sources::open(
-        Arc::new(SourcesFile::new(folder)),
-        &folder.join("pictures"),
-        proxy,
-    )
-    .context("opening the sources")?;
+    let sources =
+        Sources::open(Arc::new(SourcesFile::new(folder)), proxy).context("opening the sources")?;
     let activity = ActivityRecord::open(
         Arc::new(ActivityFiles::new(folder)),
         permissions.clone(),
