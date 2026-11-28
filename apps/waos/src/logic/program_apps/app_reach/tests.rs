@@ -1,5 +1,4 @@
 use std::path::Path;
-use std::time::Duration;
 
 use futures::channel::oneshot;
 use futures::{FutureExt, StreamExt};
@@ -10,36 +9,43 @@ use crate::logic::program_apps::CanvasCall;
 use crate::logic::program_apps::window_process::tests::{Served, window_process};
 use crate::logic::test_engine;
 use crate::logic::test_engine::WITHIN;
+use waos_headless::testing::Changes;
 
 /// The id survey runs under, as an installed program's.
 const SURVEY: &str = "dev.example.survey";
 
-/// The launches the getter asked for, in order.
+/// The launches the getter asked for, in order, announced as each is asked.
 #[derive(Clone, Default)]
-pub(crate) struct Launches(Arc<Mutex<Vec<(ProgramId, LaunchAttempt)>>>);
+pub(crate) struct Launches(Arc<AskedLaunches>);
+
+#[derive(Default)]
+pub(crate) struct AskedLaunches {
+    asked: Mutex<Vec<(ProgramId, LaunchAttempt)>>,
+    changes: Changes,
+}
 
 impl Launches {
     /// The getter, whose launches start nothing and are noted here.
     pub(crate) fn reach(&self) -> Arc<AppReach> {
         let noted = self.clone();
         Arc::new(AppReach::new(move |id, attempt| {
-            noted.0.lock().unwrap().push((id.clone(), attempt));
+            noted.0.asked.lock().unwrap().push((id.clone(), attempt));
+            noted.0.changes.announce();
         }))
     }
 
     pub(crate) fn asked(&self) -> Vec<(ProgramId, LaunchAttempt)> {
-        self.0.lock().unwrap().clone()
+        self.0.asked.lock().unwrap().clone()
     }
 
     /// Waits until `count` launches were asked for.
     pub(crate) async fn until(&self, count: usize) {
-        tokio::time::timeout(WITHIN, async {
-            while self.asked().len() < count {
-                tokio::time::sleep(Duration::from_millis(5)).await;
-            }
-        })
-        .await
-        .unwrap_or_else(|_| panic!("{count} launches were never asked for"));
+        self.0
+            .changes
+            .until(&format!("{count} launches asked for"), || {
+                self.asked().len() >= count
+            })
+            .await;
     }
 }
 

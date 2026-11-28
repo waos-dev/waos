@@ -7,7 +7,6 @@
 //! installs them with their code compiled already (`test_installs`).
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use waos::bindings::wasdk::platform::system::Brightness;
 use waos::bindings::wasdk::platform::views::ViewError;
@@ -18,7 +17,7 @@ use waos::{
 
 /// How long a test waits for a program or the app to do something before it fails. No wait
 /// includes compiling a program the test did not install itself: the tests share compiled code.
-pub(crate) const WITHIN: Duration = Duration::from_secs(15);
+pub(crate) use waos_headless::testing::WITHIN;
 
 /// Why [`NoWindows`] refuses every request.
 pub(crate) const REFUSAL: &str = "the tests make no windows";
@@ -137,8 +136,9 @@ pub(crate) mod drawing {
     /// What a test's WaOS whose apps' windows draw runs over: each request given a window at once
     /// when `in_windows`, or a view in none, as a phone's deck shows a tab, focused and in sight, on
     /// one screen that refreshes as soon as it is asked, each window keeping the picture presented
-    /// last until the next replaces it: its shell, and the machine with the one screen.
-    pub(crate) fn outside(in_windows: bool) -> (waos::Shell, PlatformState) {
+    /// last until the next replaces it: the headless shell, whose changes a test waits on, and
+    /// the machine with the one screen.
+    pub(crate) fn outside(in_windows: bool) -> (HeadlessShell, PlatformState) {
         let headless = HeadlessShell::new(display(in_windows), Refreshes::WhenAsked);
         let platform = PlatformState {
             screens: vec![headless.screen()],
@@ -147,7 +147,7 @@ pub(crate) mod drawing {
             locales: Vec::new(),
             time_zone: None,
         };
-        (headless.shell(), platform)
+        (headless, platform)
     }
 
     /// Opens a view for `program`'s `request` in a window of its own, filling the test screen.

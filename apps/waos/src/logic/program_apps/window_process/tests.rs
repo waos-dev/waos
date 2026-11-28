@@ -1,6 +1,6 @@
 use std::path::Path;
 use std::sync::OnceLock;
-use std::time::Duration;
+use waos_headless::testing::Changes;
 
 use futures::StreamExt;
 use futures::channel::mpsc::{self, UnboundedReceiver};
@@ -805,9 +805,12 @@ impl ShellContextMenus for AppMenus {
     }
 }
 
-/// What a program prints.
+/// What a program prints, announced as it prints.
 #[derive(Default)]
-pub(crate) struct Printed(Mutex<Vec<u8>>);
+pub(crate) struct Printed {
+    bytes: Mutex<Vec<u8>>,
+    changes: Changes,
+}
 
 impl ProgramOutput for Printed {
     fn poll_write(
@@ -817,7 +820,8 @@ impl ProgramOutput for Printed {
         bytes: &[u8],
     ) -> std::task::Poll<usize> {
         if matches!(stream, OutputStream::Stdout) {
-            self.0.lock().unwrap().extend_from_slice(bytes);
+            self.bytes.lock().unwrap().extend_from_slice(bytes);
+            self.changes.announce();
         }
         std::task::Poll::Ready(bytes.len())
     }
@@ -827,18 +831,14 @@ impl Printed {
     /// Waits until the program has printed `line`.
     pub(crate) async fn line(&self, line: &str) {
         let printed = || {
-            let bytes = self.0.lock().unwrap();
+            let bytes = self.bytes.lock().unwrap();
             String::from_utf8_lossy(&bytes)
                 .lines()
                 .any(|printed| printed == line)
         };
-        tokio::time::timeout(WITHIN, async {
-            while !printed() {
-                tokio::time::sleep(Duration::from_millis(5)).await;
-            }
-        })
-        .await
-        .unwrap_or_else(|_| panic!("the program never printed {line:?}"));
+        self.changes
+            .until(&format!("the program prints {line:?}"), printed)
+            .await;
     }
 }
 

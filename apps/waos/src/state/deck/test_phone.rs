@@ -18,6 +18,7 @@
 //! which program's canvas a touch reaches, and where on it, as the hit test of a finger coming
 //! down finds it.
 
+use crate::state::test_turns::{Turn, turn_until};
 use std::any::Any;
 use std::cell::Cell;
 use std::rc::Rc;
@@ -58,7 +59,7 @@ use crate::logic::prompts::PromptsOnRequest;
 use crate::logic::recording_indicator::RecordingIndicatorOnRequest;
 use crate::logic::running_apps::RunningApps;
 use crate::logic::startup::{self, Outside, Setup};
-use crate::logic::test_engine::{self, NoWindows, WITHIN};
+use crate::logic::test_engine::{self, NoWindows};
 use crate::state::ViewWindows;
 use crate::state::library::test_desktop::label_of;
 use crate::state::library::{Library, LibraryDomains, ProgramsOpen, open_library, work};
@@ -963,21 +964,41 @@ impl TestPhone {
         }
     }
 
-    /// Frames until `done`, failing after [`WITHIN`], and then until the deck has settled.
+    /// Turns of the host's loop until `done`, failing after `WITHIN`, and then until the deck
+    /// has settled: a turn follows at once while the app has a frame, a window or a timer to
+    /// turn for, and otherwise once a task wakes the app.
     pub(crate) fn settle_until(&mut self, what: &str, done: impl Fn(&TestPhone) -> bool) {
-        let deadline = Instant::now() + WITHIN;
-        while !done(self) {
-            assert!(Instant::now() < deadline, "{what} never happened");
-            thread::sleep(Duration::from_millis(5));
+        let platform = Rc::clone(&self.platform);
+        turn_until(&platform, what, || {
             self.pump();
-        }
+            if done(self) {
+                Turn::Done
+            } else if self.has_turns_to_take() {
+                Turn::FrameAsked
+            } else {
+                Turn::Idle
+            }
+        });
         self.settle();
     }
 
-    /// Turns of the host's loop for `time` of the wall's clock, whatever happens in it.
+    /// Whether the host's loop has something to turn for without a wake: a frame asked for, a
+    /// window made that the app has not heard of, or a timer waiting on the phone's clock.
+    fn has_turns_to_take(&self) -> bool {
+        !self.platform.frame_requests().is_empty()
+            || self.windows.made().len() > self.reported_made
+            || self.platform.wakes().last().is_some_and(Option::is_some)
+    }
+
+    /// Turns of the host's loop for `time` of the wall's clock, whatever happens in it: for a
+    /// check that a program did nothing in that time, which it says nowhere.
     pub(crate) fn pump_for(&mut self, time: Duration) {
         let until = Instant::now() + time;
         while Instant::now() < until {
+            #[allow(
+                clippy::disallowed_methods,
+                reason = "real time for a program to go wrong in; exact once it says its start is over"
+            )]
             thread::sleep(Duration::from_millis(5));
             self.pump();
         }

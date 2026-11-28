@@ -9,11 +9,11 @@
 //! asked for, a twentieth of a second apart, runs the app's tasks, and taps and types as a user
 //! does.
 
+use crate::state::test_turns::{Turn, turn_until};
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::Arc;
-use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use tempfile::TempDir;
 use waft::ui::{CompositionLayer, Compositor, HardwareBuffer, LayerPicture, Placement};
@@ -56,7 +56,7 @@ use crate::logic::prompts::{MachinePickerOnRequest, OutputPickerOnRequest, Promp
 use crate::logic::recording_indicator::RecordingIndicatorOnRequest;
 use crate::logic::running_apps::RunningApps;
 use crate::logic::startup::{self, Outside, Setup};
-use crate::logic::test_engine::{self, WITHIN};
+use crate::logic::test_engine;
 use crate::logic::test_outputs::StatedOutputs;
 use crate::state::ViewWindows;
 use crate::state::phone_files::{follow_phone_files, phone_files_on_request};
@@ -885,15 +885,35 @@ impl LibraryDesktop {
         }
     }
 
-    /// Frames until `done`, failing after [`WITHIN`].
+    /// Turns of the host's loop until `done`, failing after `WITHIN`, and then until settled:
+    /// a turn follows at once while the app has a frame, a window or a timer to turn for, and
+    /// otherwise once a task wakes the app.
     pub(crate) fn settle_until(&mut self, what: &str, done: impl Fn(&LibraryDesktop) -> bool) {
-        let deadline = Instant::now() + WITHIN;
-        while !done(self) {
-            assert!(Instant::now() < deadline, "{what} never happened");
-            thread::sleep(Duration::from_millis(5));
+        let platform = Rc::clone(&self.platform);
+        turn_until(&platform.inner, what, || {
             self.pump();
-        }
+            if done(self) {
+                Turn::Done
+            } else if self.has_turns_to_take() {
+                Turn::FrameAsked
+            } else {
+                Turn::Idle
+            }
+        });
         self.settle();
+    }
+
+    /// Whether the host's loop has something to turn for without a wake: a frame asked for, a
+    /// window made that the app has not heard of, or a timer waiting on the desktop's clock.
+    fn has_turns_to_take(&self) -> bool {
+        !self.platform.inner.frame_requests().is_empty()
+            || self.platform.windows.made().len() > self.reported_made
+            || self
+                .platform
+                .inner
+                .wakes()
+                .last()
+                .is_some_and(Option::is_some)
     }
 
     /// One turn of the host's loop: the windows made are reported, the frames asked for drawn,

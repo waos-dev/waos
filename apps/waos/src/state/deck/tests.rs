@@ -9,8 +9,6 @@
 //! program's icon offers Close, which closes its tab, and a package opened while a tab is in sight
 //! is asked about in an alert over the tab. What fingers do to the deck is `ui::deck`'s tests'.
 
-use std::time::Duration;
-
 use futures::FutureExt;
 use waft::ui::{SystemBarsBehavior as WaftSystemBarsBehavior, View};
 use waft_cupertino::CupertinoAlertDialog;
@@ -24,10 +22,6 @@ use super::test_phone::{SURVEY, TRAP, TRIANGLE, TWO_WINDOWS, TestPhone, with_tri
 use crate::logic::opened_package::tests::write_package;
 use crate::logic::tab_page::page_metrics;
 use crate::ui::library::icon_actions::{IconAction, actions_offered};
-
-/// How long a test gives an opening that found its program running to say so: it starts nothing,
-/// so it answers as soon as the opening before it has.
-const SECOND_OPENING: Duration = Duration::from_millis(500);
 
 #[test]
 fn a_program_opened_gets_its_tabs_view_measured_as_the_page_and_its_tab_shows_it() {
@@ -199,7 +193,9 @@ fn a_program_opened_again_while_it_starts_keeps_running_in_its_tab() {
     phone.settle_until("triangle runs in its tab", |phone| {
         phone.stage(TRIANGLE) == Some("running")
     });
-    phone.pump_for(SECOND_OPENING);
+    phone.settle_until("the library's work", |phone| {
+        phone.library.read(&phone.shell.app()).is_idle()
+    });
     assert_eq!(phone.stage(TRIANGLE), Some("running"));
 }
 
