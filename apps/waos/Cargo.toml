@@ -18,10 +18,9 @@ path = "src/main.rs"
 [dependencies]
 waos.workspace = true
 waos-local.workspace = true
-waos-store.workspace = true
-waos-package-manager.workspace = true
-# What the user lets each app use, and the questions asked of the user now.
-waos-permissions.workspace = true
+# The services that keep the apps: what is installed, what the user lets each use, the sources,
+# each app's activity and its own folders.
+waos-services.workspace = true
 # What a program did over the days kept of it, in the words its settings page says it in.
 waos-activity.workspace = true
 # The packages a source lists and the system opens with WaOS, as the store reads them.

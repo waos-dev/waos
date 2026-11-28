@@ -450,7 +450,7 @@ mod tests {
     use waft_test::{MockCameras, MockCompositor, MockVideoFrameReaders, TestPlatform};
     use waos::{Answer, ProgramEnd, Question, RecordingDevice};
     use waos_package::ProgramId;
-    use waos_permissions::Setting;
+    use waos_services::permissions::Setting;
 
     use super::*;
     use crate::state::test_system::{Lines, TestSystem};

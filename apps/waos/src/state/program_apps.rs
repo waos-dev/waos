@@ -54,8 +54,8 @@ mod macos {
         ShellContextMenus, ShellFileDialogs, ShellMenuBar, ShellNotifications,
         ShellSystemPermissions, ViewPlacement, ViewRequest,
     };
-    use waos_package_manager::PackageManager;
     use waos_program_window::{CanvasLayer, PromptWindows};
+    use waos_services::packages::PackageManager;
     use waos_window_messages::HostedLayers;
     use waos_window_messages::os::macos::SendRight;
 
@@ -468,8 +468,8 @@ mod other {
         ShellContextMenus, ShellFileDialogs, ShellMenuBar, ShellNotifications,
         ShellSystemPermissions, ViewPlacement,
     };
-    use waos_package_manager::PackageManager;
     use waos_program_window::PromptWindows;
+    use waos_services::packages::PackageManager;
 
     use super::ProgramPrompts;
     use crate::logic::app_services::AppServices;

@@ -53,7 +53,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use serde::{Deserialize, Serialize};
 use waos_package::{Category, FileAssociation, ProgramId};
-use waos_package_manager::PackageManager;
+use waos_services::packages::PackageManager;
 
 #[cfg(any(windows, target_os = "linux"))]
 use super::folders::AppFolders;

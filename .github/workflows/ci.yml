@@ -136,7 +136,7 @@ jobs:
             -p waos-dev-protocol \
             -p waos-local-processes \
             -p waos-package \
-            -p waos-store \
+            -p waos-services \
             -p wasdk \
             -p wasdk-wgpu
       # One run with every filter: libtest takes several, and one build of the app serves them.
@@ -183,7 +183,7 @@ jobs:
             -p waos-dev-protocol \
             -p waos-local-processes \
             -p waos-package \
-            -p waos-store \
+            -p waos-services \
             -p wasdk \
             -p wasdk-wgpu
       # Saved even when a test failed, as actions/cache's "Always save cache" does: the programs

@@ -28,7 +28,7 @@ use anyhow::{Context, Result, ensure};
 use tokio::sync::watch;
 use waos::{HeldProgram, ProgramEnvironment, ProgramOutput, RunningProgram, WaOS};
 use waos_package::{ProgramId, ProgramKind};
-use waos_package_manager::PackageManager;
+use waos_services::packages::PackageManager;
 
 use super::environments::ProgramEnvironments;
 use super::launch_outputs::{LaunchOutput, LaunchOutputs};

@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use waos::{Answer, ProgramEnd, ProgramEnvironment, Question, Switch, WaOS};
 use waos_capabilities::{DomainRule, NetworkGrant, Setting};
-use waos_permissions::{Permissions, ProgramId};
+use waos_services::permissions::{Permissions, ProgramId};
 
 use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, wait_until, within};
 

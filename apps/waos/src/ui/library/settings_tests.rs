@@ -24,7 +24,7 @@ use waft_cupertino::{CupertinoIcons, CupertinoNavigationBar, CupertinoSwitch};
 use waft_winui::{FluentSymbol, FontIcon};
 use waos::FileDialog;
 use waos_package::ProgramId;
-use waos_permissions::{Answer, DomainRule, GlobalSettings, NetworkGrant, Setting};
+use waos_services::permissions::{Answer, DomainRule, GlobalSettings, NetworkGrant, Setting};
 
 use super::home::fluent::FluentHome;
 use super::test_steps::{in_launcher, in_launcher_of, installs, on_phone, on_phone_of};
@@ -487,7 +487,7 @@ fn triangle_answered(desktop: &LibraryDesktop, folder: &std::path::Path) -> std:
         own.link_schemes
             .insert("zoommtg".to_owned(), Answer::Granted);
         own.roles
-            .insert(waos_permissions::Role::Inspector, Answer::Denied);
+            .insert(waos_services::permissions::Role::Inspector, Answer::Denied);
     });
     changed.unwrap();
     folder.join("out.pdf")
@@ -707,7 +707,7 @@ fn a_programs_answer_to_a_role_shows_and_is_forgotten_in_the_launcher() {
     let scratch = tempfile::tempdir().unwrap();
     triangle_answered(&desktop, scratch.path());
     open_app_detail(&mut desktop, view, "Triangle", AppDetail::Roles);
-    let role = words::role(waos_permissions::Role::Inspector, Answer::Denied);
+    let role = words::role(waos_services::permissions::Role::Inspector, Answer::Denied);
     desktop.scroll_until_visible(view, &role, words::ROLES_DETAIL, SCROLL_STEP);
     desktop.tap_beside::<waft_winui::Button>(view, &role);
     let own = desktop.permissions.app_settings(&triangle()).unwrap();
@@ -740,7 +740,7 @@ fn a_programs_simulated_microphone_records_what_its_page_picks_in_the_launcher_a
         );
         let simulated = desktop.permissions.change_app_settings(&triangle(), |own| {
             own.answers.set(
-                waos_permissions::Question::Microphone,
+                waos_services::permissions::Question::Microphone,
                 Setting::Own(Answer::Simulated),
             );
         });
@@ -816,8 +816,8 @@ fn a_program_asking_for_its_network_opens_its_page_and_hears_when_the_user_leave
         library.change_settings(
             &SettingsOf::Global,
             SettingChange::Answer(
-                waos_permissions::Question::Notifications,
-                Some(waos_permissions::Answer::Granted),
+                waos_services::permissions::Question::Notifications,
+                Some(waos_services::permissions::Answer::Granted),
             ),
             cx,
         );
@@ -982,7 +982,7 @@ fn triangle_posted_once(desktop: &LibraryDesktop) {
     use waos::AuditLog;
     let mut day = waos::AuditDay::starting(std::time::SystemTime::UNIX_EPOCH);
     day.notifications.allowed = 1;
-    desktop.store.keep(triangle().as_str(), &day);
+    desktop.activity.keep(triangle().as_str(), &day);
 }
 
 #[test]
@@ -1034,8 +1034,8 @@ fn a_programs_record_turned_off_removes_what_was_kept_of_it_on_the_phone() {
         crate::logic::test_installs::EMPTY_COMPONENT,
     );
     let day = waos::AuditDay::starting(std::time::SystemTime::UNIX_EPOCH);
-    desktop.store.keep(triangle().as_str(), &day);
-    assert_eq!(desktop.store.days(triangle().as_str()).len(), 1);
+    desktop.activity.keep(triangle().as_str(), &day);
+    assert_eq!(desktop.activity.days(triangle().as_str()).len(), 1);
     open_app_permission(&mut desktop, view, "Triangle", Permission::ActivityRecord);
     assert!(
         switch_shows(&desktop, words::RECORD),
@@ -1045,7 +1045,7 @@ fn a_programs_record_turned_off_removes_what_was_kept_of_it_on_the_phone() {
     let own = desktop.permissions.app_settings(&triangle()).unwrap();
     assert_eq!(own.record, Setting::Own(false));
     assert!(
-        desktop.store.days(triangle().as_str()).is_empty(),
+        desktop.activity.days(triangle().as_str()).is_empty(),
         "what was kept is removed"
     );
 }
@@ -1195,7 +1195,8 @@ mod system_refusals {
         );
         let own = desktop.permissions.app_settings(&triangle()).unwrap();
         assert_eq!(
-            own.answers.get(waos_permissions::Question::Notifications),
+            own.answers
+                .get(waos_services::permissions::Question::Notifications),
             &Setting::Global,
             "WaOS's own answer is as the user left it"
         );
@@ -1222,7 +1223,7 @@ mod system_refusals {
         desktop.scroll_until_visible(
             view,
             words::OPEN_SYSTEM_SETTINGS,
-            words::question_name(waos_permissions::Question::Notifications),
+            words::question_name(waos_services::permissions::Question::Notifications),
             SCROLL_STEP,
         );
         assert!(

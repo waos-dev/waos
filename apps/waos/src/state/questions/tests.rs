@@ -23,7 +23,7 @@ use waos::{
     SystemPermission, SystemPermissionState,
 };
 use waos_package::ProgramId;
-use waos_permissions::{App, Prompts, Setting};
+use waos_services::permissions::{App, Prompts, Setting};
 
 use crate::logic::phone_files::TestPhone;
 use crate::state::library::test_desktop::{DesktopKind, LibraryDesktop};

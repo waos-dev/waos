@@ -1,6 +1,6 @@
 //! What a program did with what it was allowed, one day at a time ([`AuditDay`]), and where those
 //! days are kept ([`AuditLog`]): the audit summary an inspector shows, counted by the engine and
-//! kept by the store, on the device only, seven days.
+//! kept by the activity record, on the device only, seven days.
 //!
 //! A day is small and bounded whatever the program does: counts, refusals, first and last use, and
 //! short lists, each capped ([`LIST_CAPS`]), what falls beyond a cap one count in [`Overflow`].
@@ -29,7 +29,7 @@ pub const LIST_CAPS: ListCaps = ListCaps {
     questions: 100,
 };
 
-/// Where a program's audit summary is kept: the store, for the WaOS app.
+/// Where a program's audit summary is kept: the activity record, for the WaOS app.
 pub trait AuditLog: Send + Sync {
     /// Keeps `day`, `program`'s uses over one day so far, in place of what was kept for that day.
     fn keep(&self, program: &str, day: &AuditDay);

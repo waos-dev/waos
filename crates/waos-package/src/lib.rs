@@ -18,7 +18,7 @@
 //! signature is verified; reading never holds more of an entry in memory than its cap, whatever
 //! size the archive claims for it; and what [`write`] makes, [`Package::open`] accepts, since both
 //! check the same entries against the same rules. The crate is the format and nothing else: it
-//! names no other crate of ours, and what is installed where is `waos-store`'s.
+//! names no other crate of ours, and what is installed where is `waos_services::packages`'s.
 
 mod category;
 mod entries;

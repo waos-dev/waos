@@ -73,12 +73,14 @@ impl TestLibrary {
         let crate::logic::app_services::Domains {
             packages,
             permissions,
-            store,
+            sources,
+            storage,
+            ..
         } = test_installs::domains_compiling(
             &folder.path().join("store"),
             &runs,
-            Arc::new(waos_permissions::NoPrompts),
-            Arc::clone(&compiler) as Arc<dyn waos_package_manager::CodeCompiler>,
+            Arc::new(waos_services::permissions::NoPrompts),
+            Arc::clone(&compiler) as Arc<dyn waos_services::packages::CodeCompiler>,
         );
         let services = AppServices::new(
             Arc::clone(&runs),
@@ -88,14 +90,14 @@ impl TestLibrary {
             ProgramEnvironments::new(
                 waos_local::LocalCapabilities::new(),
                 permissions.clone(),
-                store.clone(),
+                storage.clone(),
             ),
             ProgramPlaces::new(ProgramPlace::Windows),
         );
         let cell = AppCell::new();
         let library = open_library(
             &mut cell.borrow_mut(),
-            store,
+            sources,
             services,
             copies,
             programs_open,

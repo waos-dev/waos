@@ -18,7 +18,7 @@ pub(crate) struct AppFolders {
     /// The copies of the packages handed without a path while they are asked about
     /// (`logic::package_copies`), under the caches.
     pub(crate) package_copies: PathBuf,
-    /// The store's directory: `Store::open`'s.
+    /// The store's directory, which the services keep their files in (`app_services::open_domains`).
     pub(crate) store: PathBuf,
     /// WaOS's own preferences (`logic::preferences`), beside the store.
     pub(crate) preferences: PathBuf,

@@ -27,7 +27,7 @@ use waft_winui::{
 use waos::{FileDialog, SimulatedSound};
 use waos_activity::Activity;
 use waos_package::ProgramId;
-use waos_permissions::{Answer, DomainRule, Question, Role};
+use waos_services::permissions::{Answer, DomainRule, Question, Role};
 
 use super::fluent_page::{
     ListRow, Start, app_endings, app_header, app_page, card_button, card_switch, detail_glyph,
@@ -647,7 +647,7 @@ impl Page {
 
     /// The network's cards: whether apps reach it; while they do, which domains; and where the
     /// choice names some, the block that lists them.
-    fn network(&self, shown: &Shown<waos_permissions::NetworkGrant>) -> Vec<WidgetRef> {
+    fn network(&self, shown: &Shown<waos_services::permissions::NetworkGrant>) -> Vec<WidgetRef> {
         let network = &shown.value;
         let grant = Shown {
             value: network.on,
@@ -786,7 +786,10 @@ impl Page {
     /// The folders mounted, a block: its card with Add, a row for each folder with Remove; and,
     /// on an app's page whose folders are its own, the card that has them follow the default
     /// again.
-    fn folders(&self, shown: &Shown<waos_permissions::FileSystemGrant>) -> Vec<WidgetRef> {
+    fn folders(
+        &self,
+        shown: &Shown<waos_services::permissions::FileSystemGrant>,
+    ) -> Vec<WidgetRef> {
         let follows = !self.is_the_default() && shown.follows_global;
         let detail = said_with(
             Some(words::FOLDERS_AT_ONCE),

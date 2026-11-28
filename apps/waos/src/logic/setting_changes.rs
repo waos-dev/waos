@@ -17,7 +17,7 @@ use std::path::{Component, Path, PathBuf};
 use waos::SimulatedSound;
 use waos::{AudioOutput, FileDialog, MachineChoice, file_dialog_answer_refusal, machine_paths};
 use waos_package::ProgramId;
-use waos_permissions::{
+use waos_services::permissions::{
     Answer, AnswerWith, AppSettings, Domain, DomainRule, FileSystemGrant, GlobalSettings, Mount,
     NetworkGrant, PerQuestion, Question, Role, Setting,
 };

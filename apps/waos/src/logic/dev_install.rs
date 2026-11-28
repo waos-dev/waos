@@ -20,7 +20,7 @@ use waos_dev_protocol::{
     Install, InstallAnswer, Refusal, RefusalKind, ServerConnection, UninstallAnswer, Upload,
 };
 use waos_package::{Manifest, ProgramId};
-use waos_package_manager::{Caller, DevelopmentBuild, Origin, PackageContent, PackageManager};
+use waos_services::packages::{Caller, DevelopmentBuild, Origin, PackageContent, PackageManager};
 
 use super::dev_refusal;
 

@@ -2,7 +2,7 @@
 //! memory at WaOS's defaults (`TestShell::permissions`), its user asked at first use, with the
 //! changes a test makes to the app's own settings first.
 
-use waos_permissions::{AppSettings, Permissions, ProgramId};
+use waos_services::permissions::{AppSettings, Permissions, ProgramId};
 
 use crate::test_shell::TestShell;
 

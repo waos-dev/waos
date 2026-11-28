@@ -22,8 +22,8 @@ use futures::channel::mpsc::UnboundedReceiver;
 use futures::channel::oneshot;
 use waft::{App, Context, Entity, IntoWidget, WeakEntity};
 use waos::RunningProgram;
-use waos_package_manager::PackageManager;
 use waos_program_window::{PromptPlacement, PromptWindows, ShownPrompt};
+use waos_services::packages::PackageManager;
 
 use crate::logic::program_faces::ProgramFaces;
 use crate::logic::program_name::program_name;
