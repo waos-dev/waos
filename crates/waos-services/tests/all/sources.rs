@@ -18,10 +18,10 @@ fn source(text: &str) -> Source {
     text.parse().unwrap()
 }
 
-/// The sources in WaOS's file in `directory`.
+/// The sources in WaOS's files in `directory`.
 fn sources_in_file(directory: &std::path::Path) -> Sources {
     let file = Arc::new(SourcesFile::new(directory));
-    Sources::open(file, &directory.join("pictures"), SourceProxy::None).unwrap()
+    Sources::open(file, SourceProxy::None).unwrap()
 }
 
 #[test]
@@ -49,8 +49,7 @@ fn sources_are_kept_in_the_order_added() {
 
 #[test]
 fn the_first_sources_are_made_once_and_a_removed_one_never_comes_back() {
-    let scratch = tempfile::tempdir().unwrap();
-    let sources = sources(scratch.path());
+    let sources = sources();
     let first = [source("list.waos.app")];
     sources.start_with(&first).unwrap();
     assert_eq!(sources.list(), first);
@@ -61,8 +60,7 @@ fn the_first_sources_are_made_once_and_a_removed_one_never_comes_back() {
 
 #[test]
 fn the_first_sources_leave_a_list_added_to_already_as_it_is() {
-    let scratch = tempfile::tempdir().unwrap();
-    let sources = sources(scratch.path());
+    let sources = sources();
     let github = source("github.com/example/triangle");
     sources.add(github.clone()).unwrap();
     sources.start_with(&[source("list.waos.app")]).unwrap();
@@ -83,7 +81,7 @@ async fn a_source_is_read_from_its_index() {
         index.to_json().into_bytes(),
     )])
     .await;
-    let sources = sources(&scratch.path().join("store/pictures"));
+    let sources = sources();
     let read = sources
         .read_index(&source(&server.url("waos")))
         .await
@@ -95,7 +93,7 @@ async fn a_source_is_read_from_its_index() {
 async fn a_sources_picture_is_read_from_its_server_and_kept_while_a_source_lists_it() {
     let scratch = tempfile::tempdir().unwrap();
     let server = Server::serve(vec![("waos/icon.png".to_owned(), b"an icon".to_vec())]).await;
-    let sources = sources(&scratch.path().join("store/pictures"));
+    let sources = sources_in_file(&scratch.path().join("store"));
     let from = source(&server.url("waos"));
     let kept = || -> Vec<Vec<u8>> {
         std::fs::read_dir(scratch.path().join("store/pictures"))
@@ -113,16 +111,15 @@ async fn a_sources_picture_is_read_from_its_server_and_kept_while_a_source_lists
     );
     assert_eq!(kept(), [b"an icon".to_vec()], "kept as read");
 
-    sources.keep_pictures(&[from.picture_url("icon.png").unwrap()]);
+    sources.retain_pictures(&[from.picture_url("icon.png").unwrap()]);
     assert_eq!(kept().len(), 1, "a source lists it still");
-    sources.keep_pictures(&[]);
+    sources.retain_pictures(&[]);
     assert!(kept().is_empty(), "no source lists it any more");
 }
 
 #[tokio::test]
 async fn a_picture_on_another_server_than_its_index_is_not_read() {
-    let scratch = tempfile::tempdir().unwrap();
-    let sources = sources(&scratch.path().join("store/pictures"));
+    let sources = sources();
     let from = source("apps.example/waos");
     let elsewhere = sources
         .picture(&from, "http://192.168.1.1/admin.png")
@@ -136,9 +133,8 @@ async fn a_picture_on_another_server_than_its_index_is_not_read() {
 
 #[tokio::test]
 async fn an_address_with_no_index_is_told_it_lists_no_apps() {
-    let scratch = tempfile::tempdir().unwrap();
     let server = Server::serve(vec![("apps/index.json".to_owned(), b"<html>".to_vec())]).await;
-    let sources = sources(&scratch.path().join("store/pictures"));
+    let sources = sources();
     let missing = sources
         .read_index(&source(&server.url("missing")))
         .await
@@ -175,7 +171,7 @@ async fn a_listed_package_is_downloaded_and_installed() {
     )])
     .await;
     let directory = scratch.path().join("store");
-    let sources = sources(&directory.join("pictures"));
+    let sources = sources();
     let download = sources
         .download(&source(&server.url("waos")), &listed)
         .await
@@ -209,7 +205,7 @@ async fn a_download_unlike_its_listing_ends_in_an_error_and_installs_nothing() {
     )])
     .await;
     let directory = scratch.path().join("store");
-    let sources = sources(&directory.join("pictures"));
+    let sources = sources();
     let packages = packages(&directory);
     let error = install_from(&sources, &packages, &source(&server.url("apps")), &listed)
         .await
@@ -227,7 +223,7 @@ async fn a_listing_of_a_development_id_is_refused_before_its_download() {
         id: "dev.example.triangle.development".parse().unwrap(),
         ..listing(&package, TRIANGLE, "1.0.0")
     };
-    let sources = sources(&scratch.path().join("store/pictures"));
+    let sources = sources();
     // Nothing listens there: a download would fail otherwise.
     let nowhere = source("http://127.0.0.1:9/apps");
     let refused = sources.download(&nowhere, &posing).await;

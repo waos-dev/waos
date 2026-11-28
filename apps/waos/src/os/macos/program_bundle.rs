@@ -16,7 +16,7 @@
 //! `SecCodeSigner` being private.
 
 use std::fs;
-use std::io;
+use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -39,8 +39,8 @@ pub(crate) struct BundleContents<'a> {
     /// The program's name as its user knows it, which the Dock and the menu bar show.
     pub(crate) name: &'a str,
     pub(crate) version: &'a str,
-    /// The package's icon, a square PNG; none for a program run in development.
-    pub(crate) icon: Option<&'a Path>,
+    /// The package's icon, a square PNG's bytes; none for a development build that had none.
+    pub(crate) icon: Option<&'a [u8]>,
     /// What the app is for, where its author said: the heading macOS files it under.
     pub(crate) category: Option<Category>,
     /// The kinds of file the program opens, which the Finder offers it for.
@@ -193,9 +193,12 @@ fn escaped(text: &str) -> String {
         .replace('>', "&gt;")
 }
 
-/// The icon at `png` as the `.icns` at `icns`: each size the system draws an app's icon at, made
-/// by `sips`, joined by `iconutil`.
-fn write_icon(png: &Path, icns: &Path) -> io::Result<()> {
+/// The icon `png` as the `.icns` at `icns`: each size the system draws an app's icon at, made by
+/// `sips` from a copy of it, joined by `iconutil`.
+fn write_icon(png: &[u8], icns: &Path) -> io::Result<()> {
+    let mut original = tempfile::Builder::new().suffix(".png").tempfile()?;
+    original.write_all(png)?;
+    let png = original.path();
     let iconset = tempfile::Builder::new().suffix(".iconset").tempdir()?;
     for side in [16, 32, 128, 256, 512] {
         for (scale, suffix) in [(1, ""), (2, "@2x")] {

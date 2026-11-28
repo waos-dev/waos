@@ -66,7 +66,7 @@ mod tests {
     async fn an_inspector_starts_a_development_install_held_in_place_of_the_one_running_and_ends_it()
      {
         let folder = tempfile::tempdir().unwrap();
-        let setup = Setup::for_tests(folder.path());
+        let setup = Setup::on_files(folder.path());
         let started = startup::tests::start_asking_nobody(setup, |_before| {
             let shell = test_engine::shell(Arc::new(NoWindows));
             (shell, test_engine::no_screens())

@@ -70,8 +70,8 @@ pub(crate) struct ProgramEntry {
     /// Its name as its user knows it.
     pub(crate) name: String,
     pub(crate) version: String,
-    /// Its package's icon, a PNG, where it has one.
-    pub(crate) icon: Option<PathBuf>,
+    /// Its package's icon, a PNG's bytes, where it has one.
+    pub(crate) icon: Option<Arc<[u8]>>,
     /// What it is for, where its author said, which a desktop's menus file it under.
     pub(crate) category: Option<Category>,
     /// The kinds of file it opens, which the system offers it for.

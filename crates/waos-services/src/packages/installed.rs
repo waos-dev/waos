@@ -1,9 +1,9 @@
-//! What an installed app is: its manifest and where it came from, and the folder of its version,
-//! whose files never change once it is installed.
+//! What an installed app is: its manifest and where it came from, and its version's component,
+//! which never changes once it is installed, and code folder.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use waos_package::{COMPONENT, ICON, Manifest, PublisherKey};
+use waos_package::{COMPONENT, Manifest, PublisherKey};
 
 use crate::packages::programs;
 
@@ -76,28 +76,34 @@ impl DevelopmentBuild {
     }
 }
 
-/// One installed version of an app: the folder its package, or its development build, unpacked
-/// into, whose files never change once it is installed, and its code folder inside, which the
-/// compiler writes its component's code into and which goes with it.
+/// One installed version of an app: its component, whose bytes never change once it is installed,
+/// and its code folder, which the compiler writes the component's code into and which goes with
+/// it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct InstalledVersion {
-    pub(crate) folder: PathBuf,
+    component: PathBuf,
+    code: PathBuf,
 }
 
 impl InstalledVersion {
+    /// The version whose component is at `component`, its code in the folder `code`.
+    pub fn new(component: PathBuf, code: PathBuf) -> InstalledVersion {
+        InstalledVersion { component, code }
+    }
+
+    /// The version unpacked in `folder`: its component `program.wasm`, and its code folder `code`
+    /// beside it.
+    pub(crate) fn unpacked_in(folder: &Path) -> InstalledVersion {
+        InstalledVersion::new(folder.join(COMPONENT), folder.join(programs::CODE))
+    }
+
     /// Its component, which the app runs.
     pub fn component(&self) -> PathBuf {
-        self.folder.join(COMPONENT)
+        self.component.clone()
     }
 
     /// Its code folder, for the code compiled from its component.
     pub fn code(&self) -> PathBuf {
-        self.folder.join(programs::CODE)
-    }
-
-    /// Its icon, a square PNG; none for a development build that had none.
-    pub(crate) fn icon(&self) -> Option<PathBuf> {
-        let icon = self.folder.join(ICON);
-        icon.is_file().then_some(icon)
+        self.code.clone()
     }
 }

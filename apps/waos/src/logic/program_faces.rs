@@ -8,7 +8,6 @@
 //! icon in its place.
 
 use std::io::Cursor;
-use std::path::Path;
 use std::sync::Arc;
 
 use waft::ui::IconImage;
@@ -66,8 +65,8 @@ pub(crate) fn program_face(packages: &PackageManager, runs_as: &str) -> ProgramF
     let icon = runs_as
         .parse::<ProgramId>()
         .ok()
-        .and_then(|id| packages.icon(&id))
-        .and_then(|path| icon_at(&path));
+        .and_then(|id| Some((packages.icon(&id)?, id)))
+        .and_then(|(png, id)| decoded_icon(&id, &png));
     ProgramFace {
         name: name_of(packages, runs_as),
         icon,
@@ -75,15 +74,12 @@ pub(crate) fn program_face(packages: &PackageManager, runs_as: &str) -> ProgramF
     }
 }
 
-/// The icon in the PNG at `path`; none where it cannot be read, which is said.
-fn icon_at(path: &Path) -> Option<IconImage> {
-    let decoded = std::fs::read(path)
-        .map_err(|error| error.to_string())
-        .and_then(|png| icon_of(&png));
-    match decoded {
+/// The icon in `png`, the icon of `id`; none where it cannot be decoded, which is said.
+fn decoded_icon(id: &ProgramId, png: &[u8]) -> Option<IconImage> {
+    match icon_of(png) {
         Ok(icon) => Some(icon),
         Err(error) => {
-            tracing::warn!(path = %path.display(), %error, "a program's icon cannot be read");
+            tracing::warn!(%id, %error, "a program's icon cannot be read");
             None
         }
     }

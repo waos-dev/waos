@@ -1373,7 +1373,7 @@ impl Library {
                 .chain([&logo]);
             listed.extend(pictures.filter_map(|picture| read.source.picture_url(picture).ok()));
         }
-        self.sources.keep_pictures(&listed);
+        self.sources.retain_pictures(&listed);
     }
 
     /// The store changed what is installed: read it again, and what each listing offers.
@@ -1685,7 +1685,7 @@ pub(super) fn follow<T: Clone + Send + Sync + 'static>(
 }
 
 /// The icon of each of `installed`, as `packages` keeps it; one that cannot be read is left out,
-/// and said.
+/// as the package manager says.
 fn icons_of(
     packages: &PackageManager,
     installed: &[InstalledProgram],
@@ -1694,15 +1694,7 @@ fn icons_of(
         .iter()
         .filter_map(|program| {
             let id = program.manifest.id();
-            let read = packages.icon(id).map(std::fs::read);
-            match read {
-                Some(Ok(png)) => Some((id.clone(), Arc::from(png))),
-                Some(Err(error)) => {
-                    tracing::warn!(%id, %error, "its icon cannot be read");
-                    None
-                }
-                None => None,
-            }
+            Some((id.clone(), packages.icon(id)?))
         })
         .collect()
 }

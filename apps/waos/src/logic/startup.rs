@@ -9,8 +9,9 @@
 //! (`program_places`), which hands an inspector the apps on this computer with its run
 //! (`inspected_programs`).
 //!
-//! What differs between one WaOS and another is passed in: where it keeps its files and how it
-//! compiles and reaches the network ([`Setup`]), what asks the user, and the shell's parts with
+//! What differs between one WaOS and another is passed in: where each domain keeps what it owns
+//! (`stores`), where the apps' own folders are, and how it compiles and reaches the network
+//! ([`Setup`]), what asks the user, and the shell's parts with
 //! this computer's capabilities ([`Outside`]), made from the domains opened before the engine
 //! ([`BeforeTheEngine`]). Tests pass the tests' compiler, their prompts and their shells.
 //!
@@ -28,21 +29,25 @@ use waos::{
     WaOSConfig,
 };
 use waos_local::LocalCapabilities;
-use waos_services::activity::{ActivityFiles, ActivityRecord};
+use waos_services::activity::ActivityRecord;
 use waos_services::app_storage::AppStorage;
 use waos_services::packages::{CodeCompiler, InstalledApps, PackageManager, StopApp};
-use waos_services::permissions::{Permissions, Prompts, SettingsFiles};
-use waos_services::sources::{SourceProxy, Sources, SourcesFile};
+use waos_services::permissions::{Permissions, Prompts};
+use waos_services::sources::{SourceProxy, Sources};
 
 use super::app_starter::AppStarter;
 use super::environments::ProgramEnvironments;
 use super::program_places::{ProgramPlace, ProgramPlaces};
 use super::running_apps::RunningApps;
+use super::stores::Stores;
 
-/// Where a WaOS keeps its files, and how it compiles, reaches the network and keeps time.
+/// Where a WaOS keeps what it owns, and how it compiles, reaches the network and keeps time.
 pub(crate) struct Setup {
-    /// The store's directory, which the domains keep their files in.
-    pub(crate) store: PathBuf,
+    /// Where each domain keeps what it owns.
+    pub(crate) stores: Stores,
+    /// The directory each app's own data and cache folders are made in, the first time it runs
+    /// (`AppStorage`).
+    pub(crate) app_folders: PathBuf,
     /// Where each running app's `/tmp` is made (`WaOSConfig::temporary_folders`).
     pub(crate) temporary_folders: PathBuf,
     /// What compiles the apps' code, which the engine maps.
@@ -137,7 +142,8 @@ pub(crate) fn start<P, S>(
         storage,
         activity,
     } = open_domains(
-        &setup.store,
+        setup.stores,
+        &setup.app_folders,
         setup.install_compiler,
         &running,
         setup.source_proxy,
@@ -191,7 +197,7 @@ pub(crate) fn start<P, S>(
     Ok((started, outside.own))
 }
 
-/// What WaOS keeps of its apps over the store, each with the domain that owns it: what is
+/// What WaOS keeps of its apps over its stores, each with the domain that owns it: what is
 /// installed, what the user lets each app use, the sources, each app's own folders, and what each
 /// app did.
 pub(crate) struct Domains {
@@ -202,35 +208,33 @@ pub(crate) struct Domains {
     pub(crate) activity: ActivityRecord,
 }
 
-/// The domains over `folder`, the store's directory, opened in the order each needs the other:
-/// the package manager, compiling with `compiler` and stopping apps among `running`; Permissions,
-/// asking the user through `prompts` and following the package manager's record; the sources,
-/// read through `proxy`; app storage; and the activity record, recording as Permissions say, of
-/// the apps the package manager holds. The first steps of [`start`], which a test that never runs
-/// an app takes alone.
+/// The domains over `stores`, opened in the order each needs the other: the package manager,
+/// compiling with `compiler` and stopping apps among `running`; Permissions, asking the user
+/// through `prompts` and following the package manager's record; the sources, read through
+/// `proxy`; app storage, making the apps' own folders in `app_folders`; and the activity record,
+/// recording as Permissions say, of the apps the package manager holds. The first steps of
+/// [`start`], which a test that never runs an app takes alone.
 pub(crate) fn open_domains(
-    folder: &Path,
+    stores: Stores,
+    app_folders: &Path,
     compiler: Arc<dyn CodeCompiler>,
     running: &Arc<RunningApps>,
     proxy: SourceProxy,
     prompts: Arc<dyn Prompts>,
 ) -> Result<Domains> {
-    let packages = PackageManager::open(folder, compiler, Arc::clone(running) as Arc<dyn StopApp>)
-        .with_context(|| format!("opening the apps installed at {}", folder.display()))?;
-    let packages = Arc::new(packages);
+    let packages = Arc::new(PackageManager::new(
+        stores.installed_apps,
+        compiler,
+        Arc::clone(running) as Arc<dyn StopApp>,
+    ));
     let permissions = Permissions::open(
-        Arc::new(SettingsFiles::new(folder)),
+        stores.settings,
         prompts,
         Arc::clone(&packages) as Arc<dyn InstalledApps>,
     );
-    let sources = Sources::open(
-        Arc::new(SourcesFile::new(folder)),
-        &folder.join("pictures"),
-        proxy,
-    )
-    .context("opening the sources")?;
+    let sources = Sources::open(stores.sources, proxy).context("opening the sources")?;
     let activity = ActivityRecord::open(
-        Arc::new(ActivityFiles::new(folder)),
+        stores.activity,
         permissions.clone(),
         Arc::clone(&packages) as Arc<dyn InstalledApps>,
     )
@@ -239,7 +243,7 @@ pub(crate) fn open_domains(
         packages,
         permissions,
         sources,
-        storage: AppStorage::new(folder),
+        storage: AppStorage::new(app_folders),
         activity,
     })
 }
@@ -269,11 +273,13 @@ pub(crate) mod tests {
     use crate::logic::test_installs;
 
     impl Setup {
-        /// A test's WaOS in `folder`: the tests' compiler, compiling each component once in a
-        /// test run (`test_installs`), no proxy, the real time, and its apps in windows.
-        pub(crate) fn for_tests(folder: &Path) -> Setup {
+        /// A test's WaOS over `stores`, the apps' own folders and their `/tmp` in `folder`: the
+        /// tests' compiler, compiling each component once in a test run (`test_installs`), no
+        /// proxy, the real time, and its apps in windows.
+        pub(crate) fn for_tests(folder: &Path, stores: Stores) -> Setup {
             Setup {
-                store: folder.join("store"),
+                stores,
+                app_folders: folder.join("store"),
                 temporary_folders: folder.join("tmp"),
                 compiler: Compiler::new(false).expect("a compiler"),
                 install_compiler: Arc::new(test_installs::test_compiler()),
@@ -283,6 +289,19 @@ pub(crate) mod tests {
                 time: EngineTime::Real,
                 usual_place: ProgramPlace::Windows,
             }
+        }
+
+        /// A test's WaOS that keeps everything in memory, with nothing installed, as
+        /// [`Setup::for_tests`] sets it up in `folder`.
+        pub(crate) fn in_memory(folder: &Path) -> Setup {
+            Setup::for_tests(folder, Stores::in_memory(Vec::new()))
+        }
+
+        /// A test's WaOS that keeps everything in files in `folder`'s `store`, as
+        /// [`Setup::for_tests`] sets it up there.
+        pub(crate) fn on_files(folder: &Path) -> Setup {
+            let stores = Stores::files(&folder.join("store")).expect("the stores open");
+            Setup::for_tests(folder, stores)
         }
     }
 

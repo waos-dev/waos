@@ -1,22 +1,17 @@
 //! [`Sources`]: the list of sources the user added, kept in the store it is handed, and what is
-//! read from a source: its index, its pictures, kept in a folder of their own, and its packages'
+//! read from a source: its index, its pictures, kept in the store too, and its packages'
 //! downloads.
 //!
 //! The invariant a later editor will break: every change to the list holds one lock from its read
 //! to its write, so two edits never interleave; and a source's listing of a development id, which
 //! no package takes, is refused before its download.
 
-use std::collections::HashSet;
-use std::fs;
-use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use reqwest::StatusCode;
-use sha2::{Digest, Sha256};
 use url::Url;
 use waos_package::{Index, ListedProgram};
 
-use crate::files::write_whole;
 use crate::sources::fetch::{self, Download, SourceProxy};
 use crate::sources::{Source, SourceError, SourceListError, SourcesStore};
 
@@ -28,24 +23,17 @@ pub struct Sources {
 
 struct Shared {
     store: Arc<dyn SourcesStore>,
-    /// Where the sources' pictures are kept, as read.
-    pictures: PathBuf,
     http: reqwest::Client,
     /// Held while the list changes, so changes happen one at a time.
     changes: Mutex<()>,
 }
 
 impl Sources {
-    /// The sources kept in `store`, read through `proxy`, their pictures kept in `pictures`.
-    pub fn open(
-        store: Arc<dyn SourcesStore>,
-        pictures: &Path,
-        proxy: SourceProxy,
-    ) -> Result<Sources, SourceError> {
+    /// The sources kept in `store`, with their pictures, read through `proxy`.
+    pub fn open(store: Arc<dyn SourcesStore>, proxy: SourceProxy) -> Result<Sources, SourceError> {
         Ok(Sources {
             shared: Arc::new(Shared {
                 store,
-                pictures: pictures.to_path_buf(),
                 http: fetch::http_client(proxy)?,
                 changes: Mutex::default(),
             }),
@@ -128,43 +116,30 @@ impl Sources {
     }
 
     /// The picture `source`'s index lists as `picture`, an icon or a screenshot, as its file
-    /// holds it: read from the source's own server the first time and kept in the pictures'
-    /// folder, by its address, from then on, so a store shows it at once and offline. A
-    /// picture's address names its app's version, so a new version's is another file.
+    /// holds it: read from the source's own server the first time and kept in the store, by its
+    /// address, from then on, so a store shows it at once and offline. A picture's address names
+    /// its app's version, so a new version's is another picture.
     pub async fn picture(&self, source: &Source, picture: &str) -> Result<Vec<u8>, SourceError> {
         let url = source.picture_url(picture)?;
-        let kept = self.kept_picture(&url);
-        if let Ok(bytes) = fs::read(&kept) {
-            return Ok(bytes);
+        match self.shared.store.picture(&url) {
+            Ok(Some(bytes)) => return Ok(bytes),
+            Ok(None) => {}
+            Err(error) => tracing::warn!(%url, %error, "a source's kept picture cannot be read"),
         }
         let bytes = fetch::read_picture(&self.shared.http, &url).await?;
         // A picture that cannot be kept is still shown; it is read again next time.
-        let keeping =
-            fs::create_dir_all(&self.shared.pictures).and_then(|()| write_whole(&kept, &bytes));
-        if let Err(error) = keeping {
-            tracing::warn!(path = %kept.display(), %error, "a source's picture is not kept");
+        if let Err(error) = self.shared.store.keep_picture(&url, &bytes) {
+            tracing::warn!(%url, %error, "a source's picture is not kept");
         }
         Ok(bytes)
     }
 
-    /// Removes the pictures kept that are none of `shown`, the addresses the sources read now
+    /// Removes the pictures kept that are none of `listed`, the addresses the sources read now
     /// list: an app's older version's, and a removed source's.
-    pub fn keep_pictures(&self, shown: &[Url]) {
-        let kept: HashSet<PathBuf> = shown.iter().map(|url| self.kept_picture(url)).collect();
-        let Ok(files) = fs::read_dir(&self.shared.pictures) else {
-            return;
-        };
-        for file in files.flatten() {
-            if !kept.contains(&file.path()) {
-                let _ = fs::remove_file(file.path());
-            }
+    pub fn retain_pictures(&self, listed: &[Url]) {
+        if let Err(error) = self.shared.store.retain_pictures(listed) {
+            tracing::warn!(%error, "a source's picture no longer listed stays");
         }
-    }
-
-    /// Where the picture at `url` is kept: a file named by its address's SHA-256.
-    fn kept_picture(&self, url: &Url) -> PathBuf {
-        let name = hex::encode(Sha256::digest(url.as_str().as_bytes()));
-        self.shared.pictures.join(name)
     }
 
     fn lock_changes(&self) -> MutexGuard<'_, ()> {

@@ -16,8 +16,8 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use waos_package::{ListedProgram, Manifest, ProgramId, SigningKey};
 use waos_services::packages::{
-    Caller, CodeCompiler, InstallError, InstalledProgram, PackageChange, PackageContent,
-    PackageManager, StopApp,
+    Caller, CodeCompiler, InstallError, InstalledAppsFiles, InstalledProgram, PackageChange,
+    PackageContent, PackageManager, StopApp,
 };
 use waos_services::sources::{Source, SourceProxy, Sources, SourcesInMemory};
 
@@ -45,7 +45,11 @@ impl StopApp for NothingRuns {
 
 /// The package manager over `directory`, a store directory.
 pub fn packages(directory: &Path) -> PackageManager {
-    PackageManager::open(directory, Arc::new(NoCompiler), Arc::new(NothingRuns)).unwrap()
+    PackageManager::new(
+        Arc::new(InstalledAppsFiles::open(directory).unwrap()),
+        Arc::new(NoCompiler),
+        Arc::new(NothingRuns),
+    )
 }
 
 /// Installs the package at `path` with `packages`, for the user.
@@ -84,14 +88,9 @@ pub async fn install_from(
     packages.install(content, Caller::User).finished().await
 }
 
-/// The sources, kept in memory, read straight from each server, their pictures kept in `pictures`.
-pub fn sources(pictures: &Path) -> Sources {
-    Sources::open(
-        Arc::new(SourcesInMemory::default()),
-        pictures,
-        SourceProxy::None,
-    )
-    .unwrap()
+/// The sources, kept in memory with their pictures, read straight from each server.
+pub fn sources() -> Sources {
+    Sources::open(Arc::new(SourcesInMemory::default()), SourceProxy::None).unwrap()
 }
 
 /// What `future` comes to, on a runtime of its own: for a test that is not async.
