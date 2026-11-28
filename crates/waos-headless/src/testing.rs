@@ -1,11 +1,13 @@
 //! What WaOS's tests wait and hold with, the engine's and the app's alike: one deadline for every
 //! wait ([`WITHIN`]), a wait for a future ([`within`]), a wait that wakes as what it watches
-//! changes ([`Changes`]), and a hold a stand-in waits on until the test lets it go ([`Hold`]).
-//! The rest of the kit lives beside what it stands in for, and `docs/tools/tests.md` lists it.
+//! changes ([`Changes`]), and a hold a stand-in waits on until the test lets it go ([`Hold`]);
+//! and, for what nothing announces yet, a wait that looks again and again ([`poll_until`]). The
+//! rest of the kit lives beside what it stands in for, and `docs/tools/tests.md` lists it.
 //!
-//! The invariant a later editor will break: no wait here sleeps or polls. Each wakes as the thing
-//! it waits on changes, and fails once [`WITHIN`] has passed, which only a broken build reaches;
-//! a part a test waits on announces each change through its [`Changes`], or the wait never sees it.
+//! The invariant a later editor will break: no wait here but [`poll_until`] sleeps. Each wakes as
+//! the thing it waits on changes, and fails once [`WITHIN`] has passed, which only a broken build
+//! reaches; a part a test waits on announces each change through its [`Changes`], or the wait
+//! never sees it.
 
 use std::future::Future;
 use std::sync::mpsc;
@@ -72,6 +74,22 @@ impl Changes {
 
     fn count(&self) -> MutexGuard<'_, u64> {
         self.count.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+/// Returns once `done`, looking again every few milliseconds, failing after [`WITHIN`] with `what`
+/// was awaited: only for state that nothing announces, such as a file a program writes, where a
+/// [`Changes`] cannot follow it. Each use says beside it what would let it wait on a change.
+#[track_caller]
+pub fn poll_until(what: &str, mut done: impl FnMut() -> bool) {
+    let deadline = Instant::now() + WITHIN;
+    while !done() {
+        assert!(Instant::now() < deadline, "never within {WITHIN:?}: {what}");
+        #[allow(
+            clippy::disallowed_methods,
+            reason = "what it waits for is announced by nothing; each use says what would"
+        )]
+        thread::sleep(Duration::from_millis(5));
     }
 }
 

@@ -40,8 +40,6 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::mpsc;
 use std::task::{Context, Poll};
-use std::thread;
-use std::time::{Duration, Instant};
 
 use waos::bindings::wasdk::platform::hardware_buffers::PixelBuffer;
 use waos::bindings::wasdk::platform::system::{Brightness, Locale};
@@ -55,7 +53,7 @@ use waos::{
     ShellTrayIcons, ShellVideoFrameReaders, ShellView, ViewPlacement, ViewRequest, WaOSConfig,
 };
 use waos_headless::testing::Changes;
-pub use waos_headless::testing::{WITHIN, within};
+pub use waos_headless::testing::{WITHIN, poll_until, within};
 use waos_headless::{Display, HeadlessShell, Refreshes, SCREEN};
 use waos_services::packages::NothingInstalled;
 use waos_services::permissions::{Permissions, Prompts, SettingsInMemory};
@@ -214,30 +212,17 @@ pub fn config() -> WaOSConfig {
     }
 }
 
-/// Returns once `done`, looking again every few milliseconds, failing after [`WITHIN`] with `what`
-/// was awaited: only for state that no part announces, which `TestShell::changes` cannot follow.
-/// Each use says what it would take to follow the state instead:
-/// - a worker's end in `RunningProgram::stats` (`workers`): the engine announcing its workers'
-///   ends, as `RunningProgram::ended` does the program's;
-/// - a process of this computer gone (`machines`): the local processes' capability saying when a
-///   process it started has ended;
-/// - the engine letting go of what the shell handed it (`Arc::strong_count` in `video_decoders`
-///   and `composition_layers`): the shell's part handed to the engine as a value whose drop
-///   announces, as `announced_when_dropped` does for a future;
-/// - a file a program writes (`notes`, `video_player`): a line the program prints once it is
-///   written.
-#[track_caller]
-pub fn poll_until(what: &str, mut done: impl FnMut() -> bool) {
-    let deadline = Instant::now() + WITHIN;
-    while !done() {
-        assert!(Instant::now() < deadline, "never within {WITHIN:?}: {what}");
-        #[allow(
-            clippy::disallowed_methods,
-            reason = "what it waits for is announced by nothing; each use above says what would"
-        )]
-        thread::sleep(Duration::from_millis(5));
-    }
-}
+// What the tests wait for with `poll_until` (`waos_headless::testing`), since no part announces
+// it, and what would let them wait on a change instead:
+// - a worker's end in `RunningProgram::stats` (`workers`): the engine announcing its workers'
+//   ends, as `RunningProgram::ended` does the program's;
+// - a process of this computer gone (`machines`): the local processes' capability saying when a
+//   process it started has ended;
+// - the engine letting go of what the shell handed it (`Arc::strong_count` in `video_decoders`
+//   and `composition_layers`): the shell's part handed to the engine as a value whose drop
+//   announces, as `announced_when_dropped` does for a future;
+// - a file a program writes (`notes`, `video_player`): a line the program prints once it is
+//   written.
 
 /// `future`, announcing to `changes` once it is dropped, answered or not: for a stand-in's held
 /// answer, so a test waits on the shell's changes for the engine to let go of it.
