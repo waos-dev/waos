@@ -195,10 +195,18 @@ impl PackageManager {
         })
     }
 
-    /// The icon of the installed app `id`, a square PNG; none when it is not installed, its
-    /// development build had none, or its files cannot be read.
-    pub fn icon(&self, id: &ProgramId) -> Option<PathBuf> {
-        self.shared.installed_version(id)?.icon()
+    /// The icon of the installed app `id`, a square PNG's bytes; none when it is not installed,
+    /// its development build had none, or its files cannot be read, which is said to whoever
+    /// subscribes.
+    pub fn icon(&self, id: &ProgramId) -> Option<Arc<[u8]>> {
+        let version = self.shared.installed_version(id)?;
+        match programs::read_icon(&version.folder) {
+            Ok(icon) => icon.map(Arc::from),
+            Err(error) => {
+                tracing::warn!("{id}'s icon cannot be read: {error}");
+                None
+            }
+        }
     }
 
     /// Changes each time what is installed changes: an install, an update or a removal.
