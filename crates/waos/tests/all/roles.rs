@@ -5,94 +5,30 @@
 //! engine runs. The inspector is `examples/inspect`, and the program it traces `examples/forever`.
 
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use futures::future::{self, BoxFuture};
 use futures::stream::{self, BoxStream};
 use futures::{FutureExt, StreamExt};
-use tokio::sync::Notify;
 use waos::inspection::bindings::wasdk::inspect::devices::{Program, ProgramChange, StartError};
 use waos::inspection::{InspectedPrograms, ProgramStorage};
 use waos::{
-    Answer, HeldProgram, ProgramEnd, ProgramEnvironment, ProgramGrants, Question, Role,
-    RoleNotGranted, TraceKind, WaOS, WaOSConfig,
+    Answer, HeldProgram, ProgramEnd, ProgramEnvironment, Role, RoleNotGranted, TraceKind, WaOS,
+    WaOSConfig,
 };
-use waos_capabilities::{ChangedFuture, DomainRule, FileSystemGrant, NetworkGrant};
+use waos_permissions::{Permissions, ProgramId};
 
 use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, wait_until, within};
 
-/// Grants that keep the user's answer to the inspector role, and nothing else.
-#[derive(Default)]
-struct RoleGrants {
-    inspector: Mutex<Option<Answer>>,
-    changed: Arc<Notify>,
+/// The id the inspector runs as, which its permissions are kept by.
+fn app() -> ProgramId {
+    "dev.waos.test.inspector".parse().unwrap()
 }
 
-impl RoleGrants {
-    fn set(&self, answer: Answer) {
-        *self.inspector.lock().unwrap() = Some(answer);
-        self.changed.notify_waiters();
-    }
-}
-
-impl ProgramGrants for RoleGrants {
-    fn network(&self) -> NetworkGrant {
-        NetworkGrant {
-            on: false,
-            domains: DomainRule::Any,
-        }
-    }
-
-    fn local_network(&self) -> bool {
-        false
-    }
-
-    fn clipboard_read(&self) -> bool {
-        false
-    }
-
-    fn clipboard_write(&self) -> bool {
-        false
-    }
-
-    fn file_system(&self) -> FileSystemGrant {
-        FileSystemGrant::default()
-    }
-
-    fn answer(&self, _question: Question) -> Option<Answer> {
-        Some(Answer::Denied)
-    }
-
-    fn set_answer(&self, _question: Question, _answer: Answer) {
-        panic!("the program asks no question");
-    }
-
-    fn link_scheme_answer(&self, _scheme: &str) -> Option<Answer> {
-        Some(Answer::Denied)
-    }
-
-    fn set_link_scheme_answer(&self, _scheme: &str, _answer: Answer) {
-        panic!("the program opens no link");
-    }
-
-    fn role(&self, role: Role) -> Option<Answer> {
-        assert_eq!(role, Role::Inspector);
-        *self.inspector.lock().unwrap()
-    }
-
-    fn set_role(&self, role: Role, answer: Answer) {
-        assert_eq!(role, Role::Inspector);
-        *self.inspector.lock().unwrap() = Some(answer);
-    }
-
-    fn changed(&self) -> ChangedFuture {
-        Box::pin(Arc::clone(&self.changed).notified_owned())
-    }
-}
-
-fn with(grants: &Arc<RoleGrants>) -> ProgramEnvironment {
+/// What the inspector runs with: its permissions, which ask the user the test plays.
+fn with(permissions: &Permissions) -> ProgramEnvironment {
     ProgramEnvironment {
-        grants: Some(Arc::clone(grants) as Arc<dyn ProgramGrants>),
+        grants: Some(permissions.of(&app())),
         ..ProgramEnvironment::default()
     }
 }
@@ -115,8 +51,8 @@ fn a_program_importing_wasdk_inspect_is_asked_about_at_its_start_and_refused_wit
             &waos_test_programs::code_of(waos_test_programs::IMPORTS_INSPECT),
         )
         .unwrap();
-    let grants = Arc::new(RoleGrants::default());
-    let running = engine.run(&inspector, with(&grants)).unwrap();
+    let permissions = shell.permissions();
+    let running = engine.run(&inspector, with(&permissions)).unwrap();
     wait_until("the role asked about", || {
         !shell.prompts.roles_asked().is_empty()
     });
@@ -125,12 +61,12 @@ fn a_program_importing_wasdk_inspect_is_asked_about_at_its_start_and_refused_wit
     let end = within(running.ended());
     assert_eq!(not_granted(&end), Some(Role::Inspector), "{end:?}");
     assert_eq!(
-        *grants.inspector.lock().unwrap(),
+        permissions.of(&app()).role(Role::Inspector),
         Some(Answer::Denied),
         "kept"
     );
 
-    let running = engine.run(&inspector, with(&grants)).unwrap();
+    let running = engine.run(&inspector, with(&permissions)).unwrap();
     let end = within(running.ended());
     assert_eq!(not_granted(&end), Some(Role::Inspector), "{end:?}");
     assert_eq!(
@@ -150,8 +86,7 @@ fn the_role_question_is_told_through_the_programs_access() {
             &waos_test_programs::code_of(waos_test_programs::IMPORTS_INSPECT),
         )
         .unwrap();
-    let grants = Arc::new(RoleGrants::default());
-    let running = engine.run(&inspector, with(&grants)).unwrap();
+    let running = engine.run(&inspector, with(&shell.permissions())).unwrap();
     wait_until("the role asked about", || {
         !shell.prompts.roles_asked().is_empty()
     });
@@ -211,13 +146,14 @@ fn a_program_granted_its_role_sees_the_programs_and_traces_one() {
             &waos_test_programs::code_of(waos_test_programs::INSPECT),
         )
         .unwrap();
-    let grants = Arc::new(RoleGrants {
-        inspector: Mutex::new(Some(Answer::Granted)),
-        ..RoleGrants::default()
+    let permissions = shell.permissions();
+    let granted = permissions.change_app_settings(&app(), |own| {
+        own.roles.insert(Role::Inspector, Answer::Granted);
     });
+    granted.unwrap();
     let output = Arc::new(RecordedOutput::default());
     let environment = ProgramEnvironment {
-        grants: Some(Arc::clone(&grants) as Arc<dyn ProgramGrants>),
+        grants: Some(permissions.of(&app())),
         ..printing_to(&output)
     };
     let inspecting = engine.run(&inspect, environment).unwrap();
@@ -297,29 +233,4 @@ fn a_program_importing_no_role_is_asked_about_none() {
     let end = within(running.ended());
     assert_eq!(not_granted(&end), None, "{end:?}");
     assert!(shell.prompts.roles_asked().is_empty());
-}
-
-#[test]
-fn a_waiting_role_question_is_answered_by_setting_its_row_and_drops_its_prompt() {
-    let shell = TestShell::new();
-    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
-    let inspector = engine
-        .load(
-            Path::new(waos_test_programs::IMPORTS_INSPECT),
-            &waos_test_programs::code_of(waos_test_programs::IMPORTS_INSPECT),
-        )
-        .unwrap();
-    let grants = Arc::new(RoleGrants::default());
-    let running = engine.run(&inspector, with(&grants)).unwrap();
-    wait_until("the role asked about", || {
-        !shell.prompts.roles_asked().is_empty()
-    });
-    assert!(!shell.prompts.role_cancelled(0));
-
-    grants.set(Answer::Denied);
-    wait_until("the role prompt future is dropped", || {
-        shell.prompts.role_cancelled(0)
-    });
-    let end = within(running.ended());
-    assert_eq!(not_granted(&end), Some(Role::Inspector), "{end:?}");
 }

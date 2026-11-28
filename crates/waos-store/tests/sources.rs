@@ -6,7 +6,7 @@ mod support;
 use support::{Server, component_of, install_from, listing, packages, write_package};
 use waos_package::{Index, SigningKey};
 use waos_package_manager::InstallError;
-use waos_store::{Source, SourceError, SourceProxy, Store, StoreError};
+use waos_store::{Source, SourceError, StoreError};
 
 const TRIANGLE: &str = "dev.example.triangle";
 
@@ -18,7 +18,7 @@ fn source(text: &str) -> Source {
 fn sources_are_kept_in_the_order_added() {
     let scratch = tempfile::tempdir().unwrap();
     let directory = scratch.path().join("store");
-    let store = Store::open(&directory, SourceProxy::None).unwrap();
+    let store = support::open_store(&directory);
     let github = source("github.com/example/triangle");
     let index = source("example.com/apps");
     store.add_source(github.clone()).unwrap();
@@ -26,9 +26,7 @@ fn sources_are_kept_in_the_order_added() {
     store.add_source(github.clone()).unwrap();
     assert_eq!(store.sources(), [github.clone(), index.clone()]);
     assert_eq!(
-        Store::open(&directory, SourceProxy::None)
-            .unwrap()
-            .sources(),
+        support::open_store(&directory).sources(),
         [github.clone(), index.clone()]
     );
     store.remove_source(&github).unwrap();
@@ -43,7 +41,7 @@ fn sources_are_kept_in_the_order_added() {
 fn the_first_sources_are_made_once_and_a_removed_one_never_comes_back() {
     let scratch = tempfile::tempdir().unwrap();
     let directory = scratch.path().join("store");
-    let store = Store::open(&directory, SourceProxy::None).unwrap();
+    let store = support::open_store(&directory);
     let first = [source("list.waos.app")];
     store.start_sources_with(&first).unwrap();
     assert_eq!(store.sources(), first);
@@ -55,7 +53,7 @@ fn the_first_sources_are_made_once_and_a_removed_one_never_comes_back() {
 #[test]
 fn the_first_sources_leave_a_list_added_to_already_as_it_is() {
     let scratch = tempfile::tempdir().unwrap();
-    let store = Store::open(&scratch.path().join("store"), SourceProxy::None).unwrap();
+    let store = support::open_store(&scratch.path().join("store"));
     let github = source("github.com/example/triangle");
     store.add_source(github.clone()).unwrap();
     store
@@ -78,7 +76,7 @@ async fn a_source_is_read_from_its_index() {
         index.to_json().into_bytes(),
     )])
     .await;
-    let store = Store::open(&scratch.path().join("store"), SourceProxy::None).unwrap();
+    let store = support::open_store(&scratch.path().join("store"));
     let read = store
         .read_source(&source(&server.url("waos")))
         .await
@@ -90,7 +88,7 @@ async fn a_source_is_read_from_its_index() {
 async fn a_sources_picture_is_read_from_its_server_and_kept_while_a_source_lists_it() {
     let scratch = tempfile::tempdir().unwrap();
     let server = Server::serve(vec![("waos/icon.png".to_owned(), b"an icon".to_vec())]).await;
-    let store = Store::open(&scratch.path().join("store"), SourceProxy::None).unwrap();
+    let store = support::open_store(&scratch.path().join("store"));
     let from = source(&server.url("waos"));
     let kept = || -> Vec<Vec<u8>> {
         std::fs::read_dir(scratch.path().join("store/pictures"))
@@ -114,7 +112,7 @@ async fn a_sources_picture_is_read_from_its_server_and_kept_while_a_source_lists
 #[tokio::test]
 async fn a_picture_on_another_server_than_its_index_is_not_read() {
     let scratch = tempfile::tempdir().unwrap();
-    let store = Store::open(&scratch.path().join("store"), SourceProxy::None).unwrap();
+    let store = support::open_store(&scratch.path().join("store"));
     let from = source("apps.example/waos");
     let elsewhere = store
         .picture(&from, "http://192.168.1.1/admin.png")
@@ -130,7 +128,7 @@ async fn a_picture_on_another_server_than_its_index_is_not_read() {
 async fn an_address_with_no_index_is_told_it_lists_no_apps() {
     let scratch = tempfile::tempdir().unwrap();
     let server = Server::serve(vec![("apps/index.json".to_owned(), b"<html>".to_vec())]).await;
-    let store = Store::open(&scratch.path().join("store"), SourceProxy::None).unwrap();
+    let store = support::open_store(&scratch.path().join("store"));
     let missing = store
         .read_source(&source(&server.url("missing")))
         .await
@@ -167,7 +165,7 @@ async fn a_listed_package_is_downloaded_and_installed() {
     )])
     .await;
     let directory = scratch.path().join("store");
-    let store = Store::open(&directory, SourceProxy::None).unwrap();
+    let store = support::open_store(&directory);
     let download = store
         .download(&source(&server.url("waos")), &listed)
         .await
@@ -201,7 +199,7 @@ async fn a_download_unlike_its_listing_ends_in_an_error_and_installs_nothing() {
     )])
     .await;
     let directory = scratch.path().join("store");
-    let store = Store::open(&directory, SourceProxy::None).unwrap();
+    let store = support::open_store(&directory);
     let packages = packages(&directory);
     let error = install_from(&store, &packages, &source(&server.url("apps")), &listed)
         .await
@@ -219,7 +217,7 @@ async fn a_listing_of_a_development_id_is_refused_before_its_download() {
         id: "dev.example.triangle.development".parse().unwrap(),
         ..listing(&package, TRIANGLE, "1.0.0")
     };
-    let store = Store::open(&scratch.path().join("store"), SourceProxy::None).unwrap();
+    let store = support::open_store(&scratch.path().join("store"));
     // Nothing listens there: a download would fail otherwise.
     let nowhere = source("http://127.0.0.1:9/apps");
     let refused = store.download(&nowhere, &posing).await;

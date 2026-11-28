@@ -4,10 +4,12 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "The package sources the user added and their downloads, what the user lets each app use, each app's own folders and its activity, in a directory the app gives it."
+description = "The package sources the user added and their downloads, each app's own folders and its activity, in a directory the app gives it."
 
 [dependencies]
 waos-package.workspace = true
+# Whether each app's activity is recorded, which its settings say.
+waos-permissions.workspace = true
 # Reading a source's index and downloading its packages, through the system's proxy, an HTTP
 # proxy or a SOCKS one; and the URL a source is.
 reqwest = { workspace = true, features = ["system-proxy", "socks"] }
@@ -21,11 +23,11 @@ postcard.workspace = true
 toml.workspace = true
 # A file written whole.
 tempfile.workspace = true
-# What tells the engine that the user changed a program's settings, and a download's bytes as a
-# stream.
+# A download's bytes as a stream; a change of the settings, which the activity follows, waited
+# for.
 tokio.workspace = true
 futures.workspace = true
-# What the user lets a program use, which the store's settings answer as `ProgramGrants`.
+# An app's own folders, and what it did, as the engine names them.
 waos-capabilities.workspace = true
 # What could not be read, for whoever subscribes.
 tracing.workspace = true

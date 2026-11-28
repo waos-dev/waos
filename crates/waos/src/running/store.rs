@@ -118,7 +118,7 @@ async fn run_in_store(
         hold.wait().await;
     }
     let roles = roles::asked_for(&start.component, &start.engine);
-    roles::check(&roles, &access, start.prompts.as_ref(), &program).await?;
+    roles::check(&roles, &access).await?;
     let linker = linker(&start.engine, &roles)?;
     let (instances, user_side) = ProgramInstances::link(start, &linker, program, access, clock)?;
     let instances = Arc::new(instances);
@@ -301,11 +301,7 @@ fn store_data(
         program.sources().clone(),
         handed,
     );
-    let links = LinkSchemes::new(
-        access.clone(),
-        Arc::clone(&instances.prompts),
-        program.clone(),
-    );
+    let links = LinkSchemes::new(access.clone());
     let machines = ProgramMachines::new(
         environment.machines.clone(),
         access.clone(),
@@ -314,12 +310,7 @@ fn store_data(
     );
     let system_permissions =
         ProgramSystemPermissions::new(instances.system_permissions.clone(), program.clone());
-    let permissions = ProgramPermissions::new(
-        access.clone(),
-        Arc::clone(&instances.prompts),
-        system_permissions.clone(),
-        program.clone(),
-    );
+    let permissions = ProgramPermissions::new(access.clone(), system_permissions.clone());
     let recordings_shown = user_side.recordings_shown;
     let audio = ProgramAudio::new(
         user_side.audio,

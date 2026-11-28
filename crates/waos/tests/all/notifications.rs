@@ -1,5 +1,5 @@
-//! `examples/notifications` under the test shell, with grants of the test's own that keep the
-//! answer to the notifications question as an app keeps it: a post without the user's permission
+//! `examples/notifications` under the test shell, with the permissions WaOS hands an app, which
+//! keep the answer to the notifications question: a post without the user's permission
 //! is denied and asks nothing, and once the program has asked and its user allowed it, its posts
 //! are shown, a post of the same id replacing the one before, with a button and an action answered
 //! by typing, a reminder is scheduled at its time and a removal reaches the shell; with no grants,
@@ -15,9 +15,8 @@
 //! shell, which answers it `denied`; a system that keeps none and denies a post leaves the
 //! permission as the user set it, since the engine never reads a refusal from a post's answer.
 
-use std::future::pending;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, UNIX_EPOCH};
 
 use waos::bindings::wasdk::platform::notifications::Activation;
@@ -25,8 +24,9 @@ use waos::{
     Answer, EngineTime, FreezePolicy, ManualTime, NotificationAction, ProgramEnvironment,
     ProgramGrants, Question, RunningProgram, WaOS, WaOSConfig,
 };
-use waos_capabilities::{ChangedFuture, DomainRule, FileSystemGrant, NetworkGrant};
+use waos_capabilities::Setting;
 
+use crate::asking::{app, permissions_with};
 use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, wait_until, within};
 
 /// The engine's tick, at which a freeze takes.
@@ -37,12 +37,7 @@ fn a_post_is_denied_without_asking_until_the_user_allows_it_then_shown_scheduled
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let output = Arc::new(RecordedOutput::default());
-    let running = run(
-        &engine,
-        "notifications",
-        Arc::new(NotificationGrants::not_asked()),
-        &output,
-    );
+    let running = run(&engine, "notifications", not_asked(&shell), &output);
     output.wait_for("permission: not asked");
     output.wait_for("post greeting: denied");
     allow_when_asked(&shell);
@@ -133,7 +128,7 @@ fn a_system_with_a_permission_per_program_is_asked_after_waos_and_its_refusal_re
     shell.notifications.keep_permissions();
     shell.notifications.refuse(true);
     let output = Arc::new(RecordedOutput::default());
-    let grants = Arc::new(NotificationGrants::not_asked());
+    let grants = not_asked(&shell);
     let running = run(&engine, "notifications", Arc::clone(&grants), &output);
     output.wait_for("permission: not asked");
     output.wait_for("post greeting: denied");
@@ -177,7 +172,7 @@ fn a_system_that_refuses_the_program_reads_as_denied_and_the_users_answer_is_kep
     shell.notifications.keep_permissions();
     shell.notifications.refuse(true);
     let output = Arc::new(RecordedOutput::default());
-    let grants = Arc::new(NotificationGrants::granted());
+    let grants = granted(&shell);
     let running = run(&engine, "notifications", Arc::clone(&grants), &output);
     for line in [
         "permission: granted",
@@ -219,7 +214,7 @@ fn a_post_a_system_without_a_permission_per_program_denies_leaves_the_permission
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     shell.notifications.refuse(true);
     let output = Arc::new(RecordedOutput::default());
-    let grants = Arc::new(NotificationGrants::granted());
+    let grants = granted(&shell);
     let running = run(&engine, "notifications", Arc::clone(&grants), &output);
     for line in [
         "permission: granted",
@@ -252,12 +247,7 @@ fn a_click_made_before_the_program_listens_reaches_its_first_stream_and_later_on
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let output = Arc::new(RecordedOutput::default());
-    let running = run(
-        &engine,
-        "notifications",
-        Arc::new(NotificationGrants::not_asked()),
-        &output,
-    );
+    let running = run(&engine, "notifications", not_asked(&shell), &output);
     wait_until("the program asks, not listening yet", || {
         !shell.prompts.questions().is_empty()
     });
@@ -288,12 +278,7 @@ fn an_activation_unfreezes_a_frozen_program_until_it_has_read_it() {
     };
     let engine = WaOS::new(config, shell.shell(), shell.platform()).unwrap();
     let output = Arc::new(RecordedOutput::default());
-    let running = run(
-        &engine,
-        "notifications",
-        Arc::new(NotificationGrants::granted()),
-        &output,
-    );
+    let running = run(&engine, "notifications", granted(&shell), &output);
     output.wait_for("listening for activations");
 
     within(engine.suspend());
@@ -318,18 +303,8 @@ fn ids_are_each_programs_own() {
         Arc::new(RecordedOutput::default()),
         Arc::new(RecordedOutput::default()),
     );
-    let first = run(
-        &engine,
-        "first",
-        Arc::new(NotificationGrants::granted()),
-        &first_output,
-    );
-    let second = run(
-        &engine,
-        "second",
-        Arc::new(NotificationGrants::granted()),
-        &second_output,
-    );
+    let first = run(&engine, "first", granted(&shell), &first_output);
+    let second = run(&engine, "second", granted(&shell), &second_output);
     first_output.wait_for("listening for activations");
     second_output.wait_for("listening for activations");
 
@@ -359,12 +334,7 @@ fn a_shell_without_replies_or_scheduling_offers_neither() {
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     shell.notifications.without_replies_or_scheduling();
     let output = Arc::new(RecordedOutput::default());
-    let running = run(
-        &engine,
-        "notifications",
-        Arc::new(NotificationGrants::granted()),
-        &output,
-    );
+    let running = run(&engine, "notifications", granted(&shell), &output);
     output.wait_for("replies: none");
     output.wait_for("scheduling: none");
     output.wait_for("listening for activations");
@@ -379,12 +349,7 @@ fn a_shell_without_notifications_gives_the_program_none() {
     parts.notifications = None;
     let engine = WaOS::new(config(), parts, shell.platform()).unwrap();
     let output = Arc::new(RecordedOutput::default());
-    let running = run(
-        &engine,
-        "notifications",
-        Arc::new(NotificationGrants::granted()),
-        &output,
-    );
+    let running = run(&engine, "notifications", granted(&shell), &output);
     within(running.ended());
     assert_eq!(output.lines(), ["notifications: none"]);
 }
@@ -393,11 +358,11 @@ fn a_shell_without_notifications_gives_the_program_none() {
 fn run(
     engine: &WaOS,
     name: &str,
-    grants: Arc<NotificationGrants>,
+    grants: Arc<dyn ProgramGrants>,
     output: &Arc<RecordedOutput>,
 ) -> RunningProgram {
     let environment = ProgramEnvironment {
-        grants: Some(grants as Arc<dyn ProgramGrants>),
+        grants: Some(grants),
         ..printing_to(output)
     };
     let program = engine
@@ -415,7 +380,7 @@ fn allow_when_asked(shell: &TestShell) {
     wait_until("the program asks", || !shell.prompts.questions().is_empty());
     assert_eq!(
         shell.prompts.questions(),
-        [("notifications".to_owned(), Question::Notifications)]
+        [(app().to_string(), Question::Notifications)]
     );
     shell.prompts.answer_questions(Some(Answer::Granted));
 }
@@ -442,73 +407,16 @@ fn stop(running: &RunningProgram) {
     within(running.ended());
 }
 
-/// Grants that give nothing but notifications, as the user answered their question, kept as an
-/// app keeps it.
-struct NotificationGrants {
-    notifications: Mutex<Option<Answer>>,
+/// The grants of an app whose user, `shell`'s, has not answered the notifications question yet.
+fn not_asked(shell: &TestShell) -> Arc<dyn ProgramGrants> {
+    shell.permissions().of(&app())
 }
 
-impl NotificationGrants {
-    fn not_asked() -> NotificationGrants {
-        NotificationGrants {
-            notifications: Mutex::new(None),
-        }
-    }
-
-    fn granted() -> NotificationGrants {
-        NotificationGrants {
-            notifications: Mutex::new(Some(Answer::Granted)),
-        }
-    }
-}
-
-impl ProgramGrants for NotificationGrants {
-    fn network(&self) -> NetworkGrant {
-        NetworkGrant {
-            on: false,
-            domains: DomainRule::Any,
-        }
-    }
-
-    fn local_network(&self) -> bool {
-        false
-    }
-
-    fn clipboard_read(&self) -> bool {
-        false
-    }
-
-    fn clipboard_write(&self) -> bool {
-        false
-    }
-
-    fn file_system(&self) -> FileSystemGrant {
-        FileSystemGrant::default()
-    }
-
-    fn answer(&self, question: Question) -> Option<Answer> {
-        match question {
-            Question::Notifications => *self.notifications.lock().unwrap(),
-            Question::Camera | Question::Microphone => Some(Answer::Denied),
-        }
-    }
-
-    fn set_answer(&self, question: Question, answer: Answer) {
-        assert_eq!(
-            question,
-            Question::Notifications,
-            "the program asks only this"
-        );
-        *self.notifications.lock().unwrap() = Some(answer);
-    }
-
-    fn link_scheme_answer(&self, _scheme: &str) -> Option<Answer> {
-        Some(Answer::Denied)
-    }
-
-    fn set_link_scheme_answer(&self, _scheme: &str, _answer: Answer) {}
-
-    fn changed(&self) -> ChangedFuture {
-        Box::pin(pending())
-    }
+/// The grants of an app whose user allowed it notifications before.
+fn granted(shell: &TestShell) -> Arc<dyn ProgramGrants> {
+    let permissions = permissions_with(shell, |own| {
+        own.answers
+            .set(Question::Notifications, Setting::Own(Answer::Granted));
+    });
+    permissions.of(&app())
 }

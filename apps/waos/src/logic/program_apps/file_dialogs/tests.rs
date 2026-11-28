@@ -4,9 +4,7 @@ use std::sync::Arc;
 use futures::StreamExt;
 use futures::channel::mpsc::UnboundedReceiver;
 use waos::bindings::wasdk::platform::views::RequestId;
-use waos::{
-    EngineTime, NoPrompts, ProgramEnd, ProgramEnvironment, ProgramOutput, ShellFileDialogs,
-};
+use waos::{EngineTime, ProgramEnd, ProgramEnvironment, ProgramOutput, ShellFileDialogs};
 use waos_package::ProgramId;
 use waos_window_messages::{FileDialogId, FromWindow, ToWindow};
 
@@ -29,7 +27,7 @@ fn file_dialogs_id() -> ProgramId {
 /// File-dialogs, under its id, with no window, its dialogs opened through `reach`, as the engine
 /// opens a program's on macOS, what it prints going into `printed`.
 fn file_dialogs_through(reach: &Arc<AppReach>, printed: &Arc<Printed>) -> RunningProgram {
-    let mut shell = test_engine::shell(Arc::new(NoWindows), Arc::new(NoPrompts));
+    let mut shell = test_engine::shell(Arc::new(NoWindows));
     shell.file_dialogs = Some(Arc::clone(reach) as Arc<dyn ShellFileDialogs>);
     let engine = test_engine::engine_over(shell, EngineTime::Real);
     let file_dialogs = engine

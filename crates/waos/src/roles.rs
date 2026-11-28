@@ -1,7 +1,7 @@
 //! A program's roles: what it may be besides a program, asked for by importing a role's interfaces,
 //! and granted by its user by name. Before a program is linked, the roles its component asks for
-//! are read from its imports, and each is checked against the user's answer, asked at this start
-//! when there is none: a program the user did not grant a role it asks for does not start, and is
+//! are read from its imports, and each is checked against the user's answer, which its grants ask
+//! at this start when there is none: a program the user did not grant a role it asks for does not start, and is
 //! told so rather than wasmtime's missing import.
 //!
 //! The invariant: a role is read from what the component imports and nothing else, for an
@@ -15,9 +15,6 @@ use wasmtime::Engine;
 use wasmtime::component::Component;
 
 use crate::access::{ProgramAccess, Prompt};
-use crate::asking::ask_or_setting;
-use crate::running::RunningProgram;
-use crate::shell::Prompts;
 use waos_capabilities::{Answer, Role};
 
 /// The WIT package whose interfaces a program imports to ask for `role`.
@@ -50,27 +47,21 @@ fn imports_from(name: &str, package: &str) -> bool {
         .is_some_and(|rest| rest.starts_with('/'))
 }
 
-/// Checks that `program`'s user grants it each of `asked`, by the grants of its `access`, asking
-/// at once for a role it has no answer to, told as a question put through the access, and keeping
+/// Checks that the program's user grants it each of `asked`, by the grants of its `access`, which
+/// ask at once for a role it has no answer to, told as a question put through the access, and keep
 /// the answer; the first role not granted refuses the start. A program given no grants has
 /// nothing granted.
-pub(crate) async fn check(
-    asked: &[Role],
-    access: &ProgramAccess,
-    prompts: &dyn Prompts,
-    program: &RunningProgram,
-) -> Result<(), RoleNotGranted> {
+pub(crate) async fn check(asked: &[Role], access: &ProgramAccess) -> Result<(), RoleNotGranted> {
     for role in asked.iter().copied() {
         let not_granted = RoleNotGranted { role };
-        let answer = ask_or_setting(
-            access,
-            Prompt::Role(role),
-            move |grants| grants.role(role),
-            || prompts.ask_for_role(program, role),
-            move |grants, answer| grants.set_role(role, answer),
-        )
-        .await
-        .ok_or(not_granted)?;
+        let answer = match access.grants().role(role) {
+            Some(kept) => Some(kept),
+            None => {
+                let asking = access.grants().ask_for_role(role);
+                access.put_question(Prompt::Role(role), asking).await
+            }
+        };
+        let answer = answer.ok_or(not_granted)?;
         if answer != Answer::Granted {
             return Err(not_granted);
         }

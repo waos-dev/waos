@@ -34,8 +34,8 @@ use waos::bindings::wasdk::platform::views::{
 };
 use waos::bindings::wasdk::platform::windows::{Point, Rect, Size};
 use waos::{
-    HardwareBuffer, OnRefresh, PlacedView, PlacedWindow, Presence, ProgramView, Prompts,
-    RunningProgram, Screen, Shell, ShellCompositionLayer, ShellTextInput, ShellView, ShellWindow,
+    HardwareBuffer, OnRefresh, PlacedView, PlacedWindow, Presence, ProgramView, RunningProgram,
+    Screen, Shell, ShellCompositionLayer, ShellTextInput, ShellView, ShellWindow,
     ShellWindowSizeLimits, ViewPlacement, ViewRequest, VsyncWaiter, WeakProgramView, WindowConfig,
 };
 
@@ -89,14 +89,13 @@ impl HeadlessShell {
         self.views.display.screen()
     }
 
-    /// The engine's shell: this shell's placement and refreshes, asking its questions of
-    /// `prompts`, with every other part none, for its maker to plug in.
-    pub fn shell(&self, prompts: Arc<dyn Prompts>) -> Shell {
+    /// The engine's shell: this shell's placement and refreshes, with every other part none, for
+    /// its maker to plug in.
+    pub fn shell(&self) -> Shell {
         Shell {
             views: Arc::clone(&self.views) as Arc<dyn ViewPlacement>,
             vsync: Arc::clone(&self.refresher) as Arc<dyn VsyncWaiter>,
             compositor: None,
-            prompts,
             system_permissions: None,
             clipboard: Some(Arc::new(HeadlessClipboard::default())),
             menu_bar: None,

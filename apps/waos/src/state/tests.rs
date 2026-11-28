@@ -64,7 +64,7 @@ use crate::logic::test_installs;
 use crate::logic::vsync_waiter::WaftVsync;
 use crate::state::questions::{self, Questions};
 use crate::ui::every_window::{every_window, program_windows};
-use waos_store::{SourceProxy, Store};
+use waos_store::Store;
 
 /// The desktop's one screen, which every window is made on.
 const SCREEN: ScreenId = ScreenId(1);
@@ -77,6 +77,7 @@ struct Desktop {
     engine: Arc<WaOS>,
     clipboard: MockClipboard,
     store: Store,
+    permissions: waos_permissions::Permissions,
     view_windows: Entity<ViewWindows>,
     /// How many of the windows made the app has heard of, and which closed ones.
     reported_made: usize,
@@ -95,11 +96,15 @@ impl Desktop {
     fn with_tray(test: &str, tray: impl FnOnce(MockTrayIcons) -> MockTrayIcons) -> Desktop {
         let folder =
             std::env::temp_dir().join(format!("waos-desktop-{}-{test}", std::process::id()));
-        let store = Store::open(&folder.join("store"), SourceProxy::None).expect("a store");
-        let packages = test_installs::packages_never_run(&folder.join("store"), &store);
+        let crate::logic::app_services::Domains {
+            packages,
+            permissions,
+            store,
+        } = test_installs::domains_never_run(&folder.join("store"));
         let (placement, requests) =
             WindowsOnRequest::new(ProgramFaces::new(Arc::clone(&packages), None));
-        let (prompts, prompted) = PromptsOnRequest::new(crate::logic::asking_now::AskingNow::new());
+        // Nobody asks the user here; the questions are listened to as the app listens to them.
+        let (_prompts, prompted) = PromptsOnRequest::new(Arc::default());
         let config = WaOSConfig {
             freeze: FreezePolicy::default(),
             compiler: waos::Compiler::new(false).expect("a compiler"),
@@ -124,7 +129,6 @@ impl Desktop {
             compositor: Some(Arc::new(WaftCompositor::new(
                 Arc::clone(&platform.compositor) as Arc<dyn Compositor>,
             ))),
-            prompts: Arc::new(prompts),
             system_permissions: None,
             clipboard: Some(served.shell()),
             // A program's menu bar is its app's, never WaOS's own windows'.
@@ -179,6 +183,7 @@ impl Desktop {
             engine,
             clipboard,
             store,
+            permissions,
             view_windows,
             reported_made: 0,
             reported_closed: Vec::new(),
@@ -219,7 +224,7 @@ impl Desktop {
         let id: ProgramId = id.parse().expect("an id");
         let environment = ProgramEnvironment {
             output: Some(Arc::clone(output) as Arc<dyn ProgramOutput>),
-            grants: Some(self.store.grants(&id)),
+            grants: Some(self.permissions.of(&id)),
             folders: Some(self.store.folders(&id).expect("its folders")),
             ..ProgramEnvironment::default()
         };
@@ -1119,7 +1124,7 @@ fn a_programs_file_dialogs_go_through_wafts_and_their_picks_are_mounted() {
         &asked[2],
         AskedDialog::SaveFile(None, options) if options.suggested_name.as_deref() == Some("saved.txt")
     ));
-    let kept = desktop.store.grants(&id.parse().unwrap()).file_system();
+    let kept = desktop.permissions.of(&id.parse().unwrap()).file_system();
     assert!(
         kept.mounts
             .iter()

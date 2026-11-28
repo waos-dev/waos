@@ -72,6 +72,8 @@ symphonia.workspace = true
 waos-test-programs = { path = "tests/programs" }
 # The headless shell the engine's tests run programs on, its windowing parts.
 waos-headless.workspace = true
+# The permissions an app the tests run is handed, which ask the user as a test plays them.
+waos-permissions.workspace = true
 # This computer's fonts, which `examples/fonts` is given as an app gives them.
 waos-local.workspace = true
 # This computer as a machine, which `examples/machines` acts on, in a login environment the tests

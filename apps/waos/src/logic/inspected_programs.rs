@@ -21,6 +21,7 @@ use waos::inspection::ProgramStorage;
 use waos::inspection::bindings::wasdk::inspect::devices::{Program, ProgramChange, StartError};
 use waos_package::ProgramId;
 use waos_package_manager::{InstalledProgram, PackageManager};
+use waos_permissions::Permissions;
 use waos_store::Store;
 
 use super::held_starts::HeldStarts;
@@ -32,6 +33,7 @@ const THIS_COMPUTER: &str = "This computer";
 /// The programs on this computer, as an inspector sees them.
 pub(crate) struct ProgramsOnThisComputer {
     store: Store,
+    permissions: Permissions,
     packages: Arc<PackageManager>,
     runs: Arc<RunningApps>,
     /// The programs installed as the library last said, which a change is told against.
@@ -46,12 +48,14 @@ pub(crate) struct ProgramsOnThisComputer {
 impl ProgramsOnThisComputer {
     pub(crate) fn new(
         store: Store,
+        permissions: Permissions,
         packages: Arc<PackageManager>,
         runs: Arc<RunningApps>,
     ) -> ProgramsOnThisComputer {
         let installed = ids_of(&packages.installed());
         ProgramsOnThisComputer {
             store,
+            permissions,
             packages,
             runs,
             installed: Mutex::new(installed),
@@ -166,12 +170,14 @@ impl InspectedPrograms for ProgramsOnThisComputer {
         }
         // A program that does not run is known by the folder the store keeps of it, installed
         // or run in development before.
-        self.store.program_settings(&id).ok()?;
+        if !self.store.keeps_folders_of(&id) {
+            return None;
+        }
         let folders = self.store.folders(&id).ok();
         Some(ProgramStorage::of(
             folders,
             None,
-            Some(self.store.grants(&id)),
+            Some(self.permissions.of(&id)),
         ))
     }
 }
@@ -257,16 +263,19 @@ mod tests {
 
     use super::*;
     use crate::logic::opened_package::tests::write_package;
-    use crate::logic::placement::tests::store_in;
     use crate::logic::test_installs;
 
     #[tokio::test]
     async fn an_inspector_sees_each_program_installed_with_its_icon_and_hears_an_install() {
         let folder = tempfile::tempdir().unwrap();
-        let store = store_in(folder.path());
-        let packages = test_installs::packages_never_run(&folder.path().join("store"), &store);
+        let crate::logic::app_services::Domains {
+            packages,
+            permissions,
+            store,
+        } = test_installs::domains_never_run(&folder.path().join("store"));
         let programs = ProgramsOnThisComputer::new(
             store,
+            permissions,
             Arc::clone(&packages),
             Arc::new(RunningApps::default()),
         );
@@ -302,8 +311,11 @@ mod tests {
     #[tokio::test]
     async fn a_program_that_does_not_run_has_the_mounts_of_its_store_folder() {
         let folder = tempfile::tempdir().unwrap();
-        let store = store_in(folder.path());
-        let packages = test_installs::packages_never_run(&folder.path().join("store"), &store);
+        let crate::logic::app_services::Domains {
+            packages,
+            permissions,
+            store,
+        } = test_installs::domains_never_run(&folder.path().join("store"));
         let key = SigningKey::generate();
         let package = write_package(
             folder.path(),
@@ -318,8 +330,12 @@ mod tests {
         let folders = store.folders(&id).unwrap();
         std::fs::write(folders.data.join("a note.txt"), b"hi").unwrap();
 
-        let programs =
-            ProgramsOnThisComputer::new(store, packages, Arc::new(RunningApps::default()));
+        let programs = ProgramsOnThisComputer::new(
+            store,
+            permissions,
+            packages,
+            Arc::new(RunningApps::default()),
+        );
         let storage = programs.storage("dev.example.notes").expect("its storage");
         let mounts = storage.mounts();
         let data = mounts

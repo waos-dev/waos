@@ -24,7 +24,7 @@ use waft_cupertino::{CupertinoIcons, CupertinoNavigationBar, CupertinoSwitch};
 use waft_winui::{FluentSymbol, FontIcon};
 use waos::FileDialog;
 use waos_package::ProgramId;
-use waos_store::{Answer, DomainRule, GlobalSettings, NetworkGrant, Setting};
+use waos_permissions::{Answer, DomainRule, GlobalSettings, NetworkGrant, Setting};
 
 use super::home::fluent::FluentHome;
 use super::test_steps::{in_launcher, in_launcher_of, installs, on_phone, on_phone_of};
@@ -44,7 +44,7 @@ fn triangle() -> ProgramId {
 }
 
 fn global_network(desktop: &LibraryDesktop) -> NetworkGrant {
-    desktop.store.global_settings().unwrap().network
+    desktop.permissions.global_settings().unwrap().network
 }
 
 /// Opens the page of `permission`, which shows its default: the settings, Permissions, then the
@@ -297,7 +297,12 @@ fn what_a_list_gains_is_asked_for_in_a_dialog_and_listed_in_the_launcher() {
     let scratch = tempfile::tempdir().unwrap();
     let folder = scratch.path().display().to_string();
     answers_in_the_dialog(&mut desktop, view, words::ADD, &folder);
-    let mounts = desktop.store.global_settings().unwrap().file_system.mounts;
+    let mounts = desktop
+        .permissions
+        .global_settings()
+        .unwrap()
+        .file_system
+        .mounts;
     assert_eq!(mounts.len(), 1, "{:?}", desktop.labels());
     assert!(!desktop.shows(words::NO_FOLDERS), "{:?}", desktop.labels());
 }
@@ -417,7 +422,7 @@ fn a_programs_settings_follow_those_for_every_program_until_changed_in_the_launc
         desktop.labels()
     );
     pick(&mut desktop, view, words::ANY_DOMAIN, words::ONLY_DOMAINS);
-    let own = desktop.store.program_settings(&triangle()).unwrap();
+    let own = desktop.permissions.app_settings(&triangle()).unwrap();
     assert_eq!(
         own.network,
         Setting::Own(NetworkGrant {
@@ -432,7 +437,7 @@ fn a_programs_settings_follow_those_for_every_program_until_changed_in_the_launc
         "only this program's"
     );
     network_follows_the_default(&mut desktop, view);
-    let own = desktop.store.program_settings(&triangle()).unwrap();
+    let own = desktop.permissions.app_settings(&triangle()).unwrap();
     assert_eq!(own.network, Setting::Global);
     back(&mut desktop, view);
     assert_eq!(
@@ -451,8 +456,8 @@ fn a_programs_machines_are_shown_under_the_warning_and_taken_back_in_the_launche
         crate::logic::test_installs::EMPTY_COMPONENT,
     );
     desktop
-        .store
-        .grants(&triangle())
+        .permissions
+        .of(&triangle())
         .keep_machine("this-computer");
     open_settings_from_icon(&mut desktop, view, "Triangle");
     desktop.scroll_until_visible(view, "1 machine", words::PERMISSIONS, SCROLL_STEP);
@@ -462,7 +467,7 @@ fn a_programs_machines_are_shown_under_the_warning_and_taken_back_in_the_launche
         assert!(desktop.shows(shown), "{shown}: {:?}", desktop.labels());
     }
     desktop.tap(view, words::REMOVE);
-    let own = desktop.store.program_settings(&triangle()).unwrap();
+    let own = desktop.permissions.app_settings(&triangle()).unwrap();
     assert!(own.machines.is_empty(), "taken back");
     assert!(desktop.shows(words::NO_MACHINES), "{:?}", desktop.labels());
 }
@@ -473,7 +478,7 @@ fn a_programs_machines_are_shown_under_the_warning_and_taken_back_in_the_launche
 fn triangle_answered(desktop: &LibraryDesktop, folder: &std::path::Path) -> std::path::PathBuf {
     let model = folder.join("model.glb");
     std::fs::write(&model, "glTF").unwrap();
-    let changed = desktop.store.change_program_settings(&triangle(), |own| {
+    let changed = desktop.permissions.change_app_settings(&triangle(), |own| {
         own.answer_with.machine = Some("this-computer".to_owned());
         own.answer_with.audio_output = Some("unplugged speakers".to_owned());
         own.answer_with.open_file = Some(model.clone());
@@ -482,7 +487,7 @@ fn triangle_answered(desktop: &LibraryDesktop, folder: &std::path::Path) -> std:
         own.link_schemes
             .insert("zoommtg".to_owned(), Answer::Granted);
         own.roles
-            .insert(waos_store::Role::Inspector, Answer::Denied);
+            .insert(waos_permissions::Role::Inspector, Answer::Denied);
     });
     changed.unwrap();
     folder.join("out.pdf")
@@ -541,7 +546,7 @@ fn a_programs_file_pickers_ask_or_are_simulated_with_a_path_in_the_launcher() {
     simulates_saving(&mut desktop, view);
     let saved = save.display().to_string();
     answers_in_the_dialog(&mut desktop, view, words::SET, &saved);
-    let own = desktop.store.program_settings(&triangle()).unwrap();
+    let own = desktop.permissions.app_settings(&triangle()).unwrap();
     assert_eq!(
         own.answer_with.save_file.as_ref(),
         Some(&save),
@@ -551,7 +556,7 @@ fn a_programs_file_pickers_ask_or_are_simulated_with_a_path_in_the_launcher() {
     assert!(desktop.shows(&saved), "the path set shows");
 
     pick_last(&mut desktop, view, words::SIMULATED, words::ASK);
-    let own = desktop.store.program_settings(&triangle()).unwrap();
+    let own = desktop.permissions.app_settings(&triangle()).unwrap();
     assert_eq!(own.answer_with.save_file, None, "asked again");
     assert!(!desktop.shows(&saved) && !desktop.shows(words::NO_PATH));
 }
@@ -575,7 +580,7 @@ fn a_programs_sound_output_and_computer_show_as_set_and_change_in_the_launcher()
         assert!(desktop.shows(shown), "{shown}: {:?}", desktop.labels());
     }
     desktop.tap(view, words::ASK);
-    let own = desktop.store.program_settings(&triangle()).unwrap();
+    let own = desktop.permissions.app_settings(&triangle()).unwrap();
     assert_eq!(
         own.answer_with.audio_output, None,
         "the output is asked again"
@@ -587,7 +592,7 @@ fn a_programs_sound_output_and_computer_show_as_set_and_change_in_the_launcher()
         "{:?}",
         desktop.labels()
     );
-    let own = desktop.store.program_settings(&triangle()).unwrap();
+    let own = desktop.permissions.app_settings(&triangle()).unwrap();
     assert_eq!(own.answer_with.machine.as_deref(), Some("this-computer"));
 }
 
@@ -606,7 +611,7 @@ fn a_path_no_dialog_could_choose_is_refused_and_kept_out_of_the_settings() {
     let nowhere = scratch.path().join("missing").join("out.pdf");
     let typed = nowhere.display().to_string();
     answers_in_the_dialog(&mut desktop, view, words::SET, &typed);
-    let own = desktop.store.program_settings(&triangle()).unwrap();
+    let own = desktop.permissions.app_settings(&triangle()).unwrap();
     assert_eq!(own.answer_with.save_file, None);
     let problem = desktop.read(|library| library.problem().map(str::to_owned));
     assert!(
@@ -642,13 +647,13 @@ fn a_programs_sound_output_changes_on_the_phone() {
         "the output set is checked on its row: {mark:?}, {output:?}"
     );
     desktop.tap(view, words::ASK);
-    let own = desktop.store.program_settings(&triangle()).unwrap();
+    let own = desktop.permissions.app_settings(&triangle()).unwrap();
     assert_eq!(
         own.answer_with.audio_output, None,
         "the output is asked again"
     );
     desktop.tap(view, "Headphones");
-    let own = desktop.store.program_settings(&triangle()).unwrap();
+    let own = desktop.permissions.app_settings(&triangle()).unwrap();
     assert_eq!(own.answer_with.audio_output.as_deref(), Some("headphones"));
 }
 
@@ -667,7 +672,7 @@ fn a_programs_file_picker_is_simulated_with_a_path_on_the_phone() {
     desktop.tap(view, placeholder);
     desktop.type_text(view, &save.display().to_string());
     desktop.tap(view, words::SET);
-    let own = desktop.store.program_settings(&triangle()).unwrap();
+    let own = desktop.permissions.app_settings(&triangle()).unwrap();
     assert_eq!(own.answer_with.save_file.as_ref(), Some(&save));
 }
 
@@ -686,7 +691,7 @@ fn a_programs_answer_to_a_link_scheme_shows_and_is_forgotten_in_the_launcher() {
     let link = words::link_scheme("zoommtg", Answer::Granted);
     desktop.scroll_until_visible(view, &link, words::LINKS_DETAIL, SCROLL_STEP);
     desktop.tap_beside::<waft_winui::Button>(view, &link);
-    let own = desktop.store.program_settings(&triangle()).unwrap();
+    let own = desktop.permissions.app_settings(&triangle()).unwrap();
     assert!(own.link_schemes.is_empty(), "asked again at its next link");
 }
 
@@ -702,10 +707,10 @@ fn a_programs_answer_to_a_role_shows_and_is_forgotten_in_the_launcher() {
     let scratch = tempfile::tempdir().unwrap();
     triangle_answered(&desktop, scratch.path());
     open_app_detail(&mut desktop, view, "Triangle", AppDetail::Roles);
-    let role = words::role(waos_store::Role::Inspector, Answer::Denied);
+    let role = words::role(waos_permissions::Role::Inspector, Answer::Denied);
     desktop.scroll_until_visible(view, &role, words::ROLES_DETAIL, SCROLL_STEP);
     desktop.tap_beside::<waft_winui::Button>(view, &role);
-    let own = desktop.store.program_settings(&triangle()).unwrap();
+    let own = desktop.permissions.app_settings(&triangle()).unwrap();
     assert!(own.roles.is_empty(), "asked again at its next start");
 }
 
@@ -714,7 +719,7 @@ fn the_camera_is_simulated_for_every_program_in_the_launcher() {
     let (mut desktop, view) = in_launcher();
     open_permission(&mut desktop, view, Permission::Camera);
     pick(&mut desktop, view, words::ASK, words::SIMULATED);
-    let global = desktop.store.global_settings().unwrap();
+    let global = desktop.permissions.global_settings().unwrap();
     assert_eq!(global.answers.camera, Some(Answer::Simulated));
     let detail = if crate::state::SIMULATED_CAMERA {
         words::SIMULATED_CAMERA_DETAIL
@@ -733,9 +738,9 @@ fn a_programs_simulated_microphone_records_what_its_page_picks_in_the_launcher_a
             "Triangle",
             crate::logic::test_installs::EMPTY_COMPONENT,
         );
-        let simulated = desktop.store.change_program_settings(&triangle(), |own| {
+        let simulated = desktop.permissions.change_app_settings(&triangle(), |own| {
             own.answers.set(
-                waos_store::Question::Microphone,
+                waos_permissions::Question::Microphone,
                 Setting::Own(Answer::Simulated),
             );
         });
@@ -753,7 +758,7 @@ fn a_programs_simulated_microphone_records_what_its_page_picks_in_the_launcher_a
             desktop.labels()
         );
         pick(&mut desktop, view, &records, words::SILENCE);
-        let own = desktop.store.program_settings(&triangle()).unwrap();
+        let own = desktop.permissions.app_settings(&triangle()).unwrap();
         assert_eq!(
             own.simulated_microphone,
             Setting::Own(waos::SimulatedSound::Silence)
@@ -811,8 +816,8 @@ fn a_program_asking_for_its_network_opens_its_page_and_hears_when_the_user_leave
         library.change_settings(
             &SettingsOf::Global,
             SettingChange::Answer(
-                waos_store::Question::Notifications,
-                Some(waos_store::Answer::Granted),
+                waos_permissions::Question::Notifications,
+                Some(waos_permissions::Answer::Granted),
             ),
             cx,
         );
@@ -879,7 +884,7 @@ fn a_programs_settings_change_on_the_phone_and_follow_again() {
         desktop.labels()
     );
     desktop.tap(view, words::ANY_DOMAIN_BUT);
-    let own = desktop.store.program_settings(&triangle()).unwrap();
+    let own = desktop.permissions.app_settings(&triangle()).unwrap();
     assert_eq!(
         own.network,
         Setting::Own(NetworkGrant {
@@ -888,7 +893,7 @@ fn a_programs_settings_change_on_the_phone_and_follow_again() {
         })
     );
     desktop.tap(view, words::USE_GLOBAL);
-    let own = desktop.store.program_settings(&triangle()).unwrap();
+    let own = desktop.permissions.app_settings(&triangle()).unwrap();
     assert_eq!(own.network, Setting::Global);
 }
 
@@ -945,7 +950,7 @@ fn each_setting_that_is_on_or_off_is_a_switch_on_a_row_naming_it_on_the_phone() 
     );
     for (permission, name, value) in on_off_settings() {
         go_to_permission(&mut desktop, view, permission);
-        let global = desktop.store.global_settings().unwrap();
+        let global = desktop.permissions.global_settings().unwrap();
         assert_eq!(switch_shows(&desktop, name), value(&global), "{name}");
         let switch = desktop.bounds_beside::<CupertinoSwitch>(name).unwrap();
         assert!(
@@ -962,7 +967,7 @@ fn a_tap_on_a_switch_or_on_its_row_changes_the_setting_on_the_phone() {
     let (mut desktop, view) = on_phone();
     open_permission(&mut desktop, view, Permission::LocalNetwork);
     let local_network =
-        |desktop: &LibraryDesktop| desktop.store.global_settings().unwrap().local_network;
+        |desktop: &LibraryDesktop| desktop.permissions.global_settings().unwrap().local_network;
     let before = local_network(&desktop);
     desktop.tap_beside::<CupertinoSwitch>(view, words::LOCAL_NETWORK);
     assert_eq!(local_network(&desktop), !before, "the switch's tap");
@@ -1037,7 +1042,7 @@ fn a_programs_record_turned_off_removes_what_was_kept_of_it_on_the_phone() {
         "on, as for every program"
     );
     desktop.tap_beside::<CupertinoSwitch>(view, words::RECORD);
-    let own = desktop.store.program_settings(&triangle()).unwrap();
+    let own = desktop.permissions.app_settings(&triangle()).unwrap();
     assert_eq!(own.record, Setting::Own(false));
     assert!(
         desktop.store.days(triangle().as_str()).is_empty(),
@@ -1055,7 +1060,7 @@ fn a_programs_switch_says_it_follows_the_setting_for_every_program_on_the_phone(
         crate::logic::test_installs::EMPTY_COMPONENT,
     );
     open_app_permission(&mut desktop, view, "Triangle", Permission::Network);
-    let global = desktop.store.global_settings().unwrap();
+    let global = desktop.permissions.global_settings().unwrap();
     assert_eq!(switch_shows(&desktop, words::NETWORK), global.network.on);
     assert!(
         desktop.shows(words::FOLLOWS_GLOBAL),
@@ -1065,7 +1070,7 @@ fn a_programs_switch_says_it_follows_the_setting_for_every_program_on_the_phone(
     assert!(!desktop.shows(words::USE_GLOBAL));
 
     desktop.tap(view, words::NETWORK);
-    let own = desktop.store.program_settings(&triangle()).unwrap();
+    let own = desktop.permissions.app_settings(&triangle()).unwrap();
     assert_eq!(
         own.network,
         Setting::Own(NetworkGrant {
@@ -1077,13 +1082,13 @@ fn a_programs_switch_says_it_follows_the_setting_for_every_program_on_the_phone(
     assert_eq!(switch_shows(&desktop, words::NETWORK), !global.network.on);
     assert!(desktop.shows(words::USE_GLOBAL), "{:?}", desktop.labels());
     assert_eq!(
-        desktop.store.global_settings().unwrap().network.on,
+        desktop.permissions.global_settings().unwrap().network.on,
         global.network.on,
         "only this program's"
     );
 
     desktop.tap(view, words::USE_GLOBAL);
-    let own = desktop.store.program_settings(&triangle()).unwrap();
+    let own = desktop.permissions.app_settings(&triangle()).unwrap();
     assert_eq!(own.network, Setting::Global);
     assert_eq!(switch_shows(&desktop, words::NETWORK), global.network.on);
 }
@@ -1188,9 +1193,9 @@ mod system_refusals {
             opens_system_settings(&mut desktop, view),
             [Opened::Link(link)]
         );
-        let own = desktop.store.program_settings(&triangle()).unwrap();
+        let own = desktop.permissions.app_settings(&triangle()).unwrap();
         assert_eq!(
-            own.answers.get(waos_store::Question::Notifications),
+            own.answers.get(waos_permissions::Question::Notifications),
             &Setting::Global,
             "WaOS's own answer is as the user left it"
         );
@@ -1217,7 +1222,7 @@ mod system_refusals {
         desktop.scroll_until_visible(
             view,
             words::OPEN_SYSTEM_SETTINGS,
-            words::question_name(waos_store::Question::Notifications),
+            words::question_name(waos_permissions::Question::Notifications),
             SCROLL_STEP,
         );
         assert!(

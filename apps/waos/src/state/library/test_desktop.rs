@@ -39,7 +39,7 @@ use waft_test::{
 };
 use waft_winui::install_icon_font;
 use waos_package::{Category, Manifest, SigningKey};
-use waos_store::{SourceProxy, Store};
+use waos_store::Store;
 
 use super::{Library, ProgramsOpen, open_library, open_settings_when_asked, show_phone_files};
 use crate::logic::app_services::AppServices;
@@ -85,6 +85,8 @@ pub(crate) struct LibraryDesktop {
     platform: Rc<LibraryPlatform>,
     pub(crate) library: Entity<Library>,
     pub(crate) store: Store,
+    /// What the user lets each app use.
+    pub(crate) permissions: waos_permissions::Permissions,
     pub(crate) runs: Arc<RunningApps>,
     /// What the engine asks the user through, for a test to ask as a program does.
     pub(crate) prompts: Arc<PromptsOnRequest>,
@@ -163,31 +165,37 @@ impl LibraryDesktop {
             .then(|| PreferencesFile::at(folder.path().join("preferences.toml")));
         let copies = PackageCopies::clear(folder.path().join("package-copies")).unwrap();
         let runs = Arc::new(RunningApps::default());
-        let store = Store::open(&folder.path().join("store"), SourceProxy::None).expect("a store");
-        let packages =
-            crate::logic::test_installs::packages(&folder.path().join("store"), &store, &runs);
+        let (prompts, prompted) = PromptsOnRequest::new(Arc::clone(&runs));
+        let prompts = Arc::new(prompts);
+        let crate::logic::app_services::Domains {
+            packages,
+            permissions,
+            store,
+        } = crate::logic::test_installs::domains(
+            &folder.path().join("store"),
+            &runs,
+            Arc::clone(&prompts) as Arc<dyn waos_permissions::Prompts>,
+        );
         let (placement, requests) =
             WindowsOnRequest::new(ProgramFaces::new(Arc::clone(&packages), None));
-        let (prompts, prompted) = PromptsOnRequest::new(crate::logic::asking_now::AskingNow::new());
-        let output_picker = Arc::new(prompts.output_picker());
+        let asking = crate::logic::asking_now::AskingNow::new(permissions.asking());
+        let output_picker = Arc::new(prompts.output_picker(Arc::clone(&asking)));
         let (phone_files_on_request, phone_files_followed) = (kind.phone_files.as_ref())
             .map(|access| phone_files_on_request(access.as_ref(), prompts.phone_files_off()))
             .unzip();
-        let machine_picker = Arc::new(prompts.machine_picker(phone_files_on_request.clone()));
+        let machine_picker =
+            Arc::new(prompts.machine_picker(asking, phone_files_on_request.clone()));
         let (recording_indicator, recording_changes) = RecordingIndicatorOnRequest::new();
-        let prompts = Arc::new(prompts);
-        let engine = test_engine::engine_keeping_days(
-            Arc::new(placement),
-            Arc::clone(&prompts) as Arc<dyn waos::Prompts>,
-            Arc::new(store.clone()),
-        );
+        let engine = test_engine::engine_keeping_days(Arc::new(placement), Arc::new(store.clone()));
         let services = AppServices::new(
             Arc::clone(&runs),
             Arc::clone(&packages),
+            permissions.clone(),
             Arc::new(engine),
             ProgramEnvironments::with_audio(
                 waos_local::LocalCapabilities::new(),
                 Some(Arc::new(StatedOutputs)),
+                permissions.clone(),
                 store.clone(),
             ),
             ProgramPlaces::new(ProgramPlace::Windows),
@@ -243,6 +251,7 @@ impl LibraryDesktop {
             platform,
             library,
             store: kept_store,
+            permissions,
             runs,
             prompts,
             output_picker,

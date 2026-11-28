@@ -35,7 +35,7 @@ use waft_cupertino::{
 use waos::{FileDialog, SimulatedSound};
 use waos_activity::Activity;
 use waos_package::ProgramId;
-use waos_store::{Answer, DomainRule, FileSystemGrant, NetworkGrant, Question, Role};
+use waos_permissions::{Answer, DomainRule, FileSystemGrant, NetworkGrant, Question, Role};
 
 use super::cupertino_root::{
     ICON_SIDE, PERMISSION_ICON_SIDE, detail_icon, footnote, link_row, permission_icon,

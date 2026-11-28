@@ -1,5 +1,5 @@
-//! `examples/opener` under the test shell, with grants of the test's own that keep the user's
-//! answers to link schemes and the files picked, as an app keeps them: a web link opens without
+//! `examples/opener` under the test shell, with the permissions WaOS hands an app, which keep the
+//! user's answers to link schemes and the files picked: a web link opens without
 //! asking; a link of another scheme asks its user once, opens as the user allowed and is refused
 //! with `denied` as the user refused, without asking again; a link no app opens fails with
 //! `no-app`, and text that is no link fails; a file opens, and is shown, where it is on the
@@ -12,21 +12,17 @@
 //! unfreezes a frozen program until it has read it, on time the test moves (`EngineTime::Manual`),
 //! the program frozen again once it reads on (`RunningProgram::frozen`).
 
-use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::sync::Notify;
 use waos::{
     Answer, EngineTime, FreezePolicy, ManualTime, OpenRequest, ProgramEnd, ProgramEnvironment,
-    ProgramGrants, Question, RunningProgram, WaOS, WaOSConfig,
+    RunningProgram, WaOS, WaOSConfig,
 };
-use waos_capabilities::{
-    ChangedFuture, DomainRule, FileSystemGrant, Mount, NetworkGrant, ProgramFolders,
-};
+use waos_capabilities::{Mount, ProgramFolders, Setting};
+use waos_permissions::{Permissions, ProgramId};
 
 use crate::test_shell::opener::Opened;
 use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, wait_until, within};
@@ -41,10 +37,11 @@ fn links_open_as_their_schemes_allow_and_files_where_they_are_on_the_machine() {
     shell.opener.without_app_for("nothing-opens:this");
     let scratch = tempfile::tempdir().unwrap();
     let own = own_folders(scratch.path());
-    let grants = Arc::new(LinkGrants::default());
+    let permissions = shell.permissions();
+    let grants = permissions.of(&app());
     let output = Arc::new(RecordedOutput::default());
     let environment = ProgramEnvironment {
-        grants: Some(Arc::clone(&grants) as Arc<dyn ProgramGrants>),
+        grants: Some(Arc::clone(&grants)),
         folders: Some(own.clone()),
         ..printing_to(&output)
     };
@@ -167,9 +164,9 @@ fn a_request_made_before_the_program_listens_is_heard_once_it_does_its_files_mou
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let scratch = tempfile::tempdir().unwrap();
-    let grants = Arc::new(LinkGrants::default());
+    let permissions = shell.permissions();
     let output = Arc::new(RecordedOutput::default());
-    let (running, _own) = run(&engine, scratch.path(), &grants, &output);
+    let (running, _own) = run(&engine, scratch.path(), &permissions, &output);
     let notes = fs::canonicalize(scratch.path()).unwrap().join("notes.md");
     fs::write(&notes, "my notes").unwrap();
 
@@ -188,8 +185,12 @@ fn a_request_made_before_the_program_listens_is_heard_once_it_does_its_files_mou
     output.wait_for(&format!("opened file {shown} written to: yes"));
     output.wait_for("opened link: notes://today");
     assert_eq!(fs::read_to_string(&notes).unwrap(), "my notes, seen");
+    let own = permissions.app_settings(&app()).unwrap().file_system;
+    let Setting::Own(own) = own else {
+        panic!("the pick is kept among its own mounts: {own:?}");
+    };
     assert_eq!(
-        grants.picked(),
+        own.mounts,
         [Mount {
             host: notes.clone(),
             at: named,
@@ -213,9 +214,15 @@ fn an_open_request_unfreezes_a_frozen_program_until_it_has_read_it() {
     };
     let engine = WaOS::new(config, shell.shell(), shell.platform()).unwrap();
     let scratch = tempfile::tempdir().unwrap();
-    let grants = Arc::new(LinkGrants::answered());
+    let permissions = shell.permissions();
+    let answered = permissions.change_app_settings(&app(), |own| {
+        for (scheme, answer) in SCHEMES {
+            own.link_schemes.insert(scheme.to_owned(), answer);
+        }
+    });
+    answered.unwrap();
     let output = Arc::new(RecordedOutput::default());
-    let (running, _own) = run(&engine, scratch.path(), &grants, &output);
+    let (running, _own) = run(&engine, scratch.path(), &permissions, &output);
     output.wait_for("listening for open requests");
 
     within(engine.suspend());
@@ -235,49 +242,17 @@ fn an_open_request_unfreezes_a_frozen_program_until_it_has_read_it() {
     within(running.ended());
 }
 
-#[test]
-fn a_waiting_link_scheme_question_is_answered_by_setting_its_row_and_drops_its_prompt() {
-    let shell = TestShell::new();
-    let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
-    let scratch = tempfile::tempdir().unwrap();
-    let grants = Arc::new(LinkGrants::default());
-    let output = Arc::new(RecordedOutput::default());
-    let (running, _own) = run(&engine, scratch.path(), &grants, &output);
-
-    wait_until("the program asks about zoommtg", || {
-        !shell.prompts.link_schemes_asked().is_empty()
-    });
-    assert!(!shell.prompts.link_scheme_cancelled(0));
-
-    // An unrelated scheme's answer set leaves the question waiting, once the engine has read
-    // the waiting scheme's answer again.
-    let reads = grants.answer_reads();
-    grants.set_link_scheme_answer("tel", Answer::Denied);
-    wait_until("zoommtg's answer is read again", || {
-        grants.answer_reads() > reads
-    });
-    assert!(!shell.prompts.link_scheme_cancelled(0));
-
-    grants.set_link_scheme_answer("zoommtg", Answer::Granted);
-    wait_until("the link scheme prompt future is dropped", || {
-        shell.prompts.link_scheme_cancelled(0)
-    });
-    output.wait_for("open zoommtg://zoom.us/join: ok");
-    running.stop();
-    within(running.ended());
-}
-
-/// Runs `examples/opener` with its own folders beneath `scratch`, `grants` and its output into
-/// `output`.
+/// Runs `examples/opener` with its own folders beneath `scratch`, `permissions` and its output
+/// into `output`.
 fn run(
     engine: &WaOS,
     scratch: &Path,
-    grants: &Arc<LinkGrants>,
+    permissions: &Permissions,
     output: &Arc<RecordedOutput>,
 ) -> (RunningProgram, ProgramFolders) {
     let own = own_folders(scratch);
     let environment = ProgramEnvironment {
-        grants: Some(Arc::clone(grants) as Arc<dyn ProgramGrants>),
+        grants: Some(permissions.of(&app())),
         folders: Some(own.clone()),
         ..printing_to(output)
     };
@@ -305,7 +280,7 @@ fn answer_scheme(shell: &TestShell, before: usize, scheme: &str, answer: Answer)
         shell.prompts.link_schemes_asked().len() > before
     });
     let asked = shell.prompts.link_schemes_asked();
-    assert_eq!(asked[before], ("opener".to_owned(), scheme.to_owned()));
+    assert_eq!(asked[before], (app().to_string(), scheme.to_owned()));
     shell.prompts.answer_link_schemes(Some(answer));
 }
 
@@ -327,85 +302,7 @@ const SCHEMES: [(&str, Answer); 3] = [
     ("nothing-opens", Answer::Granted),
 ];
 
-/// Grants that give nothing and keep the user's answers to link schemes and the files picked, as
-/// an app keeps them.
-#[derive(Default)]
-struct LinkGrants {
-    schemes: Mutex<HashMap<String, Answer>>,
-    /// How many times a scheme's answer was read.
-    answer_reads: AtomicUsize,
-    picked: Mutex<Vec<Mount>>,
-    changed: Arc<Notify>,
-}
-
-impl LinkGrants {
-    /// Grants with every scheme of [`SCHEMES`] answered already.
-    fn answered() -> LinkGrants {
-        let grants = LinkGrants::default();
-        for (scheme, answer) in SCHEMES {
-            grants.set_link_scheme_answer(scheme, answer);
-        }
-        grants
-    }
-
-    fn answer_reads(&self) -> usize {
-        self.answer_reads.load(Ordering::SeqCst)
-    }
-
-    /// Each file picked, as it was kept.
-    fn picked(&self) -> Vec<Mount> {
-        self.picked.lock().unwrap().clone()
-    }
-}
-
-impl ProgramGrants for LinkGrants {
-    fn network(&self) -> NetworkGrant {
-        NetworkGrant {
-            on: false,
-            domains: DomainRule::Any,
-        }
-    }
-
-    fn local_network(&self) -> bool {
-        false
-    }
-
-    fn clipboard_read(&self) -> bool {
-        false
-    }
-
-    fn clipboard_write(&self) -> bool {
-        false
-    }
-
-    fn file_system(&self) -> FileSystemGrant {
-        FileSystemGrant::default()
-    }
-
-    fn answer(&self, _question: Question) -> Option<Answer> {
-        Some(Answer::Denied)
-    }
-
-    fn set_answer(&self, _question: Question, _answer: Answer) {}
-
-    fn link_scheme_answer(&self, scheme: &str) -> Option<Answer> {
-        self.answer_reads.fetch_add(1, Ordering::SeqCst);
-        self.schemes.lock().unwrap().get(scheme).copied()
-    }
-
-    fn set_link_scheme_answer(&self, scheme: &str, answer: Answer) {
-        self.schemes
-            .lock()
-            .unwrap()
-            .insert(scheme.to_owned(), answer);
-        self.changed.notify_waiters();
-    }
-
-    fn keep_picked(&self, mount: Mount) {
-        self.picked.lock().unwrap().push(mount);
-    }
-
-    fn changed(&self) -> ChangedFuture {
-        Box::pin(Arc::clone(&self.changed).notified_owned())
-    }
+/// The id the program runs as, which its permissions are kept by.
+fn app() -> ProgramId {
+    "dev.waos.test.opener".parse().unwrap()
 }

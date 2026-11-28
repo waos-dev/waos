@@ -58,8 +58,9 @@ pub use audit::{
     MachineCommand, MountKind, NamedUses, Overflow, Uses,
 };
 pub use grants::{
-    Answer, ChangedFuture, Domain, DomainError, DomainRule, FileDialog, FileSystemGrant, Mount,
-    NetworkGrant, ProgramGrants, Question, Role, Setting, SimulatedSound, Switch,
+    Answer, AnswerFuture, ChangedFuture, Domain, DomainError, DomainRule, FileDialog,
+    FileSystemGrant, Mount, NetworkGrant, ProgramGrants, Question, Role, Setting,
+    SettingsClosedFuture, SimulatedSound, Switch,
 };
 pub use machines::{
     Architecture, Child, ChildInput, Command, ExecError, ExitStatus, InTerminal, Machine,

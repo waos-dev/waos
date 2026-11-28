@@ -11,15 +11,14 @@
 
 use std::sync::Arc;
 
-use tokio::sync::broadcast::{self, error::RecvError};
+use tokio::sync::broadcast::error::RecvError;
 use waos::Watching;
 use waos_dev_protocol::{
-    Asked, Refusal, RefusalKind, Request, RunEvent, ServerConnection, ServerReadHalf,
-    ServerWriteHalf,
+    Refusal, RefusalKind, Request, RunEvent, ServerConnection, ServerReadHalf, ServerWriteHalf,
 };
 use waos_package::ProgramId;
 
-use super::asking_now::AskingNow;
+use super::asking_now::{AskingNow, Told};
 use super::dev_refusal;
 use super::launch_outputs::{Frames, LaunchOutput, LaunchOutputs};
 use super::running_apps::RunningApps;
@@ -100,13 +99,9 @@ async fn send_frames(mut writing: ServerWriteHalf, frames: Arc<Frames>) {
 
 /// Queues what WaOS asks the program `id`'s user as each is asked, from `told`; never resolves
 /// while WaOS runs.
-async fn tell_asking(
-    mut told: broadcast::Receiver<(String, Asked)>,
-    id: &ProgramId,
-    frames: &Frames,
-) {
+async fn tell_asking(mut told: Told, id: &ProgramId, frames: &Frames) {
     loop {
-        match told.recv().await {
+        match told.next().await {
             Ok((name, asked)) if name == id.as_str() => frames.push(RunEvent::Asking(asked)),
             Ok(_) => {}
             Err(RecvError::Lagged(missed)) => {

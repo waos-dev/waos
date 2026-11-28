@@ -1,22 +1,22 @@
-//! `examples/permissions` under the test shell, with grants of the test's own that the test
-//! changes as the user would: the program reads where each permission stands, puts the question
+//! `examples/permissions` under the test shell, with the permissions WaOS hands an app, which the
+//! test changes as the user would: the program reads where each permission stands, puts the question
 //! about notifications to its user once however often it asks, keeps the answer, opens its
 //! network page and reads the switch the user turned off there once the user leaves it, and
 //! hears each change its user makes. Where the system keeps a permission of its own for the
 //! program's notifications and denies it, asking reads denied and the program's stream of changes
-//! hears it, the user's answer kept. With no grants, nothing is granted and no question is put.
+//! hears it, the user's answer kept. With no grants, nothing is granted, no question is put and no
+//! page opens.
 
 use std::path::Path;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
-use tokio::sync::Notify;
-use waos::{Answer, ProgramEnd, ProgramEnvironment, ProgramGrants, Question, Switch, WaOS};
-use waos_capabilities::{ChangedFuture, DomainRule, FileSystemGrant, NetworkGrant};
+use waos::{Answer, ProgramEnd, ProgramEnvironment, Question, Switch, WaOS};
+use waos_capabilities::{DomainRule, NetworkGrant, Setting};
+use waos_permissions::{Permissions, ProgramId};
 
 use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, wait_until, within};
 
-/// What the program prints first: where each permission stands under [`TestGrants::new`].
+/// What the program prints first: where each permission stands at WaOS's defaults.
 const FIRST_STATES: [&str; 7] = [
     "network: granted",
     "local-network: denied",
@@ -37,10 +37,11 @@ fn a_program_reads_its_permissions_asks_once_and_hears_each_change() {
             &waos_test_programs::code_of(waos_test_programs::PERMISSIONS),
         )
         .unwrap();
-    let grants = Arc::new(TestGrants::new());
+    let permissions = shell.permissions();
+    let grants = permissions.of(&app());
     let output = Arc::new(RecordedOutput::default());
     let environment = ProgramEnvironment {
-        grants: Some(Arc::clone(&grants) as Arc<dyn ProgramGrants>),
+        grants: Some(Arc::clone(&grants)),
         ..printing_to(&output)
     };
     let running = engine.run(&program, environment).unwrap();
@@ -65,7 +66,7 @@ fn a_program_reads_its_permissions_asks_once_and_hears_each_change() {
     });
     assert_eq!(
         shell.prompts.questions(),
-        [("permissions".to_owned(), Question::Notifications)],
+        [(app().to_string(), Question::Notifications)],
         "put once, though asked twice"
     );
     assert_eq!(
@@ -79,9 +80,9 @@ fn a_program_reads_its_permissions_asks_once_and_hears_each_change() {
     });
     assert_eq!(
         shell.prompts.settings_opened(),
-        [("permissions".to_owned(), Switch::Network)]
+        [(app().to_string(), Switch::Network)]
     );
-    grants.set_network(false);
+    set_network(&permissions, false);
     output.wait_for("network changed: denied");
     assert!(
         !output.has("network after its settings: denied"),
@@ -90,7 +91,10 @@ fn a_program_reads_its_permissions_asks_once_and_hears_each_change() {
     shell.prompts.leave_settings();
     output.wait_for("network after its settings: denied");
 
-    grants.set_clipboard_write(false);
+    let changed = permissions.change_app_settings(&app(), |own| {
+        own.clipboard_write = Setting::Own(false);
+    });
+    changed.unwrap();
     output.wait_for("clipboard-write changed: denied");
     let end = within(running.ended());
     assert!(matches!(end, ProgramEnd::Returned(Ok(()))), "{end:?}");
@@ -108,10 +112,11 @@ fn notifications_the_user_allowed_read_denied_once_the_system_asked_after_denies
             &waos_test_programs::code_of(waos_test_programs::PERMISSIONS),
         )
         .unwrap();
-    let grants = Arc::new(TestGrants::new());
+    let permissions = shell.permissions();
+    let grants = permissions.of(&app());
     let output = Arc::new(RecordedOutput::default());
     let environment = ProgramEnvironment {
-        grants: Some(Arc::clone(&grants) as Arc<dyn ProgramGrants>),
+        grants: Some(Arc::clone(&grants)),
         ..printing_to(&output)
     };
     let running = engine.run(&program, environment).unwrap();
@@ -164,73 +169,13 @@ fn a_program_given_no_grants_is_granted_nothing_and_asks_nobody() {
         output.wait_for(&format!("{name}: denied"));
     }
     output.wait_for("notifications asked: denied");
-    wait_until("the network page opens", || {
-        !shell.prompts.settings_opened().is_empty()
-    });
-    shell.prompts.leave_settings();
     output.wait_for("network after its settings: denied");
     assert!(
-        shell.prompts.questions().is_empty(),
-        "nothing to ask: nothing can be granted"
+        shell.prompts.questions().is_empty() && shell.prompts.settings_opened().is_empty(),
+        "nothing to ask and no page to open: nothing keeps its settings"
     );
     running.stop();
     within(running.ended());
-}
-
-#[test]
-fn a_waiting_permission_question_is_answered_by_setting_its_row_and_drops_its_prompt() {
-    for (set_to, expected_line) in [
-        (Answer::Granted, "notifications asked: granted"),
-        (Answer::Denied, "notifications asked: denied"),
-    ] {
-        let shell = TestShell::new();
-        let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
-        let program = engine
-            .load(
-                Path::new(waos_test_programs::PERMISSIONS),
-                &waos_test_programs::code_of(waos_test_programs::PERMISSIONS),
-            )
-            .unwrap();
-        let grants = Arc::new(TestGrants::new());
-        let output = Arc::new(RecordedOutput::default());
-        let environment = ProgramEnvironment {
-            grants: Some(Arc::clone(&grants) as Arc<dyn ProgramGrants>),
-            ..printing_to(&output)
-        };
-        let running = engine.run(&program, environment).unwrap();
-        wait_until("the question is put", || {
-            !shell.prompts.questions().is_empty()
-        });
-        assert!(!shell.prompts.question_cancelled(0));
-
-        // Unrelated setting changes leave the question waiting and its prompt intact.
-        grants.set_network(false);
-        let reads = grants.answer_reads();
-        grants.set_camera(Answer::Granted);
-        wait_until("notifications answer re-read", || {
-            grants.answer_reads() > reads
-        });
-        assert!(
-            !shell.prompts.question_cancelled(0),
-            "unrelated setting change left prompt waiting"
-        );
-        assert!(
-            !output.has("notifications asked: granted")
-                && !output.has("notifications asked: denied"),
-            "still waiting"
-        );
-
-        grants.set_notifications(set_to);
-        wait_until("the prompt future is dropped", || {
-            shell.prompts.question_cancelled(0)
-        });
-        output.wait_until("both asks answered", |lines| {
-            count(lines, expected_line) == 2
-        });
-
-        running.stop();
-        within(running.ended());
-    }
 }
 
 /// How many of `lines` are `line`.
@@ -238,119 +183,19 @@ fn count(lines: &[String], line: &str) -> usize {
     lines.iter().filter(|printed| *printed == line).count()
 }
 
-/// Grants of the test's own: the network and the clipboard on, nothing mounted,
-/// no question answered, each change heard by whoever waits for one.
-struct TestGrants {
-    values: Mutex<Values>,
-    answer_reads: AtomicUsize,
-    changed: Arc<Notify>,
+/// The id the program runs as, which its permissions are kept by.
+fn app() -> ProgramId {
+    "dev.waos.test.permissions".parse().unwrap()
 }
 
-struct Values {
-    network: bool,
-    clipboard_write: bool,
-    notifications: Option<Answer>,
-    camera: Option<Answer>,
-}
-
-impl TestGrants {
-    fn new() -> TestGrants {
-        TestGrants {
-            values: Mutex::new(Values {
-                network: true,
-                clipboard_write: true,
-                notifications: None,
-                camera: None,
-            }),
-            answer_reads: AtomicUsize::new(0),
-            changed: Arc::new(Notify::new()),
-        }
-    }
-
-    fn answer_reads(&self) -> usize {
-        self.answer_reads.load(Ordering::SeqCst)
-    }
-
-    /// The user turns the network on or off.
-    fn set_network(&self, on: bool) {
-        self.values.lock().unwrap().network = on;
-        self.changed.notify_waiters();
-    }
-
-    /// The user sets the notifications row.
-    fn set_notifications(&self, answer: Answer) {
-        self.values.lock().unwrap().notifications = Some(answer);
-        self.changed.notify_waiters();
-    }
-
-    /// The user sets the camera row.
-    fn set_camera(&self, answer: Answer) {
-        self.values.lock().unwrap().camera = Some(answer);
-        self.changed.notify_waiters();
-    }
-
-    /// The user turns writing the clipboard on or off.
-    fn set_clipboard_write(&self, on: bool) {
-        self.values.lock().unwrap().clipboard_write = on;
-        self.changed.notify_waiters();
-    }
-}
-
-impl ProgramGrants for TestGrants {
-    fn network(&self) -> NetworkGrant {
-        NetworkGrant {
-            on: self.values.lock().unwrap().network,
-            domains: DomainRule::Any,
-        }
-    }
-
-    fn local_network(&self) -> bool {
-        false
-    }
-
-    fn clipboard_read(&self) -> bool {
-        true
-    }
-
-    fn clipboard_write(&self) -> bool {
-        self.values.lock().unwrap().clipboard_write
-    }
-
-    fn file_system(&self) -> FileSystemGrant {
-        FileSystemGrant::default()
-    }
-
-    fn answer(&self, question: Question) -> Option<Answer> {
-        if question == Question::Notifications {
-            self.answer_reads.fetch_add(1, Ordering::SeqCst);
-        }
-        let values = self.values.lock().unwrap();
-        match question {
-            Question::Notifications => values.notifications,
-            Question::Camera => values.camera,
-            Question::Microphone => None,
-        }
-    }
-
-    fn set_answer(&self, question: Question, answer: Answer) {
-        assert_eq!(
-            question,
-            Question::Notifications,
-            "the program asks only this"
-        );
-        self.values.lock().unwrap().notifications = Some(answer);
-        self.changed.notify_waiters();
-    }
-
-    fn link_scheme_answer(&self, _scheme: &str) -> Option<Answer> {
-        None
-    }
-
-    fn set_link_scheme_answer(&self, _scheme: &str, _answer: Answer) {
-        panic!("the program opens no link");
-    }
-
-    fn changed(&self) -> ChangedFuture {
-        Box::pin(Arc::clone(&self.changed).notified_owned())
-    }
+/// The user sets the app's own network switch, on or off.
+fn set_network(permissions: &Permissions, on: bool) {
+    let network = NetworkGrant {
+        on,
+        domains: DomainRule::Any,
+    };
+    let changed = permissions.change_app_settings(&app(), |own| {
+        own.network = Setting::Own(network);
+    });
+    changed.unwrap();
 }

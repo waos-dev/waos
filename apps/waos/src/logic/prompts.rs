@@ -1,17 +1,18 @@
-//! Where the programs' prompts go: each to the main thread, a question to be shown to the user
-//! (`state::questions`), a permission's, a link scheme's or a role's, which the engine's prompts ask, the
-//! output a program's sound plays on, which the shell's picker of outputs asks, a machine for a
-//! program, which the shell's picker of machines asks, or that WaOS still may not reach the
-//! phone's files, which the user is told once they come back from the system's page without them
-//! (`logic::phone_files`); and a switch's
-//! page to be opened in the library's settings (`state::library`). Each is noted as asked of the
-//! program's user until it is answered (`asking_now`), for an attach to the program to say. The engine asks from the
-//! program's thread and is answered later, through the future it was given: a question with the
+//! Where the apps' prompts go: each to the main thread, a question to be shown to the user
+//! (`state::questions`), a permission's, a link scheme's or a role's, which an app's permissions
+//! ask (`waos-permissions`), the output a program's sound plays on, which the shell's picker of
+//! outputs asks, a machine for a program, which the shell's picker of machines asks, or that WaOS
+//! still may not reach the phone's files, which the user is told once they come back from the
+//! system's page without them (`logic::phone_files`); and a switch's page to be opened in the
+//! library's settings (`state::library`). A question about an app is shown over its run, which the
+//! running apps name, once it is among them. A picker is noted as asked of the program's user
+//! until it is answered (`asking_now`), for an attach to the program to say; Permissions lists its
+//! own questions. Each is answered later, through the future it was given: a question with the
 //! user's reply, or none when nobody replied, because the main thread stopped listening or dropped
 //! it; a switch's page once the user left it, or at once when nobody can open it.
 //!
-//! The invariant: every prompt taken reaches the main thread or is answered at once, so no
-//! program waits for an answer that cannot come.
+//! The invariant: every prompt taken reaches the main thread or is answered at once, or waits
+//! for its app's run, so no app waits for an answer that cannot come while it runs.
 
 use std::fmt;
 use std::future::Future;
@@ -22,13 +23,16 @@ use futures::channel::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use futures::channel::oneshot;
 use waos::{
     Answer, AnswerFuture, AudioOutput, AudioOutputPickedFuture, MachineChoice, MachinePickedFuture,
-    Prompts, Question, Role, RunningProgram, SettingsClosedFuture, ShellAudioOutputPicker,
+    Question, Role, RunningProgram, SettingsClosedFuture, ShellAudioOutputPicker,
     ShellMachinePicker, Switch,
 };
 use waos_dev_protocol::Asked as AskedNow;
+use waos_package::ProgramId;
+use waos_permissions::{App, Prompts};
 
 use super::asking_now::AskingNow;
 use super::phone_files::{PhoneFilesOnRequest, asks_for_phone_files};
+use super::running_apps::RunningApps;
 
 /// One program's question, on its way to the main thread.
 pub(crate) struct Asked {
@@ -146,18 +150,18 @@ pub(crate) struct PromptRequests {
     pub(crate) settings: UnboundedReceiver<SettingsOpened>,
 }
 
-/// The app's prompts, as the engine reaches them: every one goes to the main thread, noted in
-/// `asking` until it is answered.
+/// The app's prompts, as Permissions reaches them: every one goes to the main thread, about the
+/// run of its app among `running`.
 pub(crate) struct PromptsOnRequest {
     questions: UnboundedSender<Asked>,
     settings: UnboundedSender<SettingsOpened>,
-    asking: Arc<AskingNow>,
+    running: Arc<RunningApps>,
 }
 
 impl PromptsOnRequest {
-    /// The prompts, each noted in `asking` while it waits, and where they arrive on the main
-    /// thread.
-    pub(crate) fn new(asking: Arc<AskingNow>) -> (PromptsOnRequest, PromptRequests) {
+    /// The prompts, each shown over its app's run among `running`, and where they arrive on the
+    /// main thread.
+    pub(crate) fn new(running: Arc<RunningApps>) -> (PromptsOnRequest, PromptRequests) {
         let (questions, asked) = mpsc::unbounded();
         let (settings, opened) = mpsc::unbounded();
         let requests = PromptRequests {
@@ -168,30 +172,32 @@ impl PromptsOnRequest {
             PromptsOnRequest {
                 questions,
                 settings,
-                asking,
+                running,
             },
             requests,
         )
     }
 
-    /// The picker of outputs, whose questions arrive with these prompts' questions.
-    pub(crate) fn output_picker(&self) -> OutputPickerOnRequest {
+    /// The picker of outputs, whose questions arrive with these prompts' questions, each noted in
+    /// `asking` while it waits.
+    pub(crate) fn output_picker(&self, asking: Arc<AskingNow>) -> OutputPickerOnRequest {
         OutputPickerOnRequest {
             questions: self.questions.clone(),
-            asking: Arc::clone(&self.asking),
+            asking,
         }
     }
 
-    /// The picker of machines, whose questions arrive with these prompts' questions; a pick of
-    /// This computer asks for the phone's files through `phone_files`, where WaOS reaches them
-    /// only as the user allows.
+    /// The picker of machines, whose questions arrive with these prompts' questions, each noted in
+    /// `asking` while it waits; a pick of This computer asks for the phone's files through
+    /// `phone_files`, where WaOS reaches them only as the user allows.
     pub(crate) fn machine_picker(
         &self,
+        asking: Arc<AskingNow>,
         phone_files: Option<PhoneFilesOnRequest>,
     ) -> MachinePickerOnRequest {
         MachinePickerOnRequest {
             questions: self.questions.clone(),
-            asking: Arc::clone(&self.asking),
+            asking,
             phone_files,
         }
     }
@@ -226,47 +232,76 @@ impl PhoneFilesOffNotice {
 }
 
 impl PromptsOnRequest {
-    /// Sends `question` of `program`'s to the main thread, and resolves to the user's answer.
-    fn put(&self, program: &RunningProgram, question: ProgramQuestion) -> AnswerFuture {
-        let (answer, answered) = oneshot::channel();
-        let noted = question.asked_now();
-        let asking = Asking::Question { question, answer };
-        let wait = send_and_wait(&self.questions, program, asking, answered);
-        Box::pin(self.asking.while_asked(program, noted, wait))
+    /// Sends `question` about `app` to the main thread, over its run, and resolves to the user's
+    /// answer.
+    fn put(&self, app: &App, question: ProgramQuestion) -> AnswerFuture {
+        let questions = self.questions.clone();
+        let send = move |program: RunningProgram| {
+            let (answer, answered) = oneshot::channel();
+            let asking = Asking::Question { question, answer };
+            send_and_wait(&questions, &program, asking, answered)
+        };
+        // Sent at once where the app runs, so the question reaches the main thread as it is asked.
+        match self.running.running(&app.id) {
+            Some(program) => Box::pin(send(program)),
+            None => {
+                let run = run_of(&self.running, &app.id);
+                Box::pin(async move { send(run.await).await })
+            }
+        }
     }
 }
 
 impl Prompts for PromptsOnRequest {
-    fn ask(&self, program: &RunningProgram, question: Question) -> AnswerFuture {
-        self.put(program, ProgramQuestion::Permission(question))
+    fn ask(&self, app: &App, question: Question) -> AnswerFuture {
+        self.put(app, ProgramQuestion::Permission(question))
     }
 
-    fn ask_to_open_links(&self, program: &RunningProgram, scheme: &str) -> AnswerFuture {
-        self.put(program, ProgramQuestion::LinkScheme(scheme.to_owned()))
+    fn ask_to_open_links(&self, app: &App, scheme: &str) -> AnswerFuture {
+        self.put(app, ProgramQuestion::LinkScheme(scheme.to_owned()))
     }
 
-    fn ask_for_role(&self, program: &RunningProgram, role: Role) -> AnswerFuture {
-        self.put(program, ProgramQuestion::Role(role))
+    fn ask_for_role(&self, app: &App, role: Role) -> AnswerFuture {
+        self.put(app, ProgramQuestion::Role(role))
     }
 
-    fn open_settings(&self, program: &RunningProgram, switch: Switch) -> SettingsClosedFuture {
-        let (left, leaving) = oneshot::channel();
-        let opened = SettingsOpened {
-            program: program.clone(),
-            switch,
-            left,
-        };
-        if self.settings.unbounded_send(opened).is_err() {
-            tracing::info!(
-                program = program.name(),
-                ?switch,
-                "WaOS is quitting: no settings"
-            );
+    fn open_settings(&self, app: &App, switch: Switch) -> SettingsClosedFuture {
+        let (settings, run) = (self.settings.clone(), run_of(&self.running, &app.id));
+        Box::pin(async move {
+            let program = run.await;
+            let (left, leaving) = oneshot::channel();
+            let name = program.name().to_owned();
+            let opened = SettingsOpened {
+                program,
+                switch,
+                left,
+            };
+            if settings.unbounded_send(opened).is_err() {
+                tracing::info!(program = name, ?switch, "WaOS is quitting: no settings");
+            }
+            // A page dropped, or never opened, counts as left.
+            let _left = leaving.await;
+        })
+    }
+}
+
+/// The run of the app `id` among `running`, once it is there: a question about an app is shown
+/// over its run, and one asked as it starts, its role's, comes before the run is listed.
+fn run_of(
+    running: &Arc<RunningApps>,
+    id: &ProgramId,
+) -> impl Future<Output = RunningProgram> + Send + use<> {
+    let (running, id) = (Arc::clone(running), id.clone());
+    let mut listed = running.running_ids();
+    async move {
+        loop {
+            if let Some(program) = running.running(&id) {
+                return program;
+            }
+            if listed.changed().await.is_err() {
+                return std::future::pending().await;
+            }
         }
-        // A page dropped, or never opened, counts as left.
-        let left = leaving.map(|_left| ());
-        let noted = AskedNow::Switch(protocol_switch(switch));
-        Box::pin(self.asking.while_asked(program, noted, left))
     }
 }
 
@@ -316,38 +351,6 @@ impl ShellMachinePicker for MachinePickerOnRequest {
             picked
         };
         Box::pin(self.asking.while_asked(program, AskedNow::Machine, picked))
-    }
-}
-
-impl ProgramQuestion {
-    /// The question, as an attach to the program is told it is asked.
-    fn asked_now(&self) -> AskedNow {
-        match self {
-            ProgramQuestion::Permission(question) => {
-                AskedNow::Question(protocol_question(*question))
-            }
-            ProgramQuestion::LinkScheme(scheme) => AskedNow::LinkScheme(scheme.clone()),
-            ProgramQuestion::Role(Role::Inspector) => {
-                AskedNow::Role(waos_dev_protocol::Role::Inspector)
-            }
-        }
-    }
-}
-
-fn protocol_question(question: Question) -> waos_dev_protocol::Question {
-    match question {
-        Question::Notifications => waos_dev_protocol::Question::Notifications,
-        Question::Camera => waos_dev_protocol::Question::Camera,
-        Question::Microphone => waos_dev_protocol::Question::Microphone,
-    }
-}
-
-fn protocol_switch(switch: Switch) -> waos_dev_protocol::Switch {
-    match switch {
-        Switch::Network => waos_dev_protocol::Switch::Network,
-        Switch::LocalNetwork => waos_dev_protocol::Switch::LocalNetwork,
-        Switch::ClipboardRead => waos_dev_protocol::Switch::ClipboardRead,
-        Switch::ClipboardWrite => waos_dev_protocol::Switch::ClipboardWrite,
     }
 }
 

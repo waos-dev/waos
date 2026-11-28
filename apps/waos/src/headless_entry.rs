@@ -3,8 +3,9 @@
 //! no display (`waos_headless`) with no `winit`, Wayland, X11, or `waft-single-instance`. Used on headless Linux
 //! servers/CI and whenever `waos --headless` is invoked.
 //!
-//! The invariant: every `ask` permission prompt stays open through `PromptsOnRequest` + `AskingNow`
-//! until answered via `waos settings set` (or the program ends), identically to desktop WaOS.
+//! The invariant: every question Permissions asks stays open through `PromptsOnRequest` until
+//! answered via `waos settings set` (or the program ends), listed among what Permissions asks,
+//! identically to desktop WaOS.
 //! When `idle_timeout` is non-zero, the daemon exits cleanly once no programs are running and no
 //! dev-server connections are active for that duration, dropping `DevServer` so the socket file is
 //! removed.
@@ -21,9 +22,10 @@ use waos::inspection::InspectedPrograms;
 use waos::{Compiler, EngineTime, FreezePolicy, HttpProxy, PlatformState, WaOS, WaOSConfig};
 use waos_headless::{Display, HeadlessShell, Refreshes};
 use waos_local::LocalCapabilities;
-use waos_store::{SourceProxy, Store};
+use waos_permissions::Prompts;
+use waos_store::SourceProxy;
 
-use crate::logic::app_services::{AppServices, EngineCompiler, open_packages};
+use crate::logic::app_services::{AppServices, Domains, EngineCompiler, open_domains};
 use crate::logic::asking_now::AskingNow;
 use crate::logic::dev_server::DevServer;
 use crate::logic::developer_access::DeveloperAccess;
@@ -111,29 +113,33 @@ struct HeadlessDaemon {
 
 impl HeadlessDaemon {
     fn start(config: HeadlessConfig, runtime: tokio::runtime::Handle) -> Result<HeadlessDaemon> {
-        let store = Store::open(&config.folders.store, SourceProxy::System)
-            .with_context(|| format!("opening the store at {}", config.folders.store.display()))?;
-        let asking = AskingNow::new();
-        let (prompts, prompted) = PromptsOnRequest::new(Arc::clone(&asking));
-        let output_picker = prompts.output_picker();
-        let machine_picker = prompts.machine_picker(None);
-        let headless = HeadlessShell::new(config.display, Refreshes::Every(REFRESH_INTERVAL));
-        let mut shell = headless.shell(Arc::new(prompts));
-        shell.audio_output_picker = Some(Arc::new(output_picker));
-        shell.machine_picker = Some(Arc::new(machine_picker));
-        shell.gpus = video_decoder_thread::start();
-
         let runs = Arc::new(RunningApps::default());
+        let (prompts, prompted) = PromptsOnRequest::new(Arc::clone(&runs));
+        let prompts = Arc::new(prompts);
         let compiler =
             Compiler::new(native_unwind_info_asked()).context("starting the compiler")?;
-        let packages = open_packages(
+        let Domains {
+            packages,
+            permissions,
+            store,
+        } = open_domains(
             &config.folders.store,
             Arc::new(EngineCompiler(compiler.clone())),
             &runs,
-            store.clone(),
+            SourceProxy::System,
+            Arc::clone(&prompts) as Arc<dyn Prompts>,
         )?;
+        let asking = AskingNow::new(permissions.asking());
+        let output_picker = prompts.output_picker(Arc::clone(&asking));
+        let machine_picker = prompts.machine_picker(Arc::clone(&asking), None);
+        let headless = HeadlessShell::new(config.display, Refreshes::Every(REFRESH_INTERVAL));
+        let mut shell = headless.shell();
+        shell.audio_output_picker = Some(Arc::new(output_picker));
+        shell.machine_picker = Some(Arc::new(machine_picker));
+        shell.gpus = video_decoder_thread::start();
         let inspected = Arc::new(ProgramsOnThisComputer::new(
             store.clone(),
+            permissions.clone(),
             Arc::clone(&packages),
             Arc::clone(&runs),
         ));
@@ -157,11 +163,13 @@ impl HeadlessDaemon {
             Arc::new(WaOS::new(waos_config, shell, platform).context("starting the engine")?);
 
         let capabilities = LocalCapabilities::new();
-        let environments = ProgramEnvironments::new(capabilities, store.clone());
+        let environments =
+            ProgramEnvironments::new(capabilities, permissions.clone(), store.clone());
         let places = ProgramPlaces::new(ProgramPlace::Windows);
         let services = AppServices::new(
             Arc::clone(&runs),
             Arc::clone(&packages),
+            permissions,
             Arc::clone(&engine),
             environments,
             places,
@@ -177,8 +185,8 @@ impl HeadlessDaemon {
 
         // Developer access stays off: a headless WaOS is reached from this machine alone.
         let access = DeveloperAccess::at(config.folders.developer_access.clone());
-        let server = DevServer::start(services, store, asking, &config.socket, access)
-            .with_context(|| {
+        let server =
+            DevServer::start(services, asking, &config.socket, access).with_context(|| {
                 format!("listening for dev commands at {}", config.socket.display())
             })?;
         tracing::info!(socket = %config.socket.display(), "headless WaOS listening");
@@ -625,8 +633,22 @@ mod tests {
         let folders = test_folders(temp.path());
         let id: ProgramId = VIDEO_DECODING.parse().unwrap();
         {
-            let store = Store::open(&folders.store, SourceProxy::System).expect("open the store");
-            let data = store.folders(&id.development()).expect("folders").data;
+            let running = Arc::new(RunningApps::default());
+            let compiler = Arc::new(crate::logic::test_installs::MarkerCompiler);
+            let prompts = Arc::new(waos_permissions::NoPrompts);
+            let domains = open_domains(
+                &folders.store,
+                compiler,
+                &running,
+                SourceProxy::System,
+                prompts,
+            )
+            .expect("open the store");
+            let data = domains
+                .store
+                .folders(&id.development())
+                .expect("folders")
+                .data;
             std::fs::write(data.join("clip.h264"), CLIP).unwrap();
             std::fs::write(data.join("shown"), SHOWN).unwrap();
         }

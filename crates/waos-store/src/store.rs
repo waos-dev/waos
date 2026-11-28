@@ -1,27 +1,24 @@
-//! The store: the sources the user added and their downloads, what the user lets each app use,
-//! each app's own folders and its activity, kept in a directory the app gives it.
+//! The store: the sources the user added and their downloads, each app's own folders and its
+//! activity, kept in a directory the app gives it.
 //!
-//! The invariant a later editor will break: every change to the sources, the settings and the
-//! apps' own folders happens under one lock, so two edits never interleave; and a source's listing
-//! of a development id, which no package takes, is refused before its download.
+//! The invariant a later editor will break: every change to the sources, the apps' own folders and
+//! their activity happens under one lock, so two edits never interleave; and a source's listing of
+//! a development id, which no package takes, is refused before its download.
 
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 
 use reqwest::StatusCode;
 use sha2::{Digest, Sha256};
 use url::Url;
-use waos_capabilities::{ChangedFuture, ProgramFolders, ProgramGrants};
+use waos_capabilities::ProgramFolders;
 use waos_package::{Index, ListedProgram, ProgramId};
+use waos_permissions::Permissions;
 
 use crate::fetch::Download;
-use crate::grants::{Settings, StoreGrants};
-use crate::{
-    GlobalSettings, ProgramSettings, Source, SourceError, SourceProxy, StoreError, fetch, programs,
-    sources_file,
-};
+use crate::{Source, SourceError, SourceProxy, StoreError, fetch, programs, sources_file};
 
 /// The folder of installed programs, in the store's directory.
 const PROGRAMS: &str = "programs";
@@ -29,29 +26,44 @@ const PROGRAMS: &str = "programs";
 /// The file of sources, in the store's directory.
 const SOURCES: &str = "sources.toml";
 
-/// The sources the user added, what the user lets each app use, and each app's own folders and
-/// activity. One store opens a directory; clones share it.
+/// The sources the user added, and each app's own folders and activity. One store opens a
+/// directory; clones share it.
 #[derive(Clone)]
 pub struct Store {
     directory: PathBuf,
     /// Held while the directory changes, so changes happen one at a time.
     changes: Arc<Mutex<()>>,
     http: reqwest::Client,
-    /// What the user lets programs use, held in memory over its files.
-    settings: Arc<Settings>,
+    /// Whether each app's activity is recorded, which its settings say.
+    permissions: Permissions,
+}
+
+/// A store as a thread that should end with it holds it.
+pub(crate) struct WeakStore {
+    directory: PathBuf,
+    changes: Weak<Mutex<()>>,
+    http: reqwest::Client,
+    permissions: Permissions,
 }
 
 impl Store {
-    /// The store in `directory`, made when it is not there yet, reading sources through `proxy`.
-    pub fn open(directory: &Path, proxy: SourceProxy) -> Result<Store, StoreError> {
+    /// The store in `directory`, made when it is not there yet, reading sources through `proxy`,
+    /// recording each app's activity as `permissions` say: what was kept of an app whose record
+    /// the user turns off goes as the setting changes, on a thread of the store's own.
+    pub fn open(
+        directory: &Path,
+        proxy: SourceProxy,
+        permissions: Permissions,
+    ) -> Result<Store, StoreError> {
         let store = Store {
             directory: directory.to_path_buf(),
             changes: Arc::default(),
             http: fetch::http_client(proxy)?,
-            settings: Arc::new(Settings::new(directory)),
+            permissions,
         };
         let programs = store.programs_folder();
         fs::create_dir_all(&programs).map_err(StoreError::io_at(&programs))?;
+        store.follow_settings()?;
         Ok(store)
     }
 
@@ -71,11 +83,9 @@ impl Store {
         fetch::download(&self.http, &url, &program.sha256).await
     }
 
-    /// The app `id` was removed, its folder with it: what the store holds of it in memory, and
-    /// its activity, go.
+    /// The app `id` was removed, its folder with it: its activity goes.
     pub fn forget(&self, id: &ProgramId) {
         let _changing = self.lock_changes();
-        self.settings.forget(id);
         self.forget_days(id.as_str());
     }
 
@@ -131,65 +141,6 @@ impl Store {
             return Err(StoreError::NotAdded(source.clone()));
         }
         sources_file::write(&path, &sources)
-    }
-
-    /// The settings every program follows until the user sets its own.
-    pub fn global_settings(&self) -> Result<GlobalSettings, StoreError> {
-        self.settings.global()
-    }
-
-    /// Changes the global settings as `change` does; every program without its own hears it.
-    pub fn change_global_settings(
-        &self,
-        change: impl FnOnce(&mut GlobalSettings),
-    ) -> Result<(), StoreError> {
-        let _changing = self.lock_changes();
-        self.settings.change_global(change)?;
-        self.forget_unrecorded_days();
-        Ok(())
-    }
-
-    /// The program `id`'s own settings, each the global one until the user sets it: a program
-    /// installed, or run in development, whose folder the store keeps.
-    pub fn program_settings(&self, id: &ProgramId) -> Result<ProgramSettings, StoreError> {
-        let folder = self.kept_program_folder(id)?;
-        self.settings.program(id, &folder)
-    }
-
-    /// Changes the program `id`'s own settings as `change` does, installed or run in development,
-    /// or set before its first run, which makes its folder; the program hears it.
-    pub fn change_program_settings(
-        &self,
-        id: &ProgramId,
-        change: impl FnOnce(&mut ProgramSettings),
-    ) -> Result<(), StoreError> {
-        let _changing = self.lock_changes();
-        let folder = self.keep_program(id)?;
-        self.settings.change_program(id, &folder, change)?;
-        self.forget_unrecorded_days();
-        Ok(())
-    }
-
-    /// What the user lets the program `id` use, installed or run in development, read live from
-    /// its settings, which keep its answers.
-    pub fn grants(&self, id: &ProgramId) -> Arc<dyn ProgramGrants> {
-        Arc::new(StoreGrants {
-            store: self.clone(),
-            id: id.clone(),
-        })
-    }
-
-    /// Resolves at the next change of any settings, the global ones or a program's own.
-    pub fn settings_changed(&self) -> ChangedFuture {
-        self.settings.changed()
-    }
-
-    /// The global settings and the program `id`'s own.
-    pub(crate) fn settings_of(
-        &self,
-        id: &ProgramId,
-    ) -> Result<(GlobalSettings, ProgramSettings), StoreError> {
-        Ok((self.global_settings()?, self.program_settings(id)?))
     }
 
     /// The index `source` serves: the programs it offers, each at a version, with its package.
@@ -250,6 +201,25 @@ impl Store {
         self.directory.join("pictures")
     }
 
+    pub(crate) fn downgrade(&self) -> WeakStore {
+        WeakStore {
+            directory: self.directory.clone(),
+            changes: Arc::downgrade(&self.changes),
+            http: self.http.clone(),
+            permissions: self.permissions.clone(),
+        }
+    }
+
+    /// The store `weak` holds, while a clone of it is held elsewhere.
+    pub(crate) fn upgrade(weak: &WeakStore) -> Option<Store> {
+        Some(Store {
+            directory: weak.directory.clone(),
+            changes: weak.changes.upgrade()?,
+            http: weak.http.clone(),
+            permissions: weak.permissions.clone(),
+        })
+    }
+
     pub(crate) fn lock_changes(&self) -> MutexGuard<'_, ()> {
         // The lock guards no value, so a change that panicked leaves nothing half-changed in it.
         self.changes.lock().unwrap_or_else(PoisonError::into_inner)
@@ -257,6 +227,16 @@ impl Store {
 
     fn programs_folder(&self) -> PathBuf {
         self.directory.join(PROGRAMS)
+    }
+
+    /// Whether the store keeps the app `id`'s own folders: it is installed, or ran.
+    pub fn keeps_folders_of(&self, id: &ProgramId) -> bool {
+        self.has_folder_of(id.as_str())
+    }
+
+    /// What the user lets each app use, which says whether its activity is recorded.
+    pub(crate) fn permissions(&self) -> &Permissions {
+        &self.permissions
     }
 
     /// The store's directory.
@@ -272,25 +252,6 @@ impl Store {
 
     fn program_folder(&self, id: &ProgramId) -> PathBuf {
         self.programs_folder().join(id.as_str())
-    }
-
-    /// The folder of the program `id`, which the store keeps while it is installed or once it
-    /// ran in development.
-    fn kept_program_folder(&self, id: &ProgramId) -> Result<PathBuf, StoreError> {
-        let folder = self.program_folder(id);
-        if folder.is_dir() {
-            Ok(folder)
-        } else {
-            Err(StoreError::NotInstalled(id.clone()))
-        }
-    }
-
-    /// The folder of the program `id`, made so a setting is kept there before its install or its
-    /// first run; the caller holds the store's lock.
-    fn keep_program(&self, id: &ProgramId) -> Result<PathBuf, StoreError> {
-        let folder = self.program_folder(id);
-        fs::create_dir_all(&folder).map_err(StoreError::io_at(&folder))?;
-        Ok(folder)
     }
 
     fn sources_path(&self) -> PathBuf {

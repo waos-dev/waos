@@ -21,7 +21,6 @@ use std::time::{Duration, Instant};
 use tempfile::TempDir;
 use waft::{AppCell, Subscription};
 use waos_package::{Manifest, ProgramKind, SigningKey};
-use waos_store::SourceProxy;
 
 use super::test_server::Server;
 use super::*;
@@ -35,7 +34,7 @@ use crate::logic::program_shortcuts::{
 };
 use crate::logic::running_apps::RunningApps;
 use crate::logic::test_engine::{self, NoWindows, WITHIN};
-use crate::logic::test_installs;
+use crate::logic::test_installs::{self, HeldCompiler};
 
 const TRIANGLE: &str = "dev.example.triangle";
 const SURVEY: &str = "dev.example.survey";
@@ -46,6 +45,8 @@ struct TestLibrary {
     cell: Rc<AppCell>,
     library: Entity<Library>,
     runs: Arc<RunningApps>,
+    /// The package manager's compiler, which a test holds to see what happens while it compiles.
+    compiler: Arc<HeldCompiler>,
     folder: TempDir,
     key: SigningKey,
     /// How many times the library asked to be seen.
@@ -68,13 +69,27 @@ impl TestLibrary {
         let preferences = preferences(folder.path());
         let copies = PackageCopies::clear(folder.path().join("package-copies")).unwrap();
         let runs = Arc::new(RunningApps::default());
-        let store = Store::open(&folder.path().join("store"), SourceProxy::None).unwrap();
-        let packages = test_installs::packages(&folder.path().join("store"), &store, &runs);
+        let compiler = Arc::new(HeldCompiler::default());
+        let crate::logic::app_services::Domains {
+            packages,
+            permissions,
+            store,
+        } = test_installs::domains_compiling(
+            &folder.path().join("store"),
+            &runs,
+            Arc::new(waos_permissions::NoPrompts),
+            Arc::clone(&compiler) as Arc<dyn waos_package_manager::CodeCompiler>,
+        );
         let services = AppServices::new(
             Arc::clone(&runs),
             packages,
+            permissions.clone(),
             Arc::new(test_engine::engine(Arc::new(NoWindows))),
-            ProgramEnvironments::new(waos_local::LocalCapabilities::new(), store.clone()),
+            ProgramEnvironments::new(
+                waos_local::LocalCapabilities::new(),
+                permissions.clone(),
+                store.clone(),
+            ),
             ProgramPlaces::new(ProgramPlace::Windows),
         );
         let cell = AppCell::new();
@@ -99,6 +114,7 @@ impl TestLibrary {
             cell,
             library,
             runs,
+            compiler,
             folder,
             key: SigningKey::generate(),
             asked_to_be_seen,
@@ -736,32 +752,23 @@ fn an_install_is_installing_until_its_code_is_compiled_and_then_shows() {
     let package = library.package(TRIANGLE, "1.0.0", &forever);
     library.update(|library, cx| library.open_files(vec![package], cx));
     let triangle: ProgramId = TRIANGLE.parse().unwrap();
-    let mut sessions = library.read(|library| library.services.packages.sessions());
-    let watched = triangle.clone();
-    // Each change heard as it comes, on a thread of its own, however soon the next follows.
-    let heard = thread::spawn(move || {
-        futures::executor::block_on(async move {
-            let mut heard = Vec::new();
-            while sessions.changed().await.is_ok() {
-                let now = sessions
-                    .borrow_and_update()
-                    .iter()
-                    .find(|session| session.app == watched)
-                    .map(|session| session.progress);
-                heard.push(now);
-                if now.is_none() && heard.len() > 1 {
-                    break;
-                }
-            }
-            heard
-        })
+    let session_of = |library: &Library| {
+        let sessions = library.services.packages.sessions();
+        let session = sessions
+            .borrow()
+            .iter()
+            .find(|session| session.app == triangle)
+            .cloned();
+        session.map(|session| session.progress)
+    };
+    let held = library.compiler.hold();
+    library.update(|library, cx| library.answer(true, cx));
+    library.wait_until("installing while it compiles", |library| {
+        session_of(library) == Some(InstallProgress::Installing)
     });
-    library.answers_yes();
-    let heard = heard.join().unwrap();
-    assert!(
-        heard.ends_with(&[Some(InstallProgress::Installing), None]),
-        "{heard:?}"
-    );
+    drop(held);
+    library.wait_until("the install", |library| library.is_idle());
+    assert_eq!(library.read(session_of), None, "its session ended");
     library.wait_until("the install read", |library| {
         !library.installed().is_empty()
     });
@@ -785,10 +792,12 @@ fn the_first_open_after_a_compiler_change_optimizes_the_program() {
         test_installs::installed_version(&library.services.packages, TRIANGLE).code()
     });
     std::fs::remove_dir_all(&code).unwrap();
+    let held = library.compiler.hold();
     library.update(|library, cx| library.open(&triangle, cx));
     library.wait_until("the open's compile", |library| {
         library.start_stage(&triangle) == Some(StartStage::Optimizing)
     });
+    drop(held);
     wait_for_runs(&library, &[TRIANGLE]);
     library.wait_until("the start's end", |library| {
         library.start_stage(&triangle).is_none()

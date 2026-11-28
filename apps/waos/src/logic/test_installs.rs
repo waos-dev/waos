@@ -5,6 +5,10 @@
 //! compiler alone, so the code is the code an install would compile; and a code file is never
 //! changed in place, so a link to it is safe.
 //!
+//! A test that must see what happens while a compile runs ("Optimizing…", an install's
+//! `Installing`) holds the compiler ([`HeldCompiler`]), so the compile waits for the test rather
+//! than the test guessing with a timer how long it lasts.
+//!
 //! The invariant: a test that installs an app installs it through a package manager made here, so
 //! no test waits on a compile another already did, and every test runs the package manager's real
 //! checks and its one-step install.
@@ -12,7 +16,7 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock, PoisonError};
+use std::sync::{Arc, Condvar, Mutex, OnceLock, PoisonError};
 
 use anyhow::Result;
 use futures::StreamExt as _;
@@ -23,9 +27,10 @@ use waos_package_manager::{
     Caller, CodeCompiler, DevelopmentBuild, InstalledProgram, InstalledVersion, PackageContent,
     PackageManager,
 };
-use waos_store::Store;
+use waos_permissions::{NoPrompts, Prompts};
+use waos_store::SourceProxy;
 
-use super::app_services;
+use super::app_services::{self, Domains};
 use super::running_apps::RunningApps;
 
 /// The smallest component, as text, which the engine compiles as it does a binary: what a test
@@ -80,6 +85,59 @@ fn turn_of(sha256: &str) -> Arc<Mutex<()>> {
     Arc::clone(turns.entry(sha256.to_owned()).or_default())
 }
 
+/// The tests' compiler, whose compiles wait while a test holds it.
+#[derive(Default)]
+pub(crate) struct HeldCompiler {
+    /// How many holds are taken.
+    holds: Mutex<usize>,
+    released: Condvar,
+}
+
+/// A hold on a [`HeldCompiler`]: its compiles wait until this is dropped.
+pub(crate) struct CompilerHold(Arc<HeldCompiler>);
+
+impl HeldCompiler {
+    /// Holds the compiler: a compile begun from now waits until the hold is dropped.
+    pub(crate) fn hold(self: &Arc<Self>) -> CompilerHold {
+        *self.holds.lock().unwrap_or_else(PoisonError::into_inner) += 1;
+        CompilerHold(Arc::clone(self))
+    }
+
+    /// Returns once no hold is taken.
+    fn wait_for_release(&self) {
+        let holds = self.holds.lock().unwrap_or_else(PoisonError::into_inner);
+        let _released = self
+            .released
+            .wait_while(holds, |holds| *holds > 0)
+            .unwrap_or_else(PoisonError::into_inner);
+    }
+}
+
+impl Drop for CompilerHold {
+    fn drop(&mut self) {
+        *self.0.holds.lock().unwrap_or_else(PoisonError::into_inner) -= 1;
+        self.0.released.notify_all();
+    }
+}
+
+impl CodeCompiler for HeldCompiler {
+    fn compile(&self, component: &Path, code: &Path) -> Result<()> {
+        self.wait_for_release();
+        test_compiler().compile(component, code)
+    }
+
+    fn is_usable(&self, code: &Path) -> bool {
+        test_compiler().is_usable(code)
+    }
+}
+
+/// The tests' compiler, set up as the tests' engines are, so they map its code.
+fn test_compiler() -> TestCompiler {
+    static COMPILER: OnceLock<Compiler> = OnceLock::new();
+    let compiler = COMPILER.get_or_init(|| Compiler::new(false).expect("a compiler"));
+    TestCompiler(compiler.clone())
+}
+
 /// A compiler for a test that never runs what it installs: it writes a marker in the code folder,
 /// which is all it takes to be usable.
 pub(crate) struct MarkerCompiler;
@@ -99,26 +157,35 @@ impl CodeCompiler for MarkerCompiler {
     }
 }
 
-/// A test's package manager over the store `store` in `folder`, for apps it never runs.
-pub(crate) fn packages_never_run(folder: &Path, store: &Store) -> Arc<PackageManager> {
+/// A test's domains over `folder`, the store's directory, as WaOS opens them, for apps it never
+/// runs, with nobody to ask.
+pub(crate) fn domains_never_run(folder: &Path) -> Domains {
     let running = Arc::new(RunningApps::default());
-    app_services::open_packages(folder, Arc::new(MarkerCompiler), &running, store.clone())
-        .expect("the package manager opens")
+    let (compiler, prompts) = (Arc::new(MarkerCompiler), Arc::new(NoPrompts));
+    app_services::open_domains(folder, compiler, &running, SourceProxy::None, prompts)
+        .expect("the domains open")
 }
 
-/// A test's package manager over the store `store` in `folder`, compiling once per content with
-/// a compiler set up as the tests' engines are, so they map its code, stopping apps among
-/// `running`.
-pub(crate) fn packages(
+/// A test's domains over `folder`, the store's directory, as WaOS opens them, its package manager
+/// compiling once per content with a compiler set up as the tests' engines are, so they map its
+/// code, stopping apps among `running`, and Permissions asking the user through `prompts`.
+pub(crate) fn domains(
     folder: &Path,
-    store: &Store,
     running: &Arc<RunningApps>,
-) -> Arc<PackageManager> {
-    static COMPILER: OnceLock<Compiler> = OnceLock::new();
-    let compiler = COMPILER.get_or_init(|| Compiler::new(false).expect("a compiler"));
-    let compiler = Arc::new(TestCompiler(compiler.clone()));
-    app_services::open_packages(folder, compiler, running, store.clone())
-        .expect("the package manager opens")
+    prompts: Arc<dyn Prompts>,
+) -> Domains {
+    domains_compiling(folder, running, prompts, Arc::new(test_compiler()))
+}
+
+/// [`domains`], compiling with `compiler`: a [`HeldCompiler`] for a test that holds it.
+pub(crate) fn domains_compiling(
+    folder: &Path,
+    running: &Arc<RunningApps>,
+    prompts: Arc<dyn Prompts>,
+    compiler: Arc<dyn CodeCompiler>,
+) -> Domains {
+    app_services::open_domains(folder, compiler, running, SourceProxy::None, prompts)
+        .expect("the domains open")
 }
 
 /// Installs the package at `file` with `packages`, for the user, and waits until it is installed,

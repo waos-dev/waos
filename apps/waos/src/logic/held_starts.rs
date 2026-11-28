@@ -70,17 +70,26 @@ mod tests {
         let folder = tempfile::tempdir().unwrap();
         let engine = Arc::new(test_engine::engine(Arc::new(NoWindows)));
         let directory = folder.path().join("store");
-        let store = waos_store::Store::open(&directory, waos_store::SourceProxy::None).unwrap();
         let runs = Arc::new(RunningApps::default());
-        let packages = test_installs::packages(&directory, &store, &runs);
+        let crate::logic::app_services::Domains {
+            packages,
+            permissions,
+            store,
+        } = test_installs::domains(&directory, &runs, Arc::new(waos_permissions::NoPrompts));
         let services = AppServices::new(
             Arc::clone(&runs),
             Arc::clone(&packages),
+            permissions.clone(),
             Arc::clone(&engine),
-            ProgramEnvironments::new(LocalCapabilities::new(), store.clone()),
+            ProgramEnvironments::new(LocalCapabilities::new(), permissions.clone(), store.clone()),
             ProgramPlaces::new(ProgramPlace::Windows),
         );
-        let programs = ProgramsOnThisComputer::new(store, Arc::clone(&packages), Arc::clone(&runs));
+        let programs = ProgramsOnThisComputer::new(
+            store,
+            permissions,
+            Arc::clone(&packages),
+            Arc::clone(&runs),
+        );
         let manifest = waos_package::Manifest::new(
             "dev.example.forever".parse().unwrap(),
             "Forever",

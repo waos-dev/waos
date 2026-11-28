@@ -3,8 +3,8 @@
 //! a time for each program, in one prompt, the question sheet, which a `PromptPlacement` shows for
 //! the program (in WaOS's own windows, over the program's windows, or in a window of the prompt's
 //! own for a program with none; on macOS, in a dialog of the program's app). The reply goes back to
-//! the engine, which keeps a question's answer in the program's settings and lets the program play
-//! on the output picked; a question whose program ended, or whose prompt the user dismissed, goes
+//! whoever asked: a question's to the app's permissions, which keep its answer in its settings, an
+//! output's to the engine, which lets the program play on the output picked; a question whose program ended, or whose prompt the user dismissed, goes
 //! unanswered. A prompt may ask nothing and only tell the user something, read once they reply:
 //! that WaOS still may not reach the phone's files (`state::phone_files`).
 //!

@@ -1,6 +1,7 @@
 //! The services that keep WaOS's apps, put together once, at WaOS's start or a test's: the apps
 //! running (`running_apps`), the package manager (`waos-package-manager`), handed the engine's
-//! compiler and the running apps, and the one way to start an installed app (`app_starter`), with
+//! compiler and the running apps, Permissions (`waos-permissions`), following the package
+//! manager's record, the store, and the one way to start an installed app (`app_starter`), with
 //! the engine they run on, what each runs with (`environments`), where its views go
 //! (`program_places`) and what it writes (`launch_outputs`). Whoever shows or drives apps (the
 //! library, the dev server, the programs' apps on macOS) is handed these, as Android hands an
@@ -11,13 +12,17 @@
 //! since what an inspector and the shell's parts see of the apps reads them, and the compiler the
 //! package manager is handed is made before the engine for that reason.
 
+use std::collections::BTreeSet;
 use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{Context as _, Result};
+use tokio::sync::{mpsc, watch};
 use waos::{Compiler, WaOS};
+use waos_package::ProgramId;
 use waos_package_manager::{CodeCompiler, PackageManager, StopApp};
-use waos_store::Store;
+use waos_permissions::{InstalledApps, Permissions, Prompts, SettingsFiles};
+use waos_store::{SourceProxy, Store};
 
 use super::app_starter::AppStarter;
 use super::environments::ProgramEnvironments;
@@ -30,6 +35,7 @@ use super::running_apps::RunningApps;
 pub(crate) struct AppServices {
     pub(crate) running: Arc<RunningApps>,
     pub(crate) packages: Arc<PackageManager>,
+    pub(crate) permissions: Permissions,
     pub(crate) starter: Arc<AppStarter>,
     pub(crate) engine: Arc<WaOS>,
     pub(crate) environments: Arc<ProgramEnvironments>,
@@ -40,11 +46,13 @@ pub(crate) struct AppServices {
 }
 
 impl AppServices {
-    /// The services over the apps `packages` installs, running among `running` on `engine`,
-    /// each with what `environments` gives it, its views going where `places` says.
+    /// The services over the apps `packages` installs, which `permissions` say what each may use
+    /// of, running among `running` on `engine`, each with what `environments` gives it, its views
+    /// going where `places` says.
     pub(crate) fn new(
         running: Arc<RunningApps>,
         packages: Arc<PackageManager>,
+        permissions: Permissions,
         engine: Arc<WaOS>,
         environments: Arc<ProgramEnvironments>,
         places: ProgramPlaces,
@@ -61,6 +69,7 @@ impl AppServices {
         AppServices {
             running,
             packages,
+            permissions,
             starter,
             engine,
             environments,
@@ -71,29 +80,70 @@ impl AppServices {
     }
 }
 
-/// The package manager over the apps in `folder`, the store's directory, compiling with
-/// `compiler`, stopping apps among `running`; `store` forgets what it holds of each app it
-/// removes, on a thread of its own, since the app's folder, its settings and own folders in it,
-/// goes whole with the removal.
-pub(crate) fn open_packages(
+/// What WaOS keeps of its apps, each with the domain that owns it: what is installed, what the
+/// user lets each app use, and the sources with each app's own folders and activity.
+pub(crate) struct Domains {
+    pub(crate) packages: Arc<PackageManager>,
+    pub(crate) permissions: Permissions,
+    pub(crate) store: Store,
+}
+
+/// The domains over `folder`, the store's directory, opened in the order each needs the other:
+/// the package manager, compiling with `compiler` and stopping apps among `running`; Permissions,
+/// asking the user through `prompts` and following the package manager's record; and the store, reading sources through `proxy`, recording as Permissions
+/// say, and forgetting each app's activity as the package manager removes it, on a thread of its
+/// own.
+pub(crate) fn open_domains(
     folder: &Path,
     compiler: Arc<dyn CodeCompiler>,
     running: &Arc<RunningApps>,
-    store: Store,
-) -> Result<Arc<PackageManager>> {
+    proxy: SourceProxy,
+    prompts: Arc<dyn Prompts>,
+) -> Result<Domains> {
     let packages = PackageManager::open(folder, compiler, Arc::clone(running) as Arc<dyn StopApp>)
         .with_context(|| format!("opening the apps installed at {}", folder.display()))?;
+    let packages = Arc::new(packages);
+    let permissions = Permissions::open(
+        Arc::new(SettingsFiles::new(folder)),
+        prompts,
+        Arc::new(PackageRecord(Arc::clone(&packages))),
+    );
+    let store = Store::open(folder, proxy, permissions.clone())
+        .with_context(|| format!("opening the store at {}", folder.display()))?;
     let mut removals = packages.removals();
+    let forgetting = store.clone();
     std::thread::Builder::new()
         .name("removals".to_owned())
         .spawn(move || {
             // It ends with the package manager.
             while let Some(id) = removals.blocking_recv() {
-                store.forget(&id);
+                forgetting.forget(&id);
             }
         })
         .context("starting the thread that follows removals")?;
-    Ok(Arc::new(packages))
+    Ok(Domains {
+        packages,
+        permissions,
+        store,
+    })
+}
+
+/// The package manager's record, as Permissions follows it: a type of the app's own, since neither
+/// knows the other.
+struct PackageRecord(Arc<PackageManager>);
+
+impl InstalledApps for PackageRecord {
+    fn name(&self, id: &ProgramId) -> Option<String> {
+        Some(self.0.installed_program(id)?.name())
+    }
+
+    fn removing(&self) -> watch::Receiver<BTreeSet<ProgramId>> {
+        self.0.removing()
+    }
+
+    fn removals(&self) -> mpsc::UnboundedReceiver<ProgramId> {
+        self.0.removals()
+    }
 }
 
 /// The engine's compiler, as the package manager is handed it: a type of the app's own, since

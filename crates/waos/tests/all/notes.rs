@@ -18,10 +18,9 @@
 //! the same commands work, Search opening the pane.
 
 use std::fs;
-use std::future::pending;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use futures::FutureExt;
@@ -36,11 +35,10 @@ use waos::{
     Answer, Keyboard, OpenRequest, ProgramEnd, ProgramEnvironment, ProgramGrants, ProgramOutput,
     ProgramView, Question, RunningProgram, WaOS,
 };
-use waos_capabilities::{
-    ChangedFuture, DomainRule, FileSystemGrant, Mount, NetworkGrant, ProgramFolders,
-};
+use waos_capabilities::ProgramFolders;
 use waos_headless::HeadlessView;
 
+use crate::asking::app;
 use crate::test_shell::clipboard::CopiedText;
 use crate::test_shell::menus::TestMenus;
 use crate::test_shell::{DISPLAY, RecordedOutput, TestShell, config, metrics, wait_until, within};
@@ -58,7 +56,7 @@ fn an_empty_library_opens_one_window_kept_at_its_minimum_size_under_its_menus_an
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let folders = Folders::new();
-    let grants = Arc::new(NotesGrants::default());
+    let grants = shell.permissions().of(&app());
     let (running, shown, window, output) = launch(&engine, &shell, &folders, &grants);
     let headless_window = shown.window().expect("in a window");
     assert_eq!(headless_window.config().title, "Notes");
@@ -123,7 +121,7 @@ fn a_new_note_is_kept_as_it_is_typed_and_found_by_its_text() {
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let folders = Folders::new();
-    let grants = Arc::new(NotesGrants::default());
+    let grants = shell.permissions().of(&app());
     let (running, _shown, window, _output) = launch(&engine, &shell, &folders, &grants);
     let bar = wait_for_bar(&shell.menus);
 
@@ -145,7 +143,7 @@ fn a_deleted_note_goes_to_recently_deleted_and_is_recovered_from_there() {
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let folders = Folders::new();
-    let grants = Arc::new(NotesGrants::default());
+    let grants = shell.permissions().of(&app());
     let (running, _shown, window, _output) = launch(&engine, &shell, &folders, &grants);
     let bar = wait_for_bar(&shell.menus);
     type_new_note(&engine, &shell, &running, &window, "Plans", "Plans");
@@ -176,7 +174,7 @@ fn at_a_phones_width_the_list_is_a_pane_over_the_note_that_search_opens() {
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let folders = Folders::new();
-    let grants = Arc::new(NotesGrants::default());
+    let grants = shell.permissions().of(&app());
     let (running, shown, window, _output) = launch(&engine, &shell, &folders, &grants);
     let bar = wait_for_bar(&shell.menus);
     window.metrics_changed(metrics(PHONE_WIDTH, DISPLAY.height));
@@ -199,7 +197,7 @@ fn the_notes_kept_are_there_at_the_next_launch() {
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let folders = Folders::new();
-    let grants = Arc::new(NotesGrants::default());
+    let grants = shell.permissions().of(&app());
     let (running, _shown, window, _output) = launch(&engine, &shell, &folders, &grants);
     type_new_note(&engine, &shell, &running, &window, SHOPPING, SHOPPING_TITLE);
     assert_eq!(
@@ -224,7 +222,7 @@ fn import_reads_a_picked_text_file_into_a_note_and_export_writes_the_note_where_
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let folders = Folders::new();
-    let grants = Arc::new(NotesGrants::default());
+    let grants = shell.permissions().of(&app());
     let scratch = TempDir::new().unwrap();
     let scratch_path = fs::canonicalize(scratch.path()).unwrap();
     let (recipe, exported) = (
@@ -264,7 +262,7 @@ fn a_pick_the_system_denies_waos_is_asked_of_the_system_and_mounted_only_once_it
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let folders = Folders::new();
-    let grants = Arc::new(NotesGrants::default());
+    let grants = shell.permissions().of(&app());
     let scratch = TempDir::new().unwrap();
     let scratch_path = fs::canonicalize(scratch.path()).unwrap();
     let recipe = scratch_path.join("recipe.txt");
@@ -302,7 +300,7 @@ fn a_reminder_is_scheduled_a_minute_later_with_the_notes_title_and_its_click_sho
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let folders = Folders::new();
-    let grants = Arc::new(NotesGrants::default());
+    let grants = shell.permissions().of(&app());
     let (running, _shown, window, _output) = launch(&engine, &shell, &folders, &grants);
     let bar = wait_for_bar(&shell.menus);
     type_new_note(&engine, &shell, &running, &window, "Call Mum", "Call Mum");
@@ -351,7 +349,7 @@ fn a_quit_while_a_note_cannot_be_saved_waits_for_the_users_answer() {
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let folders = Folders::new();
-    let grants = Arc::new(NotesGrants::default());
+    let grants = shell.permissions().of(&app());
     let (running, _shown, window, output) = launch(&engine, &shell, &folders, &grants);
     let bar = wait_for_bar(&shell.menus);
     assert!(within(window.picture_after_events()), "notes draws");
@@ -390,7 +388,7 @@ fn a_text_file_opened_from_the_open_dialog_is_edited_where_it_is_and_closed_from
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let folders = Folders::new();
-    let grants = Arc::new(NotesGrants::default());
+    let grants = shell.permissions().of(&app());
     let todo = TextFile::new("todo.txt", "milk");
     let (running, _shown, window, _output) = launch(&engine, &shell, &folders, &grants);
     let bar = wait_for_bar(&shell.menus);
@@ -419,7 +417,7 @@ fn a_text_file_the_system_opens_notes_with_arrives_through_an_open_request() {
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let folders = Folders::new();
-    let grants = Arc::new(NotesGrants::default());
+    let grants = shell.permissions().of(&app());
     let letter = TextFile::new("letter.txt", "Dear Sam,");
     let (running, _shown, window, _output) = launch(&engine, &shell, &folders, &grants);
     type_new_note(&engine, &shell, &running, &window, SHOPPING, SHOPPING_TITLE);
@@ -446,7 +444,7 @@ fn a_text_file_open_is_open_again_at_the_next_launch() {
     let shell = TestShell::new();
     let engine = WaOS::new(config(), shell.shell(), shell.platform()).unwrap();
     let folders = Folders::new();
-    let grants = Arc::new(NotesGrants::default());
+    let grants = shell.permissions().of(&app());
     let todo = TextFile::new("todo.txt", "milk");
     let (running, _shown, window, _output) = launch(&engine, &shell, &folders, &grants);
     let bar = wait_for_bar(&shell.menus);
@@ -467,9 +465,8 @@ fn a_text_file_open_is_open_again_at_the_next_launch() {
     wait_for_title(&window, "todo.txt");
     assert!(
         grants
-            .picked
-            .lock()
-            .unwrap()
+            .file_system()
+            .mounts
             .iter()
             .any(|mount| mount.at == todo.path && mount.writable),
         "WaOS keeps it mounted writable, where Notes reads it again"
@@ -483,7 +480,7 @@ fn launch(
     engine: &WaOS,
     shell: &TestShell,
     folders: &Folders,
-    grants: &Arc<NotesGrants>,
+    grants: &Arc<dyn ProgramGrants>,
 ) -> (
     RunningProgram,
     Arc<HeadlessView>,
@@ -499,7 +496,7 @@ fn launch(
     let output = Arc::new(RecordedOutput::default());
     let environment = ProgramEnvironment {
         output: Some(Arc::clone(&output) as Arc<dyn ProgramOutput>),
-        grants: Some(Arc::clone(grants) as Arc<dyn ProgramGrants>),
+        grants: Some(Arc::clone(grants)),
         folders: Some(folders.own()),
         ..waos_local::LocalCapabilities::new().environment()
     };
@@ -697,67 +694,5 @@ impl Folders {
     /// Where the program keeps its notes: its `/data/notes`.
     fn notes(&self) -> PathBuf {
         self.root.path().join("data").join("notes")
-    }
-}
-
-/// Grants as an app keeps them for the program: no switch on, each file picked mounted again at
-/// the next launch, and the user's answer to notifications kept.
-#[derive(Default)]
-struct NotesGrants {
-    picked: Mutex<Vec<Mount>>,
-    notifications: Mutex<Option<Answer>>,
-}
-
-impl ProgramGrants for NotesGrants {
-    fn network(&self) -> NetworkGrant {
-        NetworkGrant {
-            on: false,
-            domains: DomainRule::Any,
-        }
-    }
-
-    fn local_network(&self) -> bool {
-        false
-    }
-
-    fn clipboard_read(&self) -> bool {
-        false
-    }
-
-    fn clipboard_write(&self) -> bool {
-        false
-    }
-
-    fn file_system(&self) -> FileSystemGrant {
-        FileSystemGrant {
-            mounts: self.picked.lock().unwrap().clone(),
-        }
-    }
-
-    fn answer(&self, question: Question) -> Option<Answer> {
-        match question {
-            Question::Notifications => *self.notifications.lock().unwrap(),
-            Question::Camera | Question::Microphone => Some(Answer::Denied),
-        }
-    }
-
-    fn set_answer(&self, question: Question, answer: Answer) {
-        if question == Question::Notifications {
-            *self.notifications.lock().unwrap() = Some(answer);
-        }
-    }
-
-    fn link_scheme_answer(&self, _scheme: &str) -> Option<Answer> {
-        Some(Answer::Denied)
-    }
-
-    fn set_link_scheme_answer(&self, _scheme: &str, _answer: Answer) {}
-
-    fn keep_picked(&self, mount: Mount) {
-        self.picked.lock().unwrap().push(mount);
-    }
-
-    fn changed(&self) -> ChangedFuture {
-        Box::pin(pending())
     }
 }

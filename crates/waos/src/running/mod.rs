@@ -58,7 +58,7 @@ use crate::screens::Screens;
 use crate::screenshots::Screenshots;
 use crate::service_extensions::ProgramServiceExtensions;
 use crate::shell::{
-    PlacedView, Prompts, ShellAudioOutputPicker, ShellCameras, ShellFileDialogs, ShellGpus,
+    PlacedView, ShellAudioOutputPicker, ShellCameras, ShellFileDialogs, ShellGpus,
     ShellImageCodecs, ShellMachinePicker, ShellMediaAssets, ShellMediaPlayers, ShellNotifications,
     ShellOpener, ShellRecordingIndicator, ShellSystemPermissions, ShellVideoFrameReaders,
     ViewPlacement,
@@ -177,8 +177,6 @@ pub(crate) struct ProgramStart {
     /// The system's compositor, which makes the program's composition layers, where the shell
     /// has one.
     pub(crate) compositor: Option<Compositor>,
-    /// What asks the program's user for what it may use.
-    pub(crate) prompts: Arc<dyn Prompts>,
     /// What the system itself allows of what the user allowed, where it has permissions of its
     /// own.
     pub(crate) system_permissions: Option<Arc<dyn ShellSystemPermissions>>,

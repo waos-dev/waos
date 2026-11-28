@@ -33,7 +33,7 @@ use crate::network::HttpProxy;
 use crate::permissions::NothingGranted;
 use crate::screens::Screens;
 use crate::shell::{
-    Prompts, ShellAudioOutputPicker, ShellCameras, ShellFileDialogs, ShellGpus, ShellImageCodecs,
+    ShellAudioOutputPicker, ShellCameras, ShellFileDialogs, ShellGpus, ShellImageCodecs,
     ShellMachinePicker, ShellMediaAssets, ShellMediaPlayers, ShellNotifications, ShellOpener,
     ShellSystemPermissions, ShellVideoFrameReaders, ViewPlacement,
 };
@@ -55,7 +55,6 @@ pub(crate) struct ProgramInstances {
     pub(super) name: String,
     /// The file its component was loaded from, which a worker's failure is located in.
     pub(super) file: ComponentFile,
-    pub(super) prompts: Arc<dyn Prompts>,
     pub(super) system_permissions: Option<Arc<dyn ShellSystemPermissions>>,
     pub(super) screens: Screens,
     pub(super) settings: SystemSettings,
@@ -129,7 +128,6 @@ impl ProgramInstances {
             gpu: start.gpu,
             name: start.name,
             file: start.file,
-            prompts: start.prompts,
             system_permissions: start.system_permissions,
             screens: start.screens,
             settings: start.settings,

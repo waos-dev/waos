@@ -45,7 +45,6 @@ use waos::bindings::wasdk::platform::windows::Size;
 use waos_dev_protocol::{
     Hello, Incoming, Listener, Locality, MAJOR, RefusedAnswer, Request, ServerConnection,
 };
-use waos_store::Store;
 
 /// This build, as its hello names it: "WaOS 0.3.0".
 pub(crate) const BUILD: &str = concat!("WaOS ", env!("CARGO_PKG_VERSION"));
@@ -68,15 +67,14 @@ pub(crate) struct DevServer {
 
 impl DevServer {
     /// Listens at `socket` for `waos`'s requests on the apps `services` keeps: installing what it
-    /// sends into `store` as development installs, launching any installed app through its
-    /// starter, and telling each attach what `asking` says its app's user is asked; opening
-    /// files with an app, installed in `store` and opened, or running; reading and driving any program running; and reading and setting the
-    /// settings `store` keeps of a development program. Takes connections from the network too
+    /// sends as development installs, launching any installed app through its starter, and
+    /// telling each attach what `asking` says its app's user is asked; opening files with an app,
+    /// installed and opened, or running; reading and driving any program running; and reading and
+    /// setting the settings of a development program. Takes connections from the network too
     /// while `access` is on. Refused, as `Listener::bind` refuses, while another WaOS answers
     /// there.
     pub(crate) fn start(
         services: AppServices,
-        store: Store,
         asking: Arc<AskingNow>,
         socket: &Path,
         access: DeveloperAccess,
@@ -86,7 +84,6 @@ impl DevServer {
         let (connections_tx, active_connections) = watch::channel(0usize);
         let context = ServerContext {
             services,
-            store,
             asking,
             socket: socket.to_owned(),
             access,
@@ -136,9 +133,6 @@ impl Drop for DevServer {
 struct ServerContext {
     /// The apps running, installed and started, and the engine they run on.
     services: AppServices,
-    /// Where development builds are installed, where an installed program to launch or open
-    /// files with is found, and every program's settings.
-    store: Store,
     /// What each program's user is asked now.
     asking: Arc<AskingNow>,
     socket: PathBuf,
@@ -242,7 +236,6 @@ impl Drop for ActiveConnection {
 /// What one connection is served with.
 struct ConnectionContext {
     services: AppServices,
-    store: Store,
     asking: Arc<AskingNow>,
     access: DeveloperAccess,
 }
@@ -250,7 +243,6 @@ struct ConnectionContext {
 fn connection_context(context: &ServerContext) -> ConnectionContext {
     ConnectionContext {
         services: context.services.clone(),
-        store: context.store.clone(),
         asking: Arc::clone(&context.asking),
         access: context.access.clone(),
     }
@@ -272,7 +264,7 @@ impl ConnectionContext {
 
     fn settings(&self) -> SettingsContext {
         SettingsContext {
-            store: self.store.clone(),
+            permissions: self.services.permissions.clone(),
             environments: Arc::clone(&self.services.environments),
         }
     }
@@ -507,6 +499,7 @@ pub(crate) mod tests {
         pub(crate) socket: PathBuf,
         runs: Arc<RunningApps>,
         pub(crate) store: waos_store::Store,
+        pub(crate) permissions: waos_permissions::Permissions,
         /// What the server's programs' users are asked, which a test notes as the prompts do.
         pub(crate) asking: Arc<AskingNow>,
         pub(crate) services: AppServices,
@@ -536,26 +529,27 @@ pub(crate) mod tests {
         /// A server whose engine uses `PromptsOnRequest` wired to `asking`, returning the server
         /// and the prompt requests receiver.
         fn asking_prompts(test: &str) -> (TestServer, crate::logic::prompts::PromptRequests) {
-            let asking = AskingNow::new();
+            let runs = Arc::new(RunningApps::default());
             let (prompts, requests) =
-                crate::logic::prompts::PromptsOnRequest::new(Arc::clone(&asking));
-            let server = TestServer::over_with(test, asking, || {
-                Arc::new(test_engine::engine_asking(
-                    Arc::new(NoWindows),
-                    Arc::new(prompts),
-                ))
+                crate::logic::prompts::PromptsOnRequest::new(Arc::clone(&runs));
+            let server = TestServer::over_with(test, runs, Arc::new(prompts), || {
+                Arc::new(test_engine::engine(Arc::new(NoWindows)))
             });
             (server, requests)
         }
 
-        /// A server of the test's own over the engine `engine` makes.
+        /// A server of the test's own over the engine `engine` makes, with nobody to ask.
         fn over(test: &str, engine: impl FnOnce() -> Arc<WaOS>) -> TestServer {
-            Self::over_with(test, AskingNow::new(), engine)
+            let runs = Arc::new(RunningApps::default());
+            Self::over_with(test, runs, Arc::new(waos_permissions::NoPrompts), engine)
         }
 
+        /// A server over the engine `engine` makes, its apps running among `runs` and their
+        /// users asked through `prompts`.
         fn over_with(
             test: &str,
-            asking: Arc<AskingNow>,
+            runs: Arc<RunningApps>,
+            prompts: Arc<dyn waos_permissions::Prompts>,
             engine: impl FnOnce() -> Arc<WaOS>,
         ) -> TestServer {
             let folder =
@@ -563,22 +557,27 @@ pub(crate) mod tests {
             let _ = fs::remove_dir_all(&folder);
             let engine = engine();
             let socket = Self::test_listener(&folder, test);
-            let runs = Arc::new(RunningApps::default());
-            let store =
-                waos_store::Store::open(&folder.join("store"), waos_store::SourceProxy::None)
-                    .expect("a store");
-            let packages = test_installs::packages(&folder.join("store"), &store, &runs);
+            let crate::logic::app_services::Domains {
+                packages,
+                permissions,
+                store,
+            } = test_installs::domains(&folder.join("store"), &runs, prompts);
+            let asking = AskingNow::new(permissions.asking());
             let services = AppServices::new(
                 Arc::clone(&runs),
                 packages,
+                permissions.clone(),
                 engine,
-                ProgramEnvironments::new(waos_local::LocalCapabilities::new(), store.clone()),
+                ProgramEnvironments::new(
+                    waos_local::LocalCapabilities::new(),
+                    permissions.clone(),
+                    store.clone(),
+                ),
                 ProgramPlaces::new(ProgramPlace::Windows),
             );
             let access = DeveloperAccess::on_loopback(folder.join("developer"));
             let server = DevServer::start(
                 services.clone(),
-                store.clone(),
                 Arc::clone(&asking),
                 &socket,
                 access.clone(),
@@ -589,6 +588,7 @@ pub(crate) mod tests {
                 socket,
                 runs,
                 store,
+                permissions,
                 asking,
                 services,
                 access,
@@ -1416,10 +1416,10 @@ pub(crate) mod tests {
             (camera.values.as_slice(), camera.follows_global),
             (&["allow".to_owned()][..], false)
         );
-        let own = server.store.program_settings(&id).unwrap();
+        let own = server.permissions.app_settings(&id).unwrap();
         assert_eq!(
-            own.answers.get(waos_store::Question::Camera),
-            &waos_store::Setting::Own(waos_store::Answer::Granted),
+            own.answers.get(waos_permissions::Question::Camera),
+            &waos_permissions::Setting::Own(waos_permissions::Answer::Granted),
             "kept as its page keeps it"
         );
         let machine = rows.iter().find(|row| row.key == "machine").unwrap();
@@ -1453,10 +1453,10 @@ pub(crate) mod tests {
         };
         let camera = rows.iter().find(|row| row.key == "camera").unwrap();
         assert_eq!(camera.values, ["deny"]);
-        let own = server.store.program_settings(&id).unwrap();
+        let own = server.permissions.app_settings(&id).unwrap();
         assert_eq!(
-            own.answers.get(waos_store::Question::Camera),
-            &waos_store::Setting::Own(waos_store::Answer::Denied),
+            own.answers.get(waos_permissions::Question::Camera),
+            &waos_permissions::Setting::Own(waos_permissions::Answer::Denied),
             "kept as its page keeps it"
         );
         let summary = Request::Inspect {
@@ -1508,14 +1508,14 @@ pub(crate) mod tests {
         };
         assert_eq!(value("camera"), ["simulated"]);
         assert_eq!(value("simulated-microphone"), ["silence"]);
-        let own = server.store.program_settings(&id).unwrap();
+        let own = server.permissions.app_settings(&id).unwrap();
         assert_eq!(
-            own.answers.get(waos_store::Question::Camera),
-            &waos_store::Setting::Own(waos_store::Answer::Simulated)
+            own.answers.get(waos_permissions::Question::Camera),
+            &waos_permissions::Setting::Own(waos_permissions::Answer::Simulated)
         );
         assert_eq!(
             own.simulated_microphone,
-            waos_store::Setting::Own(waos::SimulatedSound::Silence)
+            waos_permissions::Setting::Own(waos::SimulatedSound::Silence)
         );
     }
 
@@ -1542,8 +1542,8 @@ pub(crate) mod tests {
                 "{answer:?}"
             );
         }
-        let own = server.store.program_settings(&id).unwrap();
-        assert_eq!(own.answer_with, waos_store::AnswerWith::default());
+        let own = server.permissions.app_settings(&id).unwrap();
+        assert_eq!(own.answer_with, waos_permissions::AnswerWith::default());
     }
 
     #[tokio::test]

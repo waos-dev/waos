@@ -20,7 +20,8 @@ use waos_package_manager::{
     Caller, CodeCompiler, InstallError, InstalledProgram, PackageChange, PackageContent,
     PackageManager, StopApp,
 };
-use waos_store::{Source, Store};
+use waos_permissions::{NoPrompts, NothingInstalled, Permissions, SettingsFiles};
+use waos_store::{Source, SourceProxy, Store};
 
 /// A compiler that compiles nothing, and finds nothing to compile.
 struct NoCompiler;
@@ -90,6 +91,13 @@ pub async fn install_from(
 pub async fn remove(store: &Store, packages: &PackageManager, id: &ProgramId) {
     packages.remove(id).await.unwrap();
     store.forget(id);
+}
+
+/// The store in `directory`, its apps' activity recorded as the settings files there say.
+pub fn open_store(directory: &Path) -> Store {
+    let settings = Arc::new(SettingsFiles::new(directory));
+    let permissions = Permissions::open(settings, Arc::new(NoPrompts), Arc::new(NothingInstalled));
+    Store::open(directory, SourceProxy::None, permissions).unwrap()
 }
 
 /// What `future` comes to, on a runtime of its own: for a test that is not async.

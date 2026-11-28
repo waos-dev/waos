@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use waft::{App, Entity};
 use waos_package::ProgramId;
-use waos_store::Question;
+use waos_permissions::Question;
 
 use crate::logic::app_store::CatalogApp;
 #[cfg(desktop)]

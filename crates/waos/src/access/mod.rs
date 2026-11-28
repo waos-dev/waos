@@ -33,10 +33,9 @@ use std::sync::Arc;
 use std::time::{Instant, SystemTime};
 
 use futures::FutureExt;
-use waos_capabilities::{Answer, Command, ProgramGrants, Question, Switch};
+use waos_capabilities::{Answer, AnswerFuture, Command, ProgramGrants, Question, Switch};
 
 use crate::files::{MountKind, MountOf, OpenMode};
-use crate::shell::AnswerFuture;
 pub(crate) use active_uses::{
     ActiveUse, ActiveUseChange, ActiveUseChanges, ActiveUseKind, ActiveUseNow, ShownRecordings,
     TcpOrigin,

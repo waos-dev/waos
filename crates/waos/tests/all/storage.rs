@@ -51,24 +51,14 @@ impl ProgramGrants for Granted {
         Some(Answer::Denied)
     }
 
-    fn set_answer(&self, _question: Question, _answer: Answer) {
-        panic!("the program asks no question");
-    }
-
     fn link_scheme_answer(&self, _scheme: &str) -> Option<Answer> {
         Some(Answer::Denied)
-    }
-
-    fn set_link_scheme_answer(&self, _scheme: &str, _answer: Answer) {
-        panic!("the program opens no link");
     }
 
     fn role(&self, role: Role) -> Option<Answer> {
         assert_eq!(role, Role::Inspector);
         Some(Answer::Granted)
     }
-
-    fn set_role(&self, _role: Role, _answer: Answer) {}
 
     fn changed(&self) -> ChangedFuture {
         Box::pin(std::future::pending())
