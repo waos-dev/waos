@@ -1,5 +1,5 @@
 //! The programs' notifications on the main thread, over Waft's, where a program has no app of its
-//! own (Windows, Linux and Android; on macOS its app posts them, `logic::program_apps`): each
+//! own (Windows, Linux and Android; on macOS its app posts them, `logic::macos_shell`): each
 //! program's posted, scheduled and removed as the system shows it (`logic::system_notifications`),
 //! under its id inside the program's; and the system's own permission, WaOS's, asked before the
 //! first notification any program posts or schedules. On Windows an installed program's are posted

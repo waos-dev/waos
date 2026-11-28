@@ -9,10 +9,10 @@ use waos_package::ProgramId;
 use waos_window_messages::{FileDialogId, FromWindow, ToWindow};
 
 use super::*;
-use crate::logic::program_apps::app_reach::LaunchAttempt;
-use crate::logic::program_apps::app_reach::tests::Launches;
-use crate::logic::program_apps::awaited_answers::APP_GONE;
-use crate::logic::program_apps::window_process::tests::{
+use crate::logic::macos_shell::app_reach::LaunchAttempt;
+use crate::logic::macos_shell::app_reach::tests::Launches;
+use crate::logic::macos_shell::awaited_answers::APP_GONE;
+use crate::logic::macos_shell::window_process::tests::{
     Printed, Served, next_wanted, window_process,
 };
 use crate::logic::test_engine::{self, NoWindows, WITHIN};

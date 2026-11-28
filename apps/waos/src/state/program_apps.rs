@@ -1,6 +1,6 @@
 //! Where the programs' windows go, and their menu bars, context menus, file dialogs and
 //! notifications with them, tied to the application. On macOS each program's windows are an app of
-//! its own (`logic::program_apps`), started as WaOS starts, opening the programs the user opens the
+//! its own (`logic::macos_shell`), started as WaOS starts, opening the programs the user opens the
 //! app of with the library's runs, and keeping an app for each program the package manager has
 //! installed, following its changes,
 //! which shows the program's menu bar, opens its context menus and file dialogs and posts its
@@ -63,12 +63,12 @@ mod macos {
     use super::ProgramPrompts;
     use crate::logic::app_starter::AppStarter;
     use crate::logic::folders::AppFolders;
-    use crate::logic::placement::WindowsOnRequest;
-    use crate::logic::program_apps::{
+    use crate::logic::macos_shell::{
         AppNotifications, AppsFolders, CanvasCall, CanvasKey, CanvasPictures, CanvasPlace,
         CanvasesOnRequest, DialogReport, NoProgramApps, NotificationPermissionReading,
         NotificationPermissions, ProgramApps, ToShow, WindowPresence,
     };
+    use crate::logic::placement::WindowsOnRequest;
     use crate::logic::running_apps::RunningApps;
     use crate::os::LayerContext;
     use crate::state::app_nap_exemption::{self, AppNapExemption};

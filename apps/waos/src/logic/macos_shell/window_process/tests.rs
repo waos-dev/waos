@@ -54,7 +54,7 @@ pub(crate) fn window_process_keeping(
     notification_permissions: NotificationPermissions,
 ) -> Served {
     let (sent, arriving) = mpsc::unbounded();
-    let send: SendToWindow = Arc::new(move |message| {
+    let send = SendToWindow::new(move |message| {
         let _ = sent.unbounded_send(message);
     });
     let (canvases, canvas_calls) = CanvasesOnRequest::new();

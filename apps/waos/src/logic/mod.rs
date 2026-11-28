@@ -98,6 +98,8 @@ pub(crate) mod launcher_placement;
 pub(crate) mod launcher_rules;
 pub(crate) mod library_layout;
 pub(crate) mod machine_facts;
+#[cfg(target_os = "macos")]
+pub(crate) mod macos_shell;
 pub(crate) mod menu_bar;
 pub(crate) mod menu_calls;
 #[cfg(desktop)]
@@ -125,8 +127,6 @@ pub(crate) mod phone_files;
 pub(crate) mod placement;
 pub(crate) mod player_states;
 pub(crate) mod preferences;
-#[cfg(target_os = "macos")]
-pub(crate) mod program_apps;
 #[cfg(any(windows, target_os = "linux", test))]
 #[cfg_attr(
     not(any(windows, target_os = "linux")),

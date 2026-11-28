@@ -119,7 +119,7 @@ mod host {
 
     use super::{AppNapExemption, WindowKey};
     use crate::logic::app_starter::StartStage;
-    use crate::logic::program_apps::WindowPresence;
+    use crate::logic::macos_shell::WindowPresence;
     use crate::state::desktop_host::with_macos_platform;
 
     /// Kept for the system's logs: what the user is waiting on.

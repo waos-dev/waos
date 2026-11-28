@@ -11,7 +11,7 @@ use waos_package::ProgramId;
 use waos_window_messages::ToWindow;
 
 use super::*;
-use crate::logic::program_apps::{
+use crate::logic::macos_shell::{
     Compositing, LaunchAttempt, Launches, Served, launch_failed, said_hello, window_process,
 };
 use crate::logic::test_engine::{self, NoWindows};

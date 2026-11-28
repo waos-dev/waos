@@ -19,7 +19,7 @@
 //! (`logic::recording_indicator`), the clipboard's calls (`logic::clipboard_calls`), the menus'
 //! calls (`logic::menu_calls`), the notifications' calls
 //! (`logic::notification_calls`), each view's calls (`waos-program-window`'s), on macOS what
-//! the programs' apps send (`logic::program_apps`), the presence of each of their windows among
+//! the programs' apps send (`logic::macos_shell`), the presence of each of their windows among
 //! it, what the package manager is doing (`waos_services::packages`), and the calls posted to a value
 //! on the main thread that serves them (`app_thread_bound`): the players' (`media_players`), the media
 //! assets' (`media_assets`), the image codecs' (`image_codecs`), the cameras' (`cameras`) and the openings (`opener`).

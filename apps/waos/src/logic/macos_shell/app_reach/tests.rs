@@ -5,8 +5,8 @@ use futures::{FutureExt, StreamExt};
 use waos::{ProgramEnd, ProgramEnvironment};
 
 use super::*;
-use crate::logic::program_apps::CanvasCall;
-use crate::logic::program_apps::window_process::tests::{Served, window_process};
+use crate::logic::macos_shell::CanvasCall;
+use crate::logic::macos_shell::window_process::tests::{Served, window_process};
 use crate::logic::test_engine;
 use crate::logic::test_engine::WITHIN;
 use waos_headless::testing::Changes;

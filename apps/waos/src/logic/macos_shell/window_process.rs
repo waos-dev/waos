@@ -76,8 +76,30 @@ use super::canvases::{CanvasKey, CanvasesOnRequest};
 use super::file_dialogs::failed;
 use crate::logic::notification_permissions::NotificationPermissions;
 
-/// What sends a message to the window process.
-pub(crate) type SendToWindow = Arc<dyn Fn(ToWindow) + Send + Sync>;
+/// What sends messages to the window process.
+#[derive(Clone)]
+pub(crate) struct SendToWindow(Arc<Mutex<Option<SendMessage>>>);
+
+/// Sends one message to the window process: over its port, or a test's stand-in.
+type SendMessage = Box<dyn Fn(ToWindow) + Send + Sync>;
+
+impl SendToWindow {
+    /// Sends each message with `send`.
+    pub(crate) fn new(send: impl Fn(ToWindow) + Send + Sync + 'static) -> SendToWindow {
+        SendToWindow(Arc::new(Mutex::new(Some(Box::new(send)))))
+    }
+
+    /// Sends `message`.
+    pub(crate) fn send(&self, message: ToWindow) {
+        if let Some(send) = self.sending().as_ref() {
+            send(message);
+        }
+    }
+
+    fn sending(&self) -> MutexGuard<'_, Option<SendMessage>> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
 
 /// What the dialog of one of WaOS's prompts reported, on its way to the main thread.
 pub(crate) struct DialogReport {
@@ -210,7 +232,7 @@ impl WindowProcess {
             return;
         };
         connected.prompts.insert(prompt);
-        (self.send)(ToWindow::ShowPrompt {
+        self.send.send(ToWindow::ShowPrompt {
             prompt,
             size,
             layers,
@@ -219,13 +241,13 @@ impl WindowProcess {
 
     /// WaOS's view of `prompt` asks its dialog for something.
     pub(crate) fn call_prompt(&self, prompt: PromptId, call: PromptCall) {
-        (self.send)(ToWindow::Prompt { prompt, call });
+        self.send.send(ToWindow::Prompt { prompt, call });
     }
 
     /// Takes the dialog of `prompt` away, if it is still shown.
     pub(crate) fn hide_prompt(&self, prompt: PromptId) {
         if self.with_connected(|connected| connected.prompts.remove(&prompt)) == Some(true) {
-            (self.send)(ToWindow::HidePrompt { prompt });
+            self.send.send(ToWindow::HidePrompt { prompt });
         }
     }
 
@@ -241,7 +263,7 @@ impl WindowProcess {
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
         if let Some(bar) = self.program.menu_bar() {
-            (self.send)(ToWindow::SetMenuBar(bar.to_vec()));
+            self.send.send(ToWindow::SetMenuBar(bar.to_vec()));
         }
     }
 
@@ -262,7 +284,7 @@ impl WindowProcess {
         else {
             return Box::pin(ready(None));
         };
-        (self.send)(ToWindow::ShowContextMenu {
+        self.send.send(ToWindow::ShowContextMenu {
             menu,
             window,
             at,
@@ -285,14 +307,14 @@ impl WindowProcess {
         else {
             return Box::pin(ready(Err(failed(APP_GONE))));
         };
-        (self.send)(ToWindow::OpenFileDialog {
+        self.send.send(ToWindow::OpenFileDialog {
             dialog,
             parent: parent.and_then(|view| self.window_showing(view)),
             kind,
         });
         Box::pin(WaitFileDialog {
             dialog,
-            send: Arc::clone(&self.send),
+            send: self.send.clone(),
             picked,
         })
     }
@@ -310,7 +332,7 @@ impl WindowProcess {
         else {
             return Box::pin(ready(Err(app_gone())));
         };
-        (self.send)(ToWindow::PostNotification {
+        self.send.send(ToWindow::PostNotification {
             post,
             notification,
             at,
@@ -320,7 +342,7 @@ impl WindowProcess {
 
     /// Takes the program's notification `id` away in the app, shown or scheduled.
     pub(crate) fn remove_notification(&self, id: String) {
-        (self.send)(ToWindow::RemoveNotification { id });
+        self.send.send(ToWindow::RemoveNotification { id });
     }
 
     /// Puts macOS's own question for the program's notifications in the app, which asks the user
@@ -332,7 +354,8 @@ impl WindowProcess {
         let _asking = self.asking_the_app();
         let asked = self.with_connected(|connected| connected.notification_permissions.ask());
         let asked = asked.map(|(request, answered)| {
-            (self.send)(ToWindow::RequestNotificationPermission { request });
+            self.send
+                .send(ToWindow::RequestNotificationPermission { request });
             answered
         });
         async move { asked?.await.ok() }
@@ -341,7 +364,7 @@ impl WindowProcess {
     /// Has the app read macOS's permission for the program's notifications again, without asking
     /// the user; it tells what it read as it tells every reading.
     pub(crate) fn read_notification_permission(&self) {
-        (self.send)(ToWindow::ReadNotificationPermission);
+        self.send.send(ToWindow::ReadNotificationPermission);
     }
 
     /// The program asked for a window as `request` says: WaOS makes its canvas, then asks the
@@ -374,7 +397,7 @@ impl WindowProcess {
             canvas,
             Arc::clone(&self.canvases),
             key,
-            Arc::clone(&self.send),
+            self.send.clone(),
         );
         let window = AppWindow {
             pictures,
@@ -384,7 +407,7 @@ impl WindowProcess {
         };
         connected.windows.insert(request.id, window);
         drop(kept);
-        (self.send)(ToWindow::OpenWindow {
+        self.send.send(ToWindow::OpenWindow {
             window: request.id,
             config: request.config,
             layers,
@@ -401,7 +424,7 @@ impl WindowProcess {
     /// already gone, as when the program ended because its app did.
     pub(crate) fn program_ended(&self) {
         if self.connected().is_some() {
-            (self.send)(ToWindow::ProgramEnded);
+            self.send.send(ToWindow::ProgramEnded);
         }
     }
 
@@ -472,10 +495,10 @@ impl WindowProcess {
     /// app hears its answer; a program that agrees is stopped, and its app ends with it.
     fn quit_requested(&self) {
         let asked = self.program.request_exit();
-        let (send, program) = (Arc::clone(&self.send), self.program.clone());
+        let (send, program) = (self.send.clone(), self.program.clone());
         self.runtime.spawn(async move {
             let response = asked.await;
-            send(ToWindow::QuitAnswered(response));
+            send.send(ToWindow::QuitAnswered(response));
             if response == AppExitResponse::Exit {
                 program.stop();
             }
@@ -538,8 +561,8 @@ impl WindowProcess {
             return;
         };
         pictures.resize_at_once(opened.metrics, None);
-        let send = Arc::clone(&self.send);
-        let calls = ViewCalls::new(move |call| send(ToWindow::View { window, call }));
+        let send = self.send.clone();
+        let calls = ViewCalls::new(move |call| send.send(ToWindow::View { window, call }));
         let view = self.program.add_view(
             window,
             PlacedView {
@@ -586,7 +609,7 @@ impl WindowProcess {
             match (self.pictures_of(window), fence) {
                 (Some(pictures), Some(fence)) if waits => pictures.resize(metrics, fence),
                 (Some(pictures), fence) => pictures.resize_at_once(metrics, fence),
-                (None, _) if waits => (self.send)(ToWindow::PictureShown {
+                (None, _) if waits => self.send.send(ToWindow::PictureShown {
                     window,
                     size: [metrics.width, metrics.height],
                 }),
@@ -674,17 +697,17 @@ impl WindowProcess {
     /// Hands the program the key; its reply goes back once it gives one.
     fn key(&self, window: RequestId, key: KeyId, event: KeyEvent) {
         let Some(view) = self.view(window) else {
-            (self.send)(ToWindow::KeyReplied {
+            self.send.send(ToWindow::KeyReplied {
                 key,
                 handled: false,
             });
             return;
         };
         let handled = view.key(event);
-        let send = Arc::clone(&self.send);
+        let send = self.send.clone();
         self.runtime.spawn(async move {
             let handled = handled.await;
-            send(ToWindow::KeyReplied { key, handled });
+            send.send(ToWindow::KeyReplied { key, handled });
         });
     }
 
@@ -740,7 +763,7 @@ impl Future for WaitFileDialog {
 impl Drop for WaitFileDialog {
     fn drop(&mut self) {
         if self.picked.cancel() {
-            (self.send)(ToWindow::CloseFileDialog {
+            self.send.send(ToWindow::CloseFileDialog {
                 dialog: self.dialog,
             });
         }

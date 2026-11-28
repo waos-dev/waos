@@ -128,8 +128,7 @@ fn serve(
     let give = connection.make_send()?;
     connection.notify_when_no_senders()?;
     app.send(PROTOCOL, &encode(&ToWindow::Welcome(welcome)), vec![give])?;
-    let app = Arc::new(app);
-    let send: SendToWindow = Arc::new(move |message| {
+    let send = SendToWindow::new(move |message| {
         if let Err(error) = app.send(PROTOCOL, &encode(&message), Vec::new()) {
             tracing::warn!(%error, ?message, "the program's app did not take a message");
         }

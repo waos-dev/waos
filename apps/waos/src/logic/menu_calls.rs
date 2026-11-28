@@ -3,7 +3,7 @@
 //! thread and is answered later, through the future it was given: a menu opened with the item
 //! chosen, and a tray icon added once Waft has made it, with the menus it offers, or with why
 //! Waft's tray did not show it. A program's menu bar is never WaOS's: on macOS it is its app's, as
-//! its context menus are (`logic::program_apps`).
+//! its context menus are (`logic::macos_shell`).
 //!
 //! The invariant: every call taken reaches the main thread or is answered at once, so no program
 //! waits for an answer that cannot come; and an icon's calls reach it in the order made, its

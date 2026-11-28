@@ -1,6 +1,6 @@
 //! WaOS's prompts on macOS, each in a dialog window of its own in the program's app and drawn by
 //! WaOS: for each prompt WaOS makes a composition layer, places it in a layer context of its own,
-//! and asks the program's window process for a dialog showing that context (`logic::program_apps`);
+//! and asks the program's window process for a dialog showing that context (`logic::macos_shell`);
 //! once the dialog reports its size and scale, WaOS asks Waft's view embedder for a view drawing
 //! into the layer (`ViewEmbedder::add_view`), its initial data naming the prompt ([`dialog_data`]);
 //! the view arrives as every view does, and WaOS's one builder builds the prompt's widget in it
@@ -38,7 +38,7 @@ use waos_program_window::{PROMPT_SIZE, PromptPlacement, ShownPrompt};
 use waos_window_messages::{HostedLayers, PromptCall, PromptId, PromptReport};
 
 use crate::logic::forwarded_pointers::ForwardedDevices;
-use crate::logic::program_apps::{AppReach, CanvasPlace, DialogReport, ReachedApp, WindowProcess};
+use crate::logic::macos_shell::{AppReach, CanvasPlace, DialogReport, ReachedApp, WindowProcess};
 use crate::os::LayerContext;
 use crate::state::program_apps::place_in_context;
 

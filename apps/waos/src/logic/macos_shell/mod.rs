@@ -76,7 +76,7 @@ pub(crate) use crate::logic::notification_permissions::{
 };
 pub(crate) use app_reach::LaunchAttempt;
 pub(crate) use app_reach::{AppReach, ReachedApp};
-use bundles::{BundleFolders, Bundles, KeptCodeHash, ProgramDescription, made_from};
+use bundles::{BundleFiles, BundleFolders, KeptCodeHash, ProgramDescription, made_from};
 pub(crate) use canvas_pictures::{CanvasPictures, ToShow};
 pub(crate) use canvases::{CanvasCall, CanvasKey, CanvasPlace, CanvasesOnRequest};
 pub(crate) use notifications::AppNotifications;
@@ -103,7 +103,7 @@ pub(crate) struct AppsFolders {
 
 pub(crate) struct ProgramApps {
     me: Weak<ProgramApps>,
-    bundles: Bundles,
+    bundles: BundleFiles,
     packages: Arc<PackageManager>,
     /// Where the canvases of the programs' views are kept, on the main thread.
     canvases: Arc<CanvasesOnRequest>,
@@ -144,7 +144,7 @@ impl ProgramApps {
         };
         let key = safe_storage_key().context("the key the programs' apps are vouched for with")?;
         let made_from = made_from(&waos).context("what the programs' apps are made from")?;
-        let bundles = Bundles::open(
+        let bundles = BundleFiles::open(
             bundle_folders,
             (waos, made_from),
             &folders.data,

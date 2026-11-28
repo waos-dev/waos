@@ -71,7 +71,7 @@ pub(crate) enum KeptCodeHash {
 }
 
 /// The bundles WaOS wrote, and the record of them.
-pub(crate) struct Bundles {
+pub(crate) struct BundleFiles {
     folders: BundleFolders,
     waos: WaosFiles,
     /// The key each code hash's HMAC is made under.
@@ -113,7 +113,7 @@ pub(crate) struct KeptBundle {
     made_from: String,
 }
 
-impl Bundles {
+impl BundleFiles {
     /// The bundles in `folders`, referring to `waos`'s files, which are `made_from` now, as the
     /// record in `data_folder` says they were written, on the system at `system`, their code
     /// hashes vouched for under `key`.
@@ -123,10 +123,10 @@ impl Bundles {
         data_folder: &Path,
         system: String,
         key: Vec<u8>,
-    ) -> Bundles {
+    ) -> BundleFiles {
         let record_file = data_folder.join(RECORD);
         let record = read_record(&record_file);
-        Bundles {
+        BundleFiles {
             folders,
             waos,
             key,
