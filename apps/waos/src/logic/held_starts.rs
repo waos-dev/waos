@@ -12,7 +12,7 @@ use anyhow::Context as _;
 use waos::HeldProgram;
 use waos::inspection::bindings::wasdk::inspect::devices::StartError;
 use waos_package::ProgramId;
-use waos_package_manager::PackageManager;
+use waos_services::packages::PackageManager;
 
 use super::app_starter::{AppStarter, Opening, StartRequest};
 use super::running_apps::IfRunning;
@@ -74,18 +74,27 @@ mod tests {
         let crate::logic::app_services::Domains {
             packages,
             permissions,
-            store,
-        } = test_installs::domains(&directory, &runs, Arc::new(waos_permissions::NoPrompts));
+            storage,
+            ..
+        } = test_installs::domains(
+            &directory,
+            &runs,
+            Arc::new(waos_services::permissions::NoPrompts),
+        );
         let services = AppServices::new(
             Arc::clone(&runs),
             Arc::clone(&packages),
             permissions.clone(),
             Arc::clone(&engine),
-            ProgramEnvironments::new(LocalCapabilities::new(), permissions.clone(), store.clone()),
+            ProgramEnvironments::new(
+                LocalCapabilities::new(),
+                permissions.clone(),
+                storage.clone(),
+            ),
             ProgramPlaces::new(ProgramPlace::Windows),
         );
         let programs = ProgramsOnThisComputer::new(
-            store,
+            storage,
             permissions,
             Arc::clone(&packages),
             Arc::clone(&runs),

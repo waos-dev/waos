@@ -15,7 +15,7 @@ use waos_dev_protocol::{
     SimulatedSound, Switch,
 };
 use waos_package::ProgramId;
-use waos_permissions::Permissions;
+use waos_services::permissions::Permissions;
 
 use super::dev_refusal;
 use super::dev_server::BUILD;
@@ -262,7 +262,10 @@ fn switch_row(switch: Switch, on: &bool, follows_global: bool) -> SettingRow {
     }
 }
 
-fn question_row(question: Question, shown: &Shown<Option<waos_permissions::Answer>>) -> SettingRow {
+fn question_row(
+    question: Question,
+    shown: &Shown<Option<waos_services::permissions::Answer>>,
+) -> SettingRow {
     let value = shown.value.map_or(ASK, answer_key);
     SettingRow {
         follows_global: shown.follows_global,
@@ -299,33 +302,33 @@ fn which_switch(switch: Switch) -> Option<Which> {
     })
 }
 
-fn store_question(question: Question) -> Option<waos_permissions::Question> {
+fn store_question(question: Question) -> Option<waos_services::permissions::Question> {
     Some(match question {
-        Question::Notifications => waos_permissions::Question::Notifications,
-        Question::Camera => waos_permissions::Question::Camera,
-        Question::Microphone => waos_permissions::Question::Microphone,
+        Question::Notifications => waos_services::permissions::Question::Notifications,
+        Question::Camera => waos_services::permissions::Question::Camera,
+        Question::Microphone => waos_services::permissions::Question::Microphone,
         Question::Unknown => return None,
     })
 }
 
-fn store_role(role: Role) -> Option<waos_permissions::Role> {
+fn store_role(role: Role) -> Option<waos_services::permissions::Role> {
     Some(match role {
-        Role::Inspector => waos_permissions::Role::Inspector,
+        Role::Inspector => waos_services::permissions::Role::Inspector,
         Role::Unknown => return None,
     })
 }
 
-fn protocol_role(role: waos_permissions::Role) -> Role {
+fn protocol_role(role: waos_services::permissions::Role) -> Role {
     match role {
-        waos_permissions::Role::Inspector => Role::Inspector,
+        waos_services::permissions::Role::Inspector => Role::Inspector,
     }
 }
 
-fn store_answer(answer: Answer) -> Option<waos_permissions::Answer> {
+fn store_answer(answer: Answer) -> Option<waos_services::permissions::Answer> {
     Some(match answer {
-        Answer::Allow => waos_permissions::Answer::Granted,
-        Answer::Deny => waos_permissions::Answer::Denied,
-        Answer::Simulate => waos_permissions::Answer::Simulated,
+        Answer::Allow => waos_services::permissions::Answer::Granted,
+        Answer::Deny => waos_services::permissions::Answer::Denied,
+        Answer::Simulate => waos_services::permissions::Answer::Simulated,
         Answer::Unknown => return None,
     })
 }
@@ -346,11 +349,11 @@ fn sound_key(sound: waos::SimulatedSound) -> &'static str {
 }
 
 /// `answer` as `waos set` takes it.
-fn answer_key(answer: waos_permissions::Answer) -> &'static str {
+fn answer_key(answer: waos_services::permissions::Answer) -> &'static str {
     match answer {
-        waos_permissions::Answer::Granted => Answer::Allow.key(),
-        waos_permissions::Answer::Denied => Answer::Deny.key(),
-        waos_permissions::Answer::Simulated => Answer::Simulate.key(),
+        waos_services::permissions::Answer::Granted => Answer::Allow.key(),
+        waos_services::permissions::Answer::Denied => Answer::Deny.key(),
+        waos_services::permissions::Answer::Simulated => Answer::Simulate.key(),
     }
 }
 

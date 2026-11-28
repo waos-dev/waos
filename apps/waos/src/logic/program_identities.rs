@@ -12,8 +12,8 @@
 use std::path::{Path, PathBuf};
 
 use waos_package::ProgramId;
-use waos_package_manager::PackageManager;
 use waos_program_window::ProgramIdentity;
+use waos_services::packages::PackageManager;
 
 /// What every program's identity starts with: WaOS's own identifier and a dot, as Flatpak
 /// requires of the ids an app's entries take, so the programs are WaOS's apps to the system.

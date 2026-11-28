@@ -72,7 +72,7 @@ pub(crate) mod tests {
     use crate::logic::test_engine::{self, WITHIN};
 
     /// The package manager of a store with nothing installed, in `folder`, for apps never run.
-    pub(crate) fn packages_in(folder: &Path) -> Arc<waos_package_manager::PackageManager> {
+    pub(crate) fn packages_in(folder: &Path) -> Arc<waos_services::packages::PackageManager> {
         crate::logic::test_installs::domains_never_run(&folder.join("store")).packages
     }
 

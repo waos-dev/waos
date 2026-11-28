@@ -13,8 +13,8 @@ use std::time::Duration;
 use waft::Offset;
 use waft::ui::{HostWindow, View, ViewFocusState};
 use waos::Question;
-use waos_permissions::{App, Prompts};
 use waos_program_window::{WindowRestoration, WindowRole};
+use waos_services::permissions::{App, Prompts};
 
 use super::test_phone::{BACK, PhoneKind, SURVEY, TRIANGLE, TestPhone};
 use crate::logic::opened_package::tests::{ICON_PIXEL, ICON_SIDE};

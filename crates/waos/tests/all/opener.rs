@@ -22,7 +22,7 @@ use waos::{
     RunningProgram, WaOS, WaOSConfig,
 };
 use waos_capabilities::{Mount, ProgramFolders, Setting};
-use waos_permissions::{Permissions, ProgramId};
+use waos_services::permissions::{Permissions, ProgramId};
 
 use crate::test_shell::opener::Opened;
 use crate::test_shell::{RecordedOutput, TestShell, config, printing_to, wait_until, within};

@@ -105,6 +105,6 @@ pub(crate) fn started_yesterday(desktop: &mut LibraryDesktop, id: &str, starts: 
     let yesterday = SystemTime::UNIX_EPOCH + Duration::from_secs((now / DAY - 1) * DAY);
     let mut day = AuditDay::starting(yesterday);
     day.starts = starts;
-    desktop.store.keep(id, &day);
+    desktop.activity.keep(id, &day);
     desktop.update(|library, cx| library.read_often_used(cx));
 }

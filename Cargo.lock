@@ -9275,7 +9275,7 @@ dependencies = [
  "waos-headless",
  "waos-local",
  "waos-local-processes",
- "waos-permissions",
+ "waos-services",
  "waos-test-programs",
  "waos-wit-serialize",
  "wasmparser 0.261.0",
@@ -9354,10 +9354,8 @@ dependencies = [
  "waos-headless",
  "waos-local",
  "waos-package",
- "waos-package-manager",
- "waos-permissions",
  "waos-program-window",
- "waos-store",
+ "waos-services",
  "waos-test-programs",
  "waos-window-messages",
  "windows 0.62.2",
@@ -9501,33 +9499,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "waos-package-manager"
-version = "0.8.1"
-dependencies = [
- "anyhow",
- "futures",
- "sha2 0.11.1",
- "tempfile",
- "tokio",
- "tracing",
- "waos-package",
-]
-
-[[package]]
-name = "waos-permissions"
-version = "0.8.1"
-dependencies = [
- "futures",
- "serde",
- "tempfile",
- "tokio",
- "toml 1.2.2+spec-1.1.0",
- "tracing",
- "waos-capabilities",
- "waos-package",
-]
-
-[[package]]
 name = "waos-program-window"
 version = "0.8.1"
 dependencies = [
@@ -9547,7 +9518,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "waos-store"
+name = "waos-services"
 version = "0.8.1"
 dependencies = [
  "anyhow",
@@ -9564,8 +9535,6 @@ dependencies = [
  "url",
  "waos-capabilities",
  "waos-package",
- "waos-package-manager",
- "waos-permissions",
 ]
 
 [[package]]

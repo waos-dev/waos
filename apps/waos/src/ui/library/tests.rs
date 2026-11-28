@@ -18,7 +18,7 @@ use waft_cupertino::{
     CupertinoActionSheet, CupertinoAlertDialog, CupertinoIcons, CupertinoNavigationBar,
 };
 use waft_test::{AskedDialog, MemoryFile, TestWindow};
-use waos_package_manager::AppLock;
+use waos_services::packages::AppLock;
 
 use super::app_store::fluent::FluentAppStore;
 use super::home::cupertino::CupertinoHome;

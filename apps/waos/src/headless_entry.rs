@@ -22,8 +22,8 @@ use waos::inspection::InspectedPrograms;
 use waos::{Compiler, EngineTime, FreezePolicy, HttpProxy, PlatformState, WaOS, WaOSConfig};
 use waos_headless::{Display, HeadlessShell, Refreshes};
 use waos_local::LocalCapabilities;
-use waos_permissions::Prompts;
-use waos_store::SourceProxy;
+use waos_services::permissions::Prompts;
+use waos_services::sources::SourceProxy;
 
 use crate::logic::app_services::{AppServices, Domains, EngineCompiler, open_domains};
 use crate::logic::asking_now::AskingNow;
@@ -121,7 +121,9 @@ impl HeadlessDaemon {
         let Domains {
             packages,
             permissions,
-            store,
+            storage,
+            activity,
+            ..
         } = open_domains(
             &config.folders.store,
             Arc::new(EngineCompiler(compiler.clone())),
@@ -138,7 +140,7 @@ impl HeadlessDaemon {
         shell.machine_picker = Some(Arc::new(machine_picker));
         shell.gpus = video_decoder_thread::start();
         let inspected = Arc::new(ProgramsOnThisComputer::new(
-            store.clone(),
+            storage.clone(),
             permissions.clone(),
             Arc::clone(&packages),
             Arc::clone(&runs),
@@ -149,7 +151,7 @@ impl HeadlessDaemon {
             http_proxy: HttpProxy::System,
             time: EngineTime::Real,
             temporary_folders: config.folders.temporary_folders,
-            audit: Some(Arc::new(store.clone())),
+            audit: Some(Arc::new(activity.clone())),
             inspected_programs: Some(Arc::clone(&inspected) as Arc<dyn InspectedPrograms>),
         };
         let platform = PlatformState {
@@ -164,7 +166,7 @@ impl HeadlessDaemon {
 
         let capabilities = LocalCapabilities::new();
         let environments =
-            ProgramEnvironments::new(capabilities, permissions.clone(), store.clone());
+            ProgramEnvironments::new(capabilities, permissions.clone(), storage.clone());
         let places = ProgramPlaces::new(ProgramPlace::Windows);
         let services = AppServices::new(
             Arc::clone(&runs),
@@ -635,7 +637,7 @@ mod tests {
         {
             let running = Arc::new(RunningApps::default());
             let compiler = Arc::new(crate::logic::test_installs::MarkerCompiler);
-            let prompts = Arc::new(waos_permissions::NoPrompts);
+            let prompts = Arc::new(waos_services::permissions::NoPrompts);
             let domains = open_domains(
                 &folders.store,
                 compiler,
@@ -645,7 +647,7 @@ mod tests {
             )
             .expect("open the store");
             let data = domains
-                .store
+                .storage
                 .folders(&id.development())
                 .expect("folders")
                 .data;

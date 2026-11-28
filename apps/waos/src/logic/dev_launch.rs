@@ -19,7 +19,7 @@ use waos_dev_protocol::{
     Launch, LaunchAnswer, Refusal, ServerConnection, ServerReadHalf, ServerWriteHalf, StopAnswer,
 };
 use waos_package::ProgramId;
-use waos_package_manager::PackageManager;
+use waos_services::packages::PackageManager;
 
 use super::app_starter::{AppStarter, Opening, StartPlace, StartRequest, StartStage};
 use super::dev_refusal;

@@ -1,7 +1,8 @@
 //! The services that keep WaOS's apps, put together once, at WaOS's start or a test's: the apps
-//! running (`running_apps`), the package manager (`waos-package-manager`), handed the engine's
-//! compiler and the running apps, Permissions (`waos-permissions`), following the package
-//! manager's record, the store, and the one way to start an installed app (`app_starter`), with
+//! running (`running_apps`), the package manager (`waos_services::packages`), handed the engine's
+//! compiler and the running apps, Permissions (`waos_services::permissions`), following the package
+//! manager's record, the sources, app storage and the activity record (`waos_services`), and the
+//! one way to start an installed app (`app_starter`), with
 //! the engine they run on, what each runs with (`environments`), where its views go
 //! (`program_places`) and what it writes (`launch_outputs`). Whoever shows or drives apps (the
 //! library, the dev server, the programs' apps on macOS) is handed these, as Android hands an
@@ -12,17 +13,16 @@
 //! since what an inspector and the shell's parts see of the apps reads them, and the compiler the
 //! package manager is handed is made before the engine for that reason.
 
-use std::collections::BTreeSet;
 use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{Context as _, Result};
-use tokio::sync::{mpsc, watch};
 use waos::{Compiler, WaOS};
-use waos_package::ProgramId;
-use waos_package_manager::{CodeCompiler, PackageManager, StopApp};
-use waos_permissions::{InstalledApps, Permissions, Prompts, SettingsFiles};
-use waos_store::{SourceProxy, Store};
+use waos_services::activity::{ActivityFiles, ActivityRecord};
+use waos_services::app_storage::AppStorage;
+use waos_services::packages::{CodeCompiler, InstalledApps, PackageManager, StopApp};
+use waos_services::permissions::{Permissions, Prompts, SettingsFiles};
+use waos_services::sources::{SourceProxy, Sources, SourcesFile};
 
 use super::app_starter::AppStarter;
 use super::environments::ProgramEnvironments;
@@ -81,18 +81,20 @@ impl AppServices {
 }
 
 /// What WaOS keeps of its apps, each with the domain that owns it: what is installed, what the
-/// user lets each app use, and the sources with each app's own folders and activity.
+/// user lets each app use, the sources, each app's own folders, and what each app did.
 pub(crate) struct Domains {
     pub(crate) packages: Arc<PackageManager>,
     pub(crate) permissions: Permissions,
-    pub(crate) store: Store,
+    pub(crate) sources: Sources,
+    pub(crate) storage: AppStorage,
+    pub(crate) activity: ActivityRecord,
 }
 
 /// The domains over `folder`, the store's directory, opened in the order each needs the other:
 /// the package manager, compiling with `compiler` and stopping apps among `running`; Permissions,
-/// asking the user through `prompts` and following the package manager's record; and the store, reading sources through `proxy`, recording as Permissions
-/// say, and forgetting each app's activity as the package manager removes it, on a thread of its
-/// own.
+/// asking the user through `prompts` and following the package manager's record; the sources,
+/// read through `proxy`; app storage; and the activity record, recording as Permissions say, of
+/// the apps the package manager holds.
 pub(crate) fn open_domains(
     folder: &Path,
     compiler: Arc<dyn CodeCompiler>,
@@ -106,44 +108,27 @@ pub(crate) fn open_domains(
     let permissions = Permissions::open(
         Arc::new(SettingsFiles::new(folder)),
         prompts,
-        Arc::new(PackageRecord(Arc::clone(&packages))),
+        Arc::clone(&packages) as Arc<dyn InstalledApps>,
     );
-    let store = Store::open(folder, proxy, permissions.clone())
-        .with_context(|| format!("opening the store at {}", folder.display()))?;
-    let mut removals = packages.removals();
-    let forgetting = store.clone();
-    std::thread::Builder::new()
-        .name("removals".to_owned())
-        .spawn(move || {
-            // It ends with the package manager.
-            while let Some(id) = removals.blocking_recv() {
-                forgetting.forget(&id);
-            }
-        })
-        .context("starting the thread that follows removals")?;
+    let sources = Sources::open(
+        Arc::new(SourcesFile::new(folder)),
+        &folder.join("pictures"),
+        proxy,
+    )
+    .context("opening the sources")?;
+    let activity = ActivityRecord::open(
+        Arc::new(ActivityFiles::new(folder)),
+        permissions.clone(),
+        Arc::clone(&packages) as Arc<dyn InstalledApps>,
+    )
+    .context("opening the activity record")?;
     Ok(Domains {
         packages,
         permissions,
-        store,
+        sources,
+        storage: AppStorage::new(folder),
+        activity,
     })
-}
-
-/// The package manager's record, as Permissions follows it: a type of the app's own, since neither
-/// knows the other.
-struct PackageRecord(Arc<PackageManager>);
-
-impl InstalledApps for PackageRecord {
-    fn name(&self, id: &ProgramId) -> Option<String> {
-        Some(self.0.installed_program(id)?.name())
-    }
-
-    fn removing(&self) -> watch::Receiver<BTreeSet<ProgramId>> {
-        self.0.removing()
-    }
-
-    fn removals(&self) -> mpsc::UnboundedReceiver<ProgramId> {
-        self.0.removals()
-    }
 }
 
 /// The engine's compiler, as the package manager is handed it: a type of the app's own, since

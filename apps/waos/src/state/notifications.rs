@@ -29,7 +29,7 @@ use waft::ui::{self, NotificationActivation, Platform, PlatformRef};
 use waft::{App, AsyncApp};
 use waos::bindings::wasdk::platform::notifications::NotificationError;
 use waos::{Notification, RunningProgram, ShellNotifications};
-use waos_package_manager::PackageManager;
+use waos_services::packages::PackageManager;
 
 use crate::logic::notification_calls::{
     NotificationCall, NotificationRequest, NotificationsOnRequest, Offered,
@@ -265,7 +265,7 @@ mod tests {
     use waft_test::{MockNotifications, TestPlatform};
     use waos::{Answer, Question};
     use waos_package::ProgramId;
-    use waos_permissions::Setting;
+    use waos_services::permissions::Setting;
 
     use super::*;
     use crate::state::test_system::{Lines, TestSystem};

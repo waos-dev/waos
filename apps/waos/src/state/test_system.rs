@@ -25,7 +25,7 @@ use waos::{
 };
 use waos_package::{ProgramId, SigningKey};
 use waos_program_window::WaftCompositor;
-use waos_store::Store;
+use waos_services::app_storage::AppStorage;
 
 use super::cameras::Cameras;
 use super::image_codecs::ImageCodecs;
@@ -59,9 +59,9 @@ pub(crate) struct TestSystem {
     engine: Arc<WaOS>,
     /// The app's notifications as the engine reaches them, for a test to call as the engine does.
     pub(crate) notifications: Option<Arc<dyn ShellNotifications>>,
-    pub(crate) store: Store,
-    pub(crate) permissions: waos_permissions::Permissions,
-    packages: Arc<waos_package_manager::PackageManager>,
+    pub(crate) storage: AppStorage,
+    pub(crate) permissions: waos_services::permissions::Permissions,
+    packages: Arc<waos_services::packages::PackageManager>,
     pub(crate) runs: Arc<RunningApps>,
     pub(crate) library: Entity<Library>,
     /// How many times the library asked to be seen.
@@ -117,11 +117,13 @@ impl TestSystem {
         let crate::logic::app_services::Domains {
             packages,
             permissions,
-            store,
+            sources,
+            storage,
+            ..
         } = test_installs::domains(
             &folder.path().join("store"),
             &runs,
-            Arc::new(waos_permissions::NoPrompts),
+            Arc::new(waos_services::permissions::NoPrompts),
         );
         let services = AppServices::new(
             Arc::clone(&runs),
@@ -131,11 +133,11 @@ impl TestSystem {
             ProgramEnvironments::new(
                 waos_local::LocalCapabilities::new(),
                 permissions.clone(),
-                store.clone(),
+                storage.clone(),
             ),
             ProgramPlaces::new(ProgramPlace::Windows),
         );
-        let (served_store, started) = (store.clone(), Rc::new(RefCell::new(None)));
+        let (served_sources, started) = (sources, Rc::new(RefCell::new(None)));
         let served_packages = Arc::clone(&packages);
         let kept = Rc::clone(&started);
         let suspended = Arc::clone(&engine);
@@ -163,7 +165,7 @@ impl TestSystem {
             }
             let library = open_library(
                 app,
-                served_store,
+                served_sources,
                 services,
                 copies,
                 ProgramsOpen::InWindows,
@@ -185,7 +187,7 @@ impl TestSystem {
             shell,
             engine,
             notifications: shell_notifications,
-            store,
+            storage,
             permissions,
             packages,
             runs,
@@ -225,7 +227,7 @@ impl TestSystem {
         let environment = ProgramEnvironment {
             output: Some(Arc::clone(output) as Arc<dyn ProgramOutput>),
             grants: Some(self.permissions.of(&id)),
-            folders: Some(self.store.folders(&id).expect("its folders")),
+            folders: Some(self.storage.folders(&id).expect("its folders")),
             ..ProgramEnvironment::default()
         };
         let running = self

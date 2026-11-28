@@ -64,7 +64,7 @@ use crate::logic::test_installs;
 use crate::logic::vsync_waiter::WaftVsync;
 use crate::state::questions::{self, Questions};
 use crate::ui::every_window::{every_window, program_windows};
-use waos_store::Store;
+use waos_services::app_storage::AppStorage;
 
 /// The desktop's one screen, which every window is made on.
 const SCREEN: ScreenId = ScreenId(1);
@@ -76,8 +76,8 @@ struct Desktop {
     platform: Rc<DesktopPlatform>,
     engine: Arc<WaOS>,
     clipboard: MockClipboard,
-    store: Store,
-    permissions: waos_permissions::Permissions,
+    storage: AppStorage,
+    permissions: waos_services::permissions::Permissions,
     view_windows: Entity<ViewWindows>,
     /// How many of the windows made the app has heard of, and which closed ones.
     reported_made: usize,
@@ -99,7 +99,8 @@ impl Desktop {
         let crate::logic::app_services::Domains {
             packages,
             permissions,
-            store,
+            storage,
+            ..
         } = test_installs::domains_never_run(&folder.join("store"));
         let (placement, requests) =
             WindowsOnRequest::new(ProgramFaces::new(Arc::clone(&packages), None));
@@ -182,7 +183,7 @@ impl Desktop {
             platform,
             engine,
             clipboard,
-            store,
+            storage,
             permissions,
             view_windows,
             reported_made: 0,
@@ -225,7 +226,7 @@ impl Desktop {
         let environment = ProgramEnvironment {
             output: Some(Arc::clone(output) as Arc<dyn ProgramOutput>),
             grants: Some(self.permissions.of(&id)),
-            folders: Some(self.store.folders(&id).expect("its folders")),
+            folders: Some(self.storage.folders(&id).expect("its folders")),
             ..ProgramEnvironment::default()
         };
 

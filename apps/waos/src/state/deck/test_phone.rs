@@ -216,7 +216,7 @@ pub(crate) struct TestPhone {
     pub(crate) view_windows: Entity<ViewWindows>,
     pub(crate) runs: Arc<RunningApps>,
     /// What installs the library's apps.
-    packages: Arc<waos_package_manager::PackageManager>,
+    packages: Arc<waos_services::packages::PackageManager>,
     /// Where the programs' questions to their user are put.
     pub(crate) prompts: Arc<PromptsOnRequest>,
     pub(crate) folder: TempDir,
@@ -254,11 +254,13 @@ impl TestPhone {
         let crate::logic::app_services::Domains {
             packages,
             permissions,
-            store,
+            sources,
+            storage,
+            ..
         } = crate::logic::test_installs::domains(
             &folder.path().join("store"),
             &runs,
-            Arc::clone(&prompts) as Arc<dyn waos_permissions::Prompts>,
+            Arc::clone(&prompts) as Arc<dyn waos_services::permissions::Prompts>,
         );
         let (own_windows, requests) =
             WindowsOnRequest::new(ProgramFaces::new(Arc::clone(&packages), None));
@@ -287,7 +289,7 @@ impl TestPhone {
             ProgramEnvironments::new(
                 waos_local::LocalCapabilities::new(),
                 permissions.clone(),
-                store.clone(),
+                storage.clone(),
             ),
             places,
         );
@@ -305,7 +307,7 @@ impl TestPhone {
         }
         let platform = Rc::new(platform);
         let (_indicator, recording_changes) = RecordingIndicatorOnRequest::new();
-        let (served, deck_runs) = (store.clone(), Arc::clone(&runs));
+        let (served, deck_runs) = (sources, Arc::clone(&runs));
         let served_packages = Arc::clone(&packages);
         let started = Rc::new(std::cell::RefCell::new(None));
         let kept = Rc::clone(&started);

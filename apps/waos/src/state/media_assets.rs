@@ -230,7 +230,7 @@ mod tests {
         let platform = TestPlatform::new().with_media_assets(Rc::new(assets.clone()));
         let system = TestSystem::new(platform);
         let id: ProgramId = MEDIA_ASSETS.parse().unwrap();
-        let data = system.store.folders(&id).unwrap().data;
+        let data = system.storage.folders(&id).unwrap().data;
         std::fs::write(data.join("sources"), "/data/clip.mp4\n").unwrap();
         std::fs::write(data.join("clip.mp4"), "a clip").unwrap();
         let lines = Arc::new(Lines::default());

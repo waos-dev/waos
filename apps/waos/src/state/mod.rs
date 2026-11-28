@@ -20,7 +20,7 @@
 //! calls (`logic::menu_calls`), the notifications' calls
 //! (`logic::notification_calls`), each view's calls (`waos-program-window`'s), on macOS what
 //! the programs' apps send (`logic::program_apps`), the presence of each of their windows among
-//! it, what the package manager is doing (`waos-package-manager`), and the calls posted to a value
+//! it, what the package manager is doing (`waos_services::packages`), and the calls posted to a value
 //! on the main thread that serves them (`app_thread_bound`): the players' (`media_players`), the media
 //! assets' (`media_assets`), the image codecs' (`image_codecs`), the cameras' (`cameras`) and the openings (`opener`).
 
@@ -81,10 +81,10 @@ use waos::{
 };
 use waos_local::LocalCapabilities;
 use waos_package::ProgramId;
-use waos_package_manager::PackageManager;
-use waos_permissions::Prompts;
 use waos_program_window::WaftCompositor;
-use waos_store::SourceProxy;
+use waos_services::packages::PackageManager;
+use waos_services::permissions::Prompts;
+use waos_services::sources::SourceProxy;
 
 use crate::logic::app_services::{AppServices, Domains, EngineCompiler, open_domains};
 use crate::logic::asking_now::AskingNow;
@@ -231,7 +231,9 @@ pub(crate) fn start(
     let Domains {
         packages,
         permissions,
-        store,
+        sources,
+        storage,
+        activity,
     } = open_domains(
         &folders.store,
         Arc::new(EngineCompiler(compiler.clone())),
@@ -239,7 +241,7 @@ pub(crate) fn start(
         SourceProxy::System,
         Arc::clone(&prompts) as Arc<dyn Prompts>,
     )?;
-    if let Err(error) = store.start_sources_with(&library::first_sources()) {
+    if let Err(error) = sources.start_with(&library::first_sources()) {
         tracing::warn!("the sources WaOS comes with are not added: {error}");
     }
     let faces = program_faces(&packages, &folders);
@@ -328,7 +330,7 @@ pub(crate) fn start(
         machine_picker: Some(Arc::new(machine_picker)),
     };
     let inspected = Arc::new(ProgramsOnThisComputer::new(
-        store.clone(),
+        storage.clone(),
         permissions.clone(),
         Arc::clone(&packages),
         Arc::clone(&runs),
@@ -339,7 +341,7 @@ pub(crate) fn start(
         http_proxy: HttpProxy::System,
         time: EngineTime::Real,
         temporary_folders: folders.temporary_folders,
-        audit: Some(Arc::new(store.clone())),
+        audit: Some(Arc::new(activity.clone())),
         inspected_programs: Some(Arc::clone(&inspected) as Arc<dyn InspectedPrograms>),
     };
     let engine = Arc::new(WaOS::new(config, shell, facts).context("starting the engine")?);
@@ -362,7 +364,7 @@ pub(crate) fn start(
         .as_ref()
         .map(|phone_files| phone_files.read(app).home());
     let capabilities = local_capabilities(home);
-    let environments = ProgramEnvironments::new(capabilities, permissions.clone(), store.clone());
+    let environments = ProgramEnvironments::new(capabilities, permissions.clone(), storage.clone());
     // What a tab closed on a phone stops its program among.
     let tabs_runs = Arc::clone(&runs);
     let services = AppServices::new(
@@ -389,7 +391,7 @@ pub(crate) fn start(
     let recordings = Recordings::listen(app, recording_changes, Arc::clone(&packages));
     let library = open_library(
         app,
-        store,
+        sources,
         services.clone(),
         package_copies,
         programs_open,

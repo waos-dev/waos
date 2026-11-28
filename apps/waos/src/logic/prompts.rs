@@ -1,6 +1,6 @@
 //! Where the apps' prompts go: each to the main thread, a question to be shown to the user
 //! (`state::questions`), a permission's, a link scheme's or a role's, which an app's permissions
-//! ask (`waos-permissions`), the output a program's sound plays on, which the shell's picker of
+//! ask (`waos_services::permissions`), the output a program's sound plays on, which the shell's picker of
 //! outputs asks, a machine for a program, which the shell's picker of machines asks, or that WaOS
 //! still may not reach the phone's files, which the user is told once they come back from the
 //! system's page without them (`logic::phone_files`); and a switch's page to be opened in the
@@ -28,7 +28,7 @@ use waos::{
 };
 use waos_dev_protocol::Asked as AskedNow;
 use waos_package::ProgramId;
-use waos_permissions::{App, Prompts};
+use waos_services::permissions::{App, Prompts};
 
 use super::asking_now::AskingNow;
 use super::phone_files::{PhoneFilesOnRequest, asks_for_phone_files};

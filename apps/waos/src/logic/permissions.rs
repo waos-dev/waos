@@ -5,7 +5,7 @@
 //! so an app that set its own shows on exactly that kind's page.
 
 use waos::Switch;
-use waos_permissions::Question;
+use waos_services::permissions::Question;
 
 use super::setting_changes::{ShownSettings, Which};
 

@@ -59,7 +59,7 @@ use anyhow::{Context, Result};
 use waos::bindings::wasdk::platform::views::ViewError;
 use waos::{RunningProgram, ViewPlacement, ViewRequest};
 use waos_package::ProgramId;
-use waos_package_manager::{InstalledProgram, PackageManager};
+use waos_services::packages::{InstalledProgram, PackageManager};
 use waos_window_messages::bundle::LAUNCHED_BY_WAOS;
 use waos_window_messages::os::macos::AuditToken;
 use waos_window_messages::{Hello, LaunchReason, bootstrap_name};
